@@ -1,5 +1,7 @@
 {
   "rewrites": [
+    { "source": "/js/:path*", "destination": "/app/js/:path*" },
+    { "source": "/assets/:path*", "destination": "/app/assets/:path*" },
     { "source": "/admin", "destination": "/app/admin.html" },
     { "source": "/admin/", "destination": "/app/admin.html" },
     { "source": "/", "destination": "/app/portal.html" }
