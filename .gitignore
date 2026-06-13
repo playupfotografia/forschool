@@ -1,0 +1,20 @@
+# Credenciais — nunca subir
+app/config/supabase.local.env
+*.env
+*.env.local
+
+# Dependências
+node_modules/
+
+# Arquivos internos (Claude, docs de planejamento)
+CLAUDE.md
+CADASTROS_PRECISO_FAZER.md
+ForSchool_EspecificacaoTecnica.docx
+spec.txt
+gerar_manual.js
+forschool_v2.html
+supabase/
+
+# Sistema operacional
+.DS_Store
+Thumbs.db

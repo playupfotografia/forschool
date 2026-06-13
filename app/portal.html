@@ -1,0 +1,2329 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>For School — Portal do Responsável</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --blue:#4B6BFB;--blue-light:#EEF1FF;--blue-dark:#2D4BDB;
+  --green:#27AE60;--green-light:#E9F7EF;
+  --red:#E74C3C;--red-light:#FDEDEC;
+  --orange:#E3815A;--yellow:#F4D03F;--pink:#E85E8A;
+  --purple:#7C3AED;--purple-light:#EDE9FE;
+  --teal:#0D9488;--teal-light:#CCFBF1;
+  --gray-50:#F9FAFB;--gray-100:#F3F4F6;--gray-200:#E5E7EB;
+  --gray-300:#D1D5DB;--gray-400:#9CA3AF;--gray-500:#6B7280;
+  --gray-600:#4B5563;--gray-700:#374151;--gray-800:#1F2937;--gray-900:#111827;
+  --white:#fff;--radius:8px;--radius-lg:12px;
+  --font:'DM Sans',sans-serif;
+  --c-bas:#0D9488;--c-bas-bg:#CCFBF1;
+  --c-int:#7C3AED;--c-int-bg:#EDE9FE;
+  --c-pro:#E3815A;--c-pro-bg:#FEF3EC;
+  --c-av:#4B6BFB;--c-av-bg:#EEF1FF;
+}
+html,body{height:100%}
+body{font-family:var(--font);background:var(--gray-50);color:var(--gray-800);font-size:14px;line-height:1.5}
+button,input,select,textarea{font-family:var(--font)}
+
+/* TOPBAR */
+.p-topbar{background:var(--white);border-bottom:1px solid var(--gray-200);padding:0 16px;height:54px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
+.p-brand{display:flex;align-items:center;gap:9px}
+.p-logo{width:36px;height:36px;background:var(--blue);border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:'Playfair Display',serif;font-size:13px;color:white;font-weight:700}
+.brand-logo-topbar{max-height:46px;max-width:160px;width:auto;display:block}
+.brand-logo-confirm{max-height:75px;max-width:220px;width:auto;display:block;margin:0 auto 16px;opacity:.92}
+.p-name{font-size:14px;font-weight:700;color:var(--gray-900);font-family:'Playfair Display',serif;line-height:1.1}
+.p-esc{font-size:11px;color:var(--gray-400)}
+.p-actions{display:flex;align-items:center;gap:9px}
+.p-user{font-size:12px;color:var(--gray-500);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* CONTAINERS */
+.container{max-width:1100px;margin:0 auto;padding:18px}
+.container-narrow{max-width:480px;margin:0 auto;padding:22px}
+
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 14px;border-radius:var(--radius);font-size:13px;font-weight:500;border:1px solid transparent;transition:all .15s;cursor:pointer;white-space:nowrap}
+.btn-primary{background:var(--blue);color:white}
+.btn-primary:hover{background:var(--blue-dark)}
+.btn-secondary{background:var(--white);color:var(--gray-700);border-color:var(--gray-200)}
+.btn-secondary:hover{background:var(--gray-50)}
+.btn-success{background:var(--green);color:white}
+.btn-success:hover{filter:brightness(.95)}
+.btn-block{display:flex;width:100%}
+.btn-sm{padding:5px 9px;font-size:12px}
+
+/* FORMS */
+.form-group{display:flex;flex-direction:column;gap:4px;margin-bottom:11px}
+.form-label{font-size:11px;font-weight:600;color:var(--gray-600);text-transform:uppercase;letter-spacing:.3px}
+.form-input,.form-select{padding:10px 12px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:14px;color:var(--gray-800);outline:none;transition:border .15s;width:100%;background:white}
+.form-input:focus,.form-select:focus{border-color:var(--blue)}
+.fg2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+
+/* CARDS */
+.card{background:var(--white);border:1px solid var(--gray-200);border-radius:var(--radius-lg);overflow:hidden}
+.card-pad{padding:18px}
+
+/* ALERTS */
+.alert{padding:10px 14px;border-radius:var(--radius);font-size:13px;margin-bottom:12px}
+.alert-info{background:var(--blue-light);color:var(--blue-dark);border-left:3px solid var(--blue)}
+.alert-success{background:var(--green-light);color:#1A6B3C;border-left:3px solid var(--green)}
+.alert-danger{background:var(--red-light);color:#9B1C1C;border-left:3px solid var(--red)}
+.alert-warning{background:#FEF9C3;color:#854D0E;border-left:3px solid #EAB308}
+
+/* SECTIONS */
+.sec-title{font-size:16px;font-weight:600;color:var(--gray-900);margin:18px 0 10px}
+.sec-sub{font-size:12px;color:var(--gray-500);margin-bottom:11px}
+
+/* CATALOG GRID */
+.cat-layout{display:block}
+.kits-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:11px;margin-bottom:18px}
+.avulsos-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:11px}
+
+/* PRODUCT CARD */
+.pp-card{background:var(--white);border:1px solid var(--gray-200);border-radius:var(--radius-lg);overflow:hidden;transition:all .15s;cursor:pointer}
+.pp-card:hover{border-color:var(--blue);transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.04)}
+.pp-card.selected{border:2px solid var(--blue);background:var(--blue-light)}
+.pp-card-img{height:130px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.pp-card-img img{width:100%;height:100%;object-fit:cover}
+.pp-card-body{padding:11px 13px}
+.pp-card-tag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;display:inline-block;padding:1px 6px;border-radius:4px}
+.pp-card-name{font-size:14px;font-weight:600;color:var(--gray-900);margin-bottom:3px}
+.pp-card-desc{font-size:11px;color:var(--gray-500);line-height:1.4;margin-bottom:8px;min-height:30px}
+.pp-card-price{font-size:16px;font-weight:700}
+.pp-card-price-old{font-size:11px;color:var(--gray-300);text-decoration:line-through;font-weight:500;margin-left:6px}
+.pp-card-qty{display:flex;align-items:center;gap:6px;margin-top:7px}
+.pp-card-qty button{width:28px;height:28px;border-radius:6px;border:1px solid var(--gray-200);background:white;cursor:pointer;font-size:15px;font-weight:600}
+.pp-card-qty button:hover{background:var(--gray-50);border-color:var(--blue)}
+.pp-card-qty .qty-num{font-size:14px;font-weight:600;min-width:18px;text-align:center}
+
+/* KIT BADGES */
+.tag-bas{background:var(--c-bas-bg);color:var(--c-bas)}
+.tag-int{background:var(--c-int-bg);color:var(--c-int)}
+.tag-pro{background:var(--c-pro-bg);color:var(--c-pro)}
+.tag-av{background:var(--c-av-bg);color:var(--c-av)}
+.color-bas{color:var(--c-bas)} .bg-bas{background:var(--c-bas-bg)}
+.color-int{color:var(--c-int)} .bg-int{background:var(--c-int-bg)}
+.color-pro{color:var(--c-pro)} .bg-pro{background:var(--c-pro-bg)}
+.color-av{color:var(--c-av)}
+
+/* CART FLOATING BUTTON */
+.cart-fab{position:fixed;bottom:24px;right:24px;z-index:200;background:linear-gradient(135deg,#27AE60,#0D9488);color:white;border:none;border-radius:50px;padding:14px 22px;font-size:15px;font-weight:700;display:flex;align-items:center;gap:9px;cursor:pointer;box-shadow:0 6px 24px rgba(39,174,96,.45);transition:transform .15s,box-shadow .15s}
+.cart-fab:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(39,174,96,.5)}
+.cart-fab-badge{background:#E74C3C;color:white;border-radius:50%;width:20px;height:20px;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;animation:pulse-badge .8s ease-in-out infinite alternate}
+@keyframes pulse-badge{from{transform:scale(1)}to{transform:scale(1.25)}}
+.cart-fab-total{font-size:13px;opacity:.9}
+
+/* CART DRAWER */
+.cart-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:300;opacity:0;pointer-events:none;transition:opacity .25s}
+.cart-overlay.open{opacity:1;pointer-events:auto}
+.cart-drawer{position:fixed;bottom:0;left:0;right:0;background:white;border-radius:20px 20px 0 0;z-index:301;padding:0;max-height:85vh;display:flex;flex-direction:column;transform:translateY(100%);transition:transform .3s cubic-bezier(.32,.72,0,1)}
+.cart-drawer.open{transform:translateY(0)}
+.cart-drawer-handle{width:40px;height:4px;background:var(--gray-200);border-radius:2px;margin:12px auto 0}
+.cart-drawer-header{padding:16px 20px 12px;border-bottom:1px solid var(--gray-100);display:flex;align-items:center;justify-content:space-between}
+.cart-drawer-title{font-size:16px;font-weight:700;color:var(--gray-900)}
+.cart-drawer-close{background:var(--gray-100);border:none;border-radius:50%;width:30px;height:30px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--gray-500)}
+.cart-drawer-body{flex:1;overflow-y:auto;padding:14px 20px}
+.cart-drawer-footer{padding:14px 20px;border-top:1px solid var(--gray-100)}
+.cart-total-row{display:flex;justify-content:space-between;padding-bottom:12px}
+.cart-total-row span:first-child{font-size:13px;color:var(--gray-500)}
+.cart-total-row span:last-child{font-size:20px;font-weight:700;color:var(--gray-900)}
+
+/* CART ITEMS */
+.cart-item{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--gray-50);gap:7px}
+.cart-item-name{font-size:13px;color:var(--gray-700);flex:1}
+.cart-item-price{font-size:13px;font-weight:600;white-space:nowrap}
+.cart-empty{font-size:13px;color:var(--gray-400);text-align:center;padding:24px 0}
+
+/* DESCONTO BANNER */
+.promo-banner{background:linear-gradient(135deg,var(--c-pro-bg),var(--c-pro-bg) 100%);border-left:3px solid var(--c-pro);padding:9px 12px;border-radius:6px;font-size:12px;color:#9A3412;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+
+/* LOADING & EMPTY */
+.loading{display:flex;align-items:center;justify-content:center;padding:60px 20px;color:var(--gray-400);font-size:13px}
+.spinner{width:18px;height:18px;border:2px solid var(--gray-200);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite;display:inline-block;margin-right:8px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* CONFIRM PAGE */
+.confirm-box{background:var(--white);border-radius:var(--radius-lg);padding:30px;text-align:center;border:1px solid var(--gray-200);max-width:520px;margin:30px auto}
+.confirm-icon{width:64px;height:64px;background:var(--green-light);color:var(--green);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:32px;margin:0 auto 13px}
+.confirm-title{font-size:20px;font-weight:700;color:var(--gray-900);margin-bottom:6px;font-family:'Playfair Display',serif}
+.confirm-num{font-family:monospace;background:var(--gray-100);padding:3px 9px;border-radius:6px;font-size:13px;color:var(--gray-700);display:inline-block;margin:4px 0}
+.pix-block{background:var(--gray-50);border:2px dashed var(--gray-200);border-radius:var(--radius);padding:13px;margin:16px 0;text-align:left;font-size:13px}
+.pix-key{font-family:monospace;background:var(--white);padding:7px 9px;border-radius:6px;border:1px solid var(--gray-200);margin-top:5px;word-break:break-all;font-size:12px}
+
+/* WPP FLOAT */
+.wpp-btn{position:fixed;bottom:18px;right:18px;background:#25D366;color:white;border:none;border-radius:50%;width:54px;height:54px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 14px rgba(37,211,102,.4);z-index:100;font-size:22px;text-decoration:none;transition:transform .2s}
+.wpp-btn:hover{transform:scale(1.08)}
+
+/* TOAST */
+#toast{position:fixed;bottom:18px;right:84px;background:var(--gray-900);color:white;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:500;opacity:0;transition:opacity .3s;pointer-events:none;z-index:999;border-left:3px solid var(--blue)}
+
+/* LOGIN CARD */
+.login-card{background:var(--white);border-radius:var(--radius-lg);padding:24px;border:1px solid var(--gray-200)}
+.login-hero{text-align:center;margin-bottom:14px}
+.login-hero h1{font-family:'Playfair Display',serif;font-size:22px;color:var(--gray-900);margin-bottom:3px}
+.login-hero p{font-size:12px;color:var(--gray-500)}
+
+/* TOGGLES */
+.toggle-row{display:flex;border-bottom:1px solid var(--gray-200);margin-bottom:15px;gap:0}
+.toggle-btn{flex:1;padding:10px;font-size:13px;font-weight:500;color:var(--gray-500);border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.toggle-btn.active{color:var(--blue);border-bottom-color:var(--blue)}
+
+/* HELPER */
+.hint{font-size:11px;color:var(--gray-400);margin-top:3px}
+.error-msg{color:var(--red);font-size:12px;margin-top:5px}
+
+/* AUTORIZAÇÃO */
+.auth-card{background:var(--white);border-radius:var(--radius-lg);padding:24px;border:1px solid var(--gray-200);max-width:600px;margin:18px auto}
+.auth-success-banner{background:var(--green-light);color:#1A6B3C;border-left:4px solid var(--green);padding:11px 14px;border-radius:8px;font-size:13px;margin-bottom:14px}
+.auth-title{font-family:'Playfair Display',serif;font-size:22px;color:var(--gray-900);margin-bottom:5px}
+.auth-sub{color:var(--gray-500);font-size:13px;margin-bottom:16px}
+.auth-term{background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:13px;font-size:12px;line-height:1.6;color:var(--gray-700);max-height:200px;overflow-y:auto;margin-bottom:16px}
+.auth-choice{background:var(--white);border:2px solid var(--gray-200);border-radius:10px;padding:11px 14px;margin-bottom:8px;cursor:pointer;display:flex;align-items:flex-start;gap:11px;transition:all .15s}
+.auth-choice:hover{border-color:var(--blue)}
+.auth-choice input{width:18px;height:18px;margin-top:1px;accent-color:var(--blue);flex-shrink:0;cursor:pointer}
+.auth-choice-text{flex:1}
+.auth-choice-text b{display:block;font-size:14px;color:var(--gray-900);margin-bottom:2px}
+.auth-choice-text span{font-size:12px;color:var(--gray-500)}
+.auth-actions{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
+.auth-actions button{flex:1;min-width:140px}
+.auth-deny-btn{background:transparent;color:var(--red);border:1px solid var(--red-light);padding:11px 14px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer}
+.auth-deny-btn:hover{background:var(--red-light)}
+
+/* MINHA ÁREA */
+.mc-hero{background:linear-gradient(135deg,#4B6BFB 0%,#7C3AED 100%);border-radius:20px;padding:22px 20px;margin-bottom:18px;color:white;position:relative;overflow:hidden}
+.mc-hero::before{content:'';position:absolute;top:-30px;right:-30px;width:120px;height:120px;background:rgba(255,255,255,.08);border-radius:50%}
+.mc-hero::after{content:'';position:absolute;bottom:-20px;left:-20px;width:80px;height:80px;background:rgba(255,255,255,.06);border-radius:50%}
+.mc-hero-top{display:flex;align-items:center;gap:14px;position:relative;z-index:1}
+.mc-avatar{width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,.22);border:2.5px solid rgba(255,255,255,.5);color:white;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;font-family:'Playfair Display',serif;flex-shrink:0}
+.mc-aluno-nome{font-size:18px;font-weight:700;color:white;font-family:'Playfair Display',serif;line-height:1.2}
+.mc-aluno-sub{font-size:12px;color:rgba(255,255,255,.78);margin-top:3px}
+.mc-hero-badge{display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);border-radius:20px;padding:4px 10px;font-size:11px;color:rgba(255,255,255,.9);margin-top:12px;position:relative;z-index:1}
+.mc-section{margin-bottom:22px}
+.mc-section-title{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700;color:var(--gray-700);margin-bottom:10px}
+.mc-section-icon{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
+.mc-order-card{background:var(--white);border:1px solid var(--gray-200);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+.mc-order-bar{height:4px;width:100%}
+.mc-order-bar-pend{background:linear-gradient(90deg,#F59E0B,#FBBF24)}
+.mc-order-bar-pago{background:linear-gradient(90deg,#27AE60,#34D399)}
+.mc-order-bar-cancel{background:linear-gradient(90deg,#E74C3C,#F87171)}
+.mc-order-body{padding:14px}
+.mc-order-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:10px}
+.mc-order-num{font-family:monospace;background:var(--gray-100);padding:2px 8px;border-radius:5px;font-size:12px;color:var(--gray-700)}
+.mc-status{font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap}
+.mc-status-pend{background:#FEF3C7;color:#92400E}
+.mc-status-pago{background:#D1FAE5;color:#065F46}
+.mc-status-cancel{background:var(--red-light);color:#9B1C1C}
+.mc-order-kit{font-size:14px;font-weight:600;color:var(--gray-900);margin-bottom:3px}
+.mc-order-detail{font-size:12px;color:var(--gray-500)}
+.mc-order-total{font-size:17px;font-weight:700;color:var(--gray-900);margin-top:8px}
+/* Calendário de sessão */
+.mc-session-cal{display:flex;gap:10px;flex-wrap:wrap}
+.mc-cal-card{background:var(--white);border:1px solid var(--gray-200);border-radius:14px;overflow:hidden;min-width:110px;flex:1;max-width:160px;box-shadow:0 2px 8px rgba(0,0,0,.07);text-align:center}
+.mc-cal-month{background:linear-gradient(135deg,#4B6BFB,#7C3AED);color:white;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:5px 0}
+.mc-cal-day{font-size:32px;font-weight:800;font-family:'Playfair Display',serif;color:var(--gray-900);padding:8px 0 2px;line-height:1}
+.mc-cal-dot{width:8px;height:8px;border-radius:50%;background:#E74C3C;margin:2px auto 6px}
+.mc-cal-period{font-size:11px;color:var(--gray-500);padding-bottom:5px;font-weight:500}
+.mc-cal-prazo{font-size:10px;color:var(--orange);background:#FEF3EC;padding:4px 8px;font-weight:600}
+.mc-empty{font-size:13px;color:var(--gray-400);padding:12px 0}
+.mc-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:4px}
+.mc-actions .btn{flex:1;min-width:140px}
+
+/* ============ MOBILE OPTIMIZATIONS ============ */
+
+/* iOS Safari: input com font-size <16px causa zoom automático ao focar.
+   Fixamos 16px no mobile pra evitar isso (mantemos 14 no desktop pelo visual). */
+@media (max-width:600px){
+  .form-input,.form-select{font-size:16px;padding:11px 12px}
+
+  /* Menos padding lateral em telas pequenas */
+  .container{padding:14px 12px}
+  .container-narrow{padding:18px 12px}
+  .login-card{padding:18px}
+  .confirm-box{padding:22px 16px;margin:18px 12px}
+
+  /* fg2 vira coluna única em telas muito pequenas (iPhone SE etc.) */
+  .fg2{grid-template-columns:1fr;gap:0}
+  .fg2 .form-group{margin-bottom:11px}
+
+  /* Topbar adapta — esconde subtítulo da escola se ficar comprido demais */
+  .p-name{font-size:13px}
+  .p-esc{font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .p-user{display:none}              /* email do user some no celular pra ganhar espaço */
+  .p-topbar{padding:0 12px;height:50px}
+
+  /* Botões um pouco maiores pro polegar */
+  .btn{padding:10px 14px;font-size:13.5px}
+
+  /* Cards: imagem menor pra caber mais conteúdo */
+  .pp-card-img{height:110px}
+  .kits-grid{grid-template-columns:1fr;gap:9px}      /* 1 kit por linha em mobile */
+  .avulsos-grid{grid-template-columns:repeat(2,1fr);gap:9px}  /* 2 avulsos por linha */
+
+  /* Welcome card no catálogo: mais compacto */
+  .card-pad{padding:13px}
+  .sec-title{font-size:14px;margin:14px 0 7px}
+
+  /* WhatsApp float fica menor pra não atrapalhar */
+  .wpp-btn{width:50px;height:50px;font-size:20px;bottom:14px;right:14px}
+}
+
+/* iPhone SE / Android pequeno */
+@media (max-width:380px){
+  .avulsos-grid{grid-template-columns:1fr}  /* 1 avulso por linha em telas miúdas */
+  .p-name{font-size:12px}
+  .p-esc{max-width:140px}
+}
+
+/* Tablet */
+@media (min-width:601px) and (max-width:840px){
+  .kits-grid{grid-template-columns:repeat(2,1fr)}
+  .avulsos-grid{grid-template-columns:repeat(3,1fr)}
+}
+</style>
+</head>
+<body>
+
+<!-- ============ TOPBAR ============ -->
+<header class="p-topbar">
+  <div class="p-brand">
+    <img src="assets/logo.png" alt="For School" class="brand-logo-topbar"
+         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+    <div style="display:none;align-items:center;gap:9px">
+      <div class="p-logo">FS</div>
+      <div>
+        <div class="p-name">For School</div>
+        <div class="p-esc" id="p-esc-nome-fb">Carregando…</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <img id="escola-logo-topbar" src="" alt="" style="display:none;max-height:32px;max-width:80px;width:auto;object-fit:contain;border-radius:4px" onerror="this.style.display='none'">
+      <div class="p-esc" id="p-esc-nome">Carregando escola…</div>
+    </div>
+  </div>
+  <div class="p-actions">
+    <span class="p-user" id="p-user-nome"></span>
+    <button class="btn btn-sm btn-secondary" id="btn-minha-conta" style="display:none">Minha Área</button>
+    <button class="btn btn-sm btn-secondary" id="btn-sair" style="display:none">Sair</button>
+  </div>
+</header>
+
+<!-- ============ ERRO / ESCOLA NAO ENCONTRADA / SEM ALUNO ============ -->
+<div id="screen-erro" style="display:none">
+  <div class="container-narrow">
+    <div class="alert alert-danger">
+      <b id="erro-titulo">Algo deu errado.</b><br>
+      <span id="erro-msg">Confira o link ou QR Code. Em caso de dúvida, fale com a coordenação da escola ou com a Play Up no WhatsApp.</span>
+    </div>
+    <button class="btn btn-secondary btn-block" id="btn-sair-erro" style="margin-top:11px;display:none">Sair e fazer outro cadastro</button>
+  </div>
+</div>
+
+<!-- ============ TELA: LOGIN / CADASTRO ============ -->
+<div id="screen-auth" style="display:none">
+  <div class="container-narrow">
+    <div class="login-card">
+      <div class="login-hero">
+        <h1>Olá, responsável! 👋</h1>
+        <p>Cadastre-se pra acessar o catálogo de <span id="auth-esc-nome" style="font-weight:600;color:var(--gray-700)"></span></p>
+      </div>
+
+      <div class="toggle-row">
+        <button class="toggle-btn active" id="tab-cadastro" type="button">Primeiro acesso</button>
+        <button class="toggle-btn" id="tab-login" type="button">Já tenho cadastro</button>
+      </div>
+
+      <!-- FORM CADASTRO -->
+      <form id="form-cadastro">
+        <div class="form-group">
+          <label class="form-label">Seu nome completo *</label>
+          <input class="form-input" id="cad-nome" required placeholder="Nome do responsável" autocomplete="name">
+        </div>
+        <div class="fg2">
+          <div class="form-group">
+            <label class="form-label">CPF *</label>
+            <input class="form-input" id="cad-cpf" required placeholder="000.000.000-00" autocomplete="off" inputmode="numeric">
+            <div class="hint">Digite somente números</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">RG *</label>
+            <input class="form-input" id="cad-rg" required placeholder="00.000.000-0" autocomplete="off" inputmode="numeric">
+            <div class="hint">Digite somente números</div>
+          </div>
+        </div>
+        <div class="fg2">
+          <div class="form-group">
+            <label class="form-label">WhatsApp *</label>
+            <input class="form-input" id="cad-tel" required placeholder="(00) 00000-0000" autocomplete="tel" inputmode="tel">
+            <div class="hint">Digite somente números</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Grau de parentesco *</label>
+            <select class="form-select" id="cad-parentesco" required>
+              <option value="">— Selecione —</option>
+              <option value="Pai">Pai</option>
+              <option value="Mãe">Mãe</option>
+              <option value="Avô">Avô</option>
+              <option value="Avó">Avó</option>
+              <option value="Tio">Tio</option>
+              <option value="Tia">Tia</option>
+              <option value="Padrasto">Padrasto</option>
+              <option value="Madrasta">Madrasta</option>
+              <option value="Tutor legal">Tutor legal</option>
+              <option value="Outro">Outro</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">E-mail *</label>
+          <input class="form-input" type="email" id="cad-email" required placeholder="seu@email.com" autocomplete="email">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Senha (mínimo 6 caracteres) *</label>
+          <div style="position:relative">
+            <input class="form-input" type="password" id="cad-senha" required minlength="6" placeholder="Crie uma senha" autocomplete="new-password" style="padding-right:40px">
+            <button type="button" onclick="toggleSenha('cad-senha',this)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--gray-400);padding:2px">👁</button>
+          </div>
+        </div>
+
+        <hr style="border:none;border-top:1px solid var(--gray-100);margin:14px 0">
+        <div style="font-size:12px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-bottom:9px">Dados do aluno(a)</div>
+
+        <div class="form-group">
+          <label class="form-label">Nome do(a) aluno(a)</label>
+          <input class="form-input" id="cad-al-nome" required placeholder="Nome completo do filho(a)">
+        </div>
+        <div class="fg2">
+          <div class="form-group">
+            <label class="form-label">Ano</label>
+            <select class="form-select" id="cad-al-ano" required>
+              <option value="">— Selecione —</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Turma</label>
+            <select class="form-select" id="cad-al-turma" required>
+              <option value="">— Selecione —</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Data de nascimento</label>
+          <input class="form-input" type="date" id="cad-al-nasc">
+        </div>
+
+        <hr style="border:none;border-top:1px solid var(--gray-100);margin:14px 0">
+        <div style="font-size:12px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">2º Responsável <span style="font-weight:400;text-transform:none;letter-spacing:0">(opcional)</span></div>
+        <div class="hint" style="margin-bottom:9px">Caso haja outro responsável que precisa ser contatado pela escola.</div>
+
+        <div class="form-group">
+          <label class="form-label">Nome do 2º responsável</label>
+          <input class="form-input" id="cad-g2-nome" placeholder="Nome completo">
+        </div>
+        <div class="fg2">
+          <div class="form-group">
+            <label class="form-label">WhatsApp</label>
+            <input class="form-input" id="cad-g2-tel" placeholder="(00) 00000-0000" inputmode="tel">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Parentesco</label>
+            <select class="form-select" id="cad-g2-parentesco">
+              <option value="">— Selecione —</option>
+              <option value="Pai">Pai</option>
+              <option value="Mãe">Mãe</option>
+              <option value="Avô">Avô</option>
+              <option value="Avó">Avó</option>
+              <option value="Tio">Tio</option>
+              <option value="Tia">Tia</option>
+              <option value="Padrasto">Padrasto</option>
+              <option value="Madrasta">Madrasta</option>
+              <option value="Tutor legal">Tutor legal</option>
+              <option value="Outro">Outro</option>
+            </select>
+          </div>
+        </div>
+
+        <button class="btn btn-primary btn-block" type="submit" style="padding:12px;margin-top:6px">
+          Criar cadastro e ver catálogo →
+        </button>
+        <div id="cad-erro" class="error-msg" style="display:none"></div>
+      </form>
+
+      <!-- FORM LOGIN -->
+      <form id="form-login" style="display:none">
+        <div class="form-group">
+          <label class="form-label">E-mail</label>
+          <input class="form-input" type="email" id="log-email" required autocomplete="email">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Senha</label>
+          <div style="position:relative">
+            <input class="form-input" type="password" id="log-senha" required autocomplete="current-password" style="padding-right:40px">
+            <button type="button" onclick="toggleSenha('log-senha',this)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--gray-400);padding:2px">👁</button>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-block" type="submit" style="padding:12px">Entrar →</button>
+        <div id="log-erro" class="error-msg" style="display:none"></div>
+        <div style="text-align:center;margin-top:10px">
+          <button type="button" id="btn-esqueceu-senha" style="background:none;border:none;color:var(--blue);font-size:12px;cursor:pointer;text-decoration:underline">Esqueceu a senha?</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ============ TELA: AUTORIZAÇÃO DE IMAGEM ============ -->
+<div id="screen-authorize" style="display:none">
+  <div class="container">
+    <div class="auth-card">
+      <div class="auth-success-banner">
+        ✓ Cadastro feito com sucesso!
+      </div>
+      <div class="auth-title">Autorização de imagem</div>
+      <div class="auth-sub">
+        Antes de ver o catálogo, precisamos da sua autorização pra fotografar
+        <b id="auth-aluno-nome">o(a) seu(sua) filho(a)</b>.
+      </div>
+
+      <div class="auth-term" id="auth-term">
+        Eu, responsável legal pelo(a) aluno(a) acima identificado(a), <b>autorizo</b> a
+        <b id="auth-empresa">Play Up Fotografia</b> a realizar fotografias do(a) menor
+        durante a sessão na escola, conforme as opções marcadas abaixo.
+        <br><br>
+        As imagens serão utilizadas exclusivamente pra produção dos materiais escolhidos
+        pelo responsável e <b>não serão divulgadas</b> em redes sociais, publicidade ou
+        qualquer outro meio sem autorização adicional por escrito.
+        <br><br>
+        Você pode alterar essa autorização a qualquer momento entrando em contato com a
+        coordenação da escola ou diretamente com a empresa.
+      </div>
+
+      <div id="auth-choices-block">
+        <div style="font-size:13px;font-weight:600;color:var(--gray-700);margin-bottom:9px">
+          Marque o que você autoriza:
+        </div>
+
+        <label class="auth-choice">
+          <input type="checkbox" id="auth-individual" checked>
+          <div class="auth-choice-text">
+            <b>📸 Fotos individuais</b>
+            <span>Fotos do(a) seu(sua) filho(a) sozinho(a) — pra kits e produtos personalizados.</span>
+          </div>
+        </label>
+
+        <label class="auth-choice">
+          <input type="checkbox" id="auth-class" checked>
+          <div class="auth-choice-text">
+            <b>👥 Fotos de turma</b>
+            <span>Fotos coletivas da turma com seu(sua) filho(a) presente — pra fotos de grupo e do Paspatur (formaturas).</span>
+          </div>
+        </label>
+      </div>
+
+      <div id="auth-all-or-nothing-block" style="display:none;background:var(--green-light);border-left:4px solid var(--green);padding:13px 15px;border-radius:8px;margin-bottom:9px">
+        <div style="font-size:13px;font-weight:600;color:#1A6B3C">
+          ✓ Ao confirmar, você autoriza tudo o que está descrito no termo acima.
+        </div>
+        <div style="font-size:12px;color:var(--gray-600);margin-top:4px">
+          Esse termo não tem opções intermediárias — você autoriza por completo ou recusa.
+        </div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--gray-100);margin:14px 0">
+
+      <div class="form-group">
+        <label class="form-label">Assinatura digital — digite seu nome completo</label>
+        <input class="form-input" id="auth-signature" placeholder="Nome do responsável que está autorizando" autocomplete="name">
+        <div class="hint">Sua confirmação tem o mesmo valor da assinatura em papel.</div>
+      </div>
+
+      <div class="auth-actions">
+        <button type="button" class="auth-deny-btn" id="btn-auth-deny">Não autorizo nenhuma foto</button>
+        <button type="button" class="btn btn-success" id="btn-auth-confirm" style="padding:11px 16px">Confirmar autorização →</button>
+      </div>
+
+      <div id="auth-error" class="error-msg" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ TELA: ADICIONAR FILHO ============ -->
+<div id="screen-add-filho" style="display:none">
+  <div class="container" style="max-width:480px;padding-top:24px">
+    <div class="auth-card">
+      <div style="text-align:center;margin-bottom:20px">
+        <div style="font-size:36px;margin-bottom:8px">👶</div>
+        <div style="font-size:18px;font-weight:700;color:#1a1a2e">Adicionar outro filho</div>
+        <div style="font-size:13px;color:#666;margin-top:4px">Seus dados de responsável já estão salvos.<br>Preencha só os dados do(a) filho(a).</div>
+      </div>
+      <form id="form-add-filho">
+        <div class="form-group">
+          <label class="form-label">Nome do(a) aluno(a) *</label>
+          <input class="form-input" id="af-nome" required placeholder="Nome completo do filho(a)">
+        </div>
+        <div class="fg2">
+          <div class="form-group">
+            <label class="form-label">Ano *</label>
+            <select class="form-select" id="af-ano" required>
+              <option value="">— Selecione —</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Turma *</label>
+            <select class="form-select" id="af-turma" required>
+              <option value="">— Selecione —</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Data de nascimento</label>
+          <input class="form-input" type="date" id="af-nasc">
+        </div>
+        <div id="af-erro" style="display:none;color:var(--red);font-size:13px;margin-bottom:10px"></div>
+        <button class="btn btn-primary" type="submit" style="width:100%">Continuar →</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ============ TELA: SELECIONAR FILHO ============ -->
+<div id="screen-filhos" style="display:none">
+  <div class="container" style="max-width:480px;padding-top:32px">
+    <div style="text-align:center;margin-bottom:28px">
+      <div style="font-size:40px;margin-bottom:10px">👨‍👧‍👦</div>
+      <div style="font-size:20px;font-weight:700;color:#1a1a2e">Seus filhos</div>
+      <div style="font-size:13px;color:#666;margin-top:4px">Selecione para quem você quer ver as fotos</div>
+    </div>
+    <div id="lista-filhos" style="display:flex;flex-direction:column;gap:12px"></div>
+  </div>
+</div>
+
+<!-- ============ TELA: NÃO AUTORIZADO (registrada) ============ -->
+<div id="screen-denied" style="display:none">
+  <div class="container">
+    <div class="auth-card" style="text-align:center">
+      <div style="font-size:48px;margin-bottom:8px">📝</div>
+      <div class="auth-title">Sua escolha foi registrada</div>
+      <div class="auth-sub" style="margin-bottom:18px">
+        Você optou por <b>não autorizar</b> a fotografia do(a) aluno(a). Não vamos fotografá-lo(a) na sessão da escola.
+      </div>
+      <div class="alert alert-info" style="text-align:left">
+        Se quiser revisar sua decisão, clique em <b>Mudei de ideia</b> abaixo para ver o termo novamente.
+      </div>
+      <button type="button" class="btn btn-primary btn-block" style="margin-top:14px" id="btn-denied-mudei">↩ Mudei de ideia — ver o termo de novo</button>
+      <button class="btn btn-secondary btn-block" style="margin-top:8px" id="btn-denied-sair">Sair</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ TELA: CATÁLOGO ============ -->
+<div id="screen-catalogo" style="display:none">
+  <div class="container">
+    <div id="cat-welcome" class="card card-pad" style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:9px">
+      <div>
+        <div style="font-size:15px;font-weight:600" id="cat-ola"></div>
+        <div style="font-size:12px;color:var(--gray-500)" id="cat-info"></div>
+      </div>
+      <div id="cat-prazo" style="font-size:12px;font-weight:600;background:var(--blue-light);color:var(--blue-dark);padding:6px 12px;border-radius:20px"></div>
+    </div>
+
+    <div class="cat-layout">
+      <div>
+        <div class="sec-title">Escolha seu kit</div>
+        <div class="sec-sub">Cada kit tem seu conteúdo já definido pela escola. O Kit Promocional ainda dá desconto nos avulsos.</div>
+        <div id="kits-grid" class="kits-grid">
+          <div class="loading"><span class="spinner"></span>Carregando kits…</div>
+        </div>
+
+        <div id="promo-banner" class="promo-banner" style="display:none">
+          🎉 <span>Você ganhou desconto em todos os avulsos por escolher o Kit Promocional!</span>
+        </div>
+
+        <div class="sec-title">Produtos avulsos</div>
+        <div class="sec-sub">Adicione fotos extras, canecas, calendários e outros lembranças. Quantidade ajustável.</div>
+        <div id="avulsos-grid" class="avulsos-grid">
+          <div class="loading"><span class="spinner"></span>Carregando avulsos…</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- CARRINHO FLUTUANTE -->
+<button class="cart-fab" id="cart-fab" style="display:none">
+  🛒 Meu pedido
+  <span class="cart-fab-badge" id="cart-fab-badge">0</span>
+  <span class="cart-fab-total" id="cart-fab-total"></span>
+</button>
+
+<!-- CART DRAWER -->
+<div class="cart-overlay" id="cart-overlay"></div>
+<div class="cart-drawer" id="cart-drawer">
+  <div class="cart-drawer-handle"></div>
+  <div class="cart-drawer-header">
+    <span class="cart-drawer-title">🛒 Meu pedido</span>
+    <button class="cart-drawer-close" id="cart-drawer-close">×</button>
+  </div>
+  <div class="cart-drawer-body">
+    <div id="cart-items"><div class="cart-empty">Nenhum item ainda. Escolha um kit pra começar.</div></div>
+  </div>
+  <div class="cart-drawer-footer">
+    <div class="cart-total-row">
+      <span>Total</span>
+      <span id="cart-total">R$ 0,00</span>
+    </div>
+    <button class="btn btn-success btn-block" style="padding:13px;font-size:15px" id="btn-finalizar">Finalizar pedido</button>
+    <div class="hint" style="text-align:center;margin-top:7px">Pagamento via PIX (chave da Play Up).</div>
+  </div>
+</div>
+
+<!-- ============ TELA: PEDIDO CONFIRMADO ============ -->
+<div id="screen-confirm" style="display:none">
+  <div class="container">
+    <div class="confirm-box">
+      <img src="assets/logo.png" alt="For School" class="brand-logo-confirm"
+           onerror="this.style.display='none'">
+      <div class="confirm-icon">✓</div>
+      <div class="confirm-title">Pedido recebido!</div>
+      <div style="color:var(--gray-500);font-size:13px;margin-bottom:9px">
+        Número do pedido:<br>
+        <span class="confirm-num" id="confirm-num">—</span>
+      </div>
+      <div style="font-size:14px;color:var(--gray-700);margin-bottom:5px">
+        Total: <b id="confirm-total">R$ 0,00</b>
+      </div>
+
+      <div id="confirm-payment-methods" style="text-align:left">
+        <!-- Métodos de pagamento populados dinamicamente após criar o pedido -->
+      </div>
+
+      <a id="link-wpp" href="#" target="_blank" class="btn btn-success btn-block" style="padding:11px;text-decoration:none;margin-top:14px">
+        💬 Falar com a Play Up no WhatsApp
+      </a>
+      <button class="btn btn-secondary btn-block" style="margin-top:7px" id="btn-confirm-minha-conta">📋 Ver Minha Área</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ TELA: MINHA ÁREA ============ -->
+<div id="screen-minha-conta" style="display:none">
+  <div class="container" style="max-width:680px">
+
+    <div class="mc-hero">
+      <div class="mc-hero-top">
+        <div class="mc-avatar" id="mc-avatar-inicial">?</div>
+        <div>
+          <div class="mc-aluno-nome" id="mc-aluno-nome">—</div>
+          <div class="mc-aluno-sub" id="mc-aluno-sub">—</div>
+        </div>
+      </div>
+      <div class="mc-hero-badge">📸 Minha Área</div>
+    </div>
+
+    <!-- ANIVERSÁRIO -->
+    <div id="mc-aniversario-section" style="display:none;margin-bottom:18px">
+      <div style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);border-radius:16px;padding:22px 18px;color:white;text-align:center;margin-bottom:14px">
+        <div style="font-size:42px;margin-bottom:8px">🎂</div>
+        <div style="font-size:17px;font-weight:700;margin-bottom:4px" id="aniv-titulo">Aniversário chegando!</div>
+        <div style="font-size:13px;opacity:.88" id="aniv-subtitulo">—</div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
+
+        <div onclick="abrirServicoAniv('cobertura')" style="display:flex;align-items:center;gap:13px;background:#EEF2FF;border-radius:13px;padding:14px;text-decoration:none;border:1.5px solid #C7D2FE;cursor:pointer">
+          <div style="width:52px;height:52px;border-radius:12px;background:linear-gradient(135deg,#4B6BFB,#7C3AED);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">📸</div>
+          <div style="flex:1">
+            <div style="font-weight:700;color:#1e1b4b;font-size:14px">Cobertura fotográfica</div>
+            <div style="font-size:12px;color:#6366f1;margin-top:3px;line-height:1.4">Eternize cada momento com ensaio profissional ou cobertura completa da festa.</div>
+          </div>
+          <div style="color:#4B6BFB;font-size:20px;font-weight:300">›</div>
+        </div>
+
+        <div onclick="abrirServicoAniv('totem')" style="display:flex;align-items:center;gap:13px;background:#FFF7ED;border-radius:13px;padding:14px;text-decoration:none;border:1.5px solid #FED7AA;cursor:pointer">
+          <div style="width:52px;height:52px;border-radius:12px;background:linear-gradient(135deg,#f97316,#ef4444);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">🖨️</div>
+          <div style="flex:1">
+            <div style="font-weight:700;color:#7c2d12;font-size:14px">Totem fotográfico</div>
+            <div style="font-size:12px;color:#ea580c;margin-top:3px;line-height:1.4">As crianças amam! Fotos impressas na hora para os convidados levarem de lembrança.</div>
+          </div>
+          <div style="color:#f97316;font-size:20px;font-weight:300">›</div>
+        </div>
+
+        <div onclick="abrirServicoAniv('album')" style="display:flex;align-items:center;gap:13px;background:#F0FDF4;border-radius:13px;padding:14px;text-decoration:none;border:1.5px solid #BBF7D0;cursor:pointer">
+          <div style="width:52px;height:52px;border-radius:12px;background:linear-gradient(135deg,#27AE60,#0D9488);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">📕</div>
+          <div style="flex:1">
+            <div style="font-weight:700;color:#14532d;font-size:14px">Álbum impresso</div>
+            <div style="font-size:12px;color:#16a34a;margin-top:3px;line-height:1.4">As melhores fotos da festa em um álbum para guardar para sempre.</div>
+          </div>
+          <div style="color:#27AE60;font-size:20px;font-weight:300">›</div>
+        </div>
+
+      </div>
+
+      <div style="background:#FFFBEB;border:1px solid #FCD34D;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px">
+        <div style="font-size:13px;color:#92400e">⚡ <b>As datas de fim de semana</b> costumam esgotar com antecedência. Garanta a sua antes que acabe!</div>
+      </div>
+
+      <a id="aniv-wpp-btn" href="#" target="_blank" rel="noopener"
+         class="btn btn-success btn-block" style="text-decoration:none;padding:13px;font-size:15px;display:flex;align-items:center;justify-content:center;gap:8px">
+        💬 Falar com a Play Up sobre o aniversário
+      </a>
+    </div>
+
+    <div class="mc-section">
+      <div class="mc-section-title">
+        <div class="mc-section-icon" style="background:#EEF1FF">🧾</div>
+        Seus pedidos
+      </div>
+      <div id="mc-pedidos-lista"><div class="mc-empty">Carregando…</div></div>
+    </div>
+
+    <div class="mc-section">
+      <div class="mc-section-title">
+        <div class="mc-section-icon" style="background:#EDE9FE">📷</div>
+        <span id="mc-sessoes-titulo">Dia das Fotos</span>
+      </div>
+      <div id="mc-sessoes-lista"><div class="mc-empty">Carregando…</div></div>
+    </div>
+
+    <div class="mc-section" id="mc-comunicados-section" style="display:none">
+      <div class="mc-section-title">
+        <div class="mc-section-icon" style="background:#FEF3EC">📢</div>
+        Mural Play Up
+      </div>
+      <div id="mc-comunicados-lista"></div>
+    </div>
+
+    <div class="mc-actions">
+      <button class="btn btn-secondary" id="btn-mc-catalogo">🛍 Ver catálogo</button>
+      <a class="btn btn-success" id="btn-mc-wpp" href="#" target="_blank" style="text-decoration:none">💬 WhatsApp</a>
+    </div>
+
+  </div>
+</div>
+
+<a class="wpp-btn" id="wpp-float" href="#" target="_blank" title="Fale com a Play Up no WhatsApp">💬</a>
+<div id="toast"></div>
+
+<!-- Modal serviço aniversário -->
+<div id="modal-servico-aniv" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:16px" onclick="fecharServicoAniv(event)">
+  <div style="background:white;border-radius:20px;max-width:420px;width:100%;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3)" onclick="event.stopPropagation()">
+    <div id="servico-aniv-img-wrap" style="position:relative;background:#f0f0f0;min-height:220px;display:flex;align-items:center;justify-content:center">
+      <img id="servico-aniv-img" src="" alt="" style="width:100%;display:none;max-height:340px;object-fit:cover">
+      <div id="servico-aniv-placeholder" style="text-align:center;padding:40px 20px;color:#aaa">
+        <div style="font-size:48px;margin-bottom:8px" id="servico-aniv-emoji">📸</div>
+        <div style="font-size:13px">Imagem em breve</div>
+      </div>
+      <button onclick="fecharServicoAniv()" style="position:absolute;top:10px;right:12px;background:rgba(0,0,0,.4);border:none;color:white;border-radius:50%;width:30px;height:30px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button>
+    </div>
+    <div style="padding:20px">
+      <div style="font-size:17px;font-weight:700;color:#1a1a2e;margin-bottom:4px" id="servico-aniv-titulo"></div>
+      <div style="font-size:13px;color:#666;margin-bottom:16px" id="servico-aniv-desc"></div>
+      <a id="servico-aniv-wpp" href="#" target="_blank" rel="noopener"
+         style="display:flex;align-items:center;justify-content:center;gap:8px;background:#25D366;color:white;padding:13px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px;margin-bottom:10px">
+        💬 Falar com a Play Up
+      </a>
+      <a id="servico-aniv-site" href="https://www.playupfotografia.com.br" target="_blank" rel="noopener"
+         style="display:flex;align-items:center;justify-content:center;gap:6px;background:#EEF2FF;color:#4B6BFB;padding:11px;border-radius:10px;text-decoration:none;font-weight:600;font-size:14px">
+        🌐 Ver site da Play Up
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- ============ JS ============ -->
+<script type="module">
+import { supabase, getCurrentUser, signIn, signUp, signOut, fmtMoney, toast, handleError } from './js/supabase-client.js';
+
+// Fallbacks — vão ser sobrescritos pelos valores reais carregados de app_settings
+let WPP_NUMERO = '5511999363796';
+let PIX_KEY    = '22.654.700/0001-32';
+let PIX_LABEL  = 'CNPJ Play Up Fotografia';
+let BUSINESS_NAME = 'Play Up Fotografia';
+let PAY_LINK_URL   = '';
+let PAY_LINK_LABEL = 'Pagar com cartão ou PIX';
+let MIN_INSTALLMENT_VALUE = 100;
+let MAX_INSTALLMENTS = 2;
+
+// ====================================================================
+// STATE
+// ====================================================================
+let projeto = null;           // projeto atual (puxado pelo slug)
+let escola  = null;           // dados da escola do projeto (school_id → schools)
+let years = [], classes = []; // estrutura acadêmica
+let kits = [];                // school_kits com items expandidos
+let avulsosDisp = [];         // produtos avulsos disponíveis nessa escola
+let student = null;           // aluno do pai logado
+let kitsCarrinho  = {};        // { basico: 1, inter: 2 } — qty por kit_type
+let avulsosCarrinho = {};     // { product_id: quantity }
+let currentTerm = null;       // termo de autorização do projeto (ou default)
+let currentUser = null;       // dados completos do user logado (com rg, cpf, parentesco)
+
+// ====================================================================
+// SETTINGS — carrega da tabela app_settings
+// ====================================================================
+
+async function loadSettings() {
+  try {
+    const { data, error } = await supabase
+      .from('app_settings')
+      .select('whatsapp_number, whatsapp_message, pix_key, pix_key_type, pix_label, business_name, payment_link_url, payment_link_label, min_installment_value, max_installments, aniv_img_cobertura, aniv_img_totem, aniv_img_album, aniv_link_cobertura, aniv_link_totem, aniv_link_album')
+      .eq('id', 1)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) {
+      if (data.whatsapp_number) WPP_NUMERO = data.whatsapp_number;
+      if (data.pix_key) PIX_KEY = data.pix_key;
+      if (data.pix_label) {
+        PIX_LABEL = data.pix_label;
+      } else if (data.pix_key_type) {
+        const map = { cnpj: 'CNPJ', cpf: 'CPF', email: 'E-mail', phone: 'Celular', random: 'Chave aleatória' };
+        PIX_LABEL = map[data.pix_key_type] || '';
+      }
+      if (data.business_name) BUSINESS_NAME = data.business_name;
+      if (data.payment_link_url) PAY_LINK_URL = data.payment_link_url;
+      if (data.payment_link_label) PAY_LINK_LABEL = data.payment_link_label;
+      if (data.min_installment_value != null) MIN_INSTALLMENT_VALUE = Number(data.min_installment_value);
+      if (data.max_installments != null) MAX_INSTALLMENTS = Number(data.max_installments);
+      if (data.aniv_img_cobertura) _anivImgs.aniv_img_cobertura = data.aniv_img_cobertura;
+      if (data.aniv_img_totem)     _anivImgs.aniv_img_totem     = data.aniv_img_totem;
+      if (data.aniv_img_album)     _anivImgs.aniv_img_album      = data.aniv_img_album;
+      if (data.aniv_link_cobertura) _anivLinks.aniv_link_cobertura = data.aniv_link_cobertura;
+      if (data.aniv_link_totem)     _anivLinks.aniv_link_totem     = data.aniv_link_totem;
+      if (data.aniv_link_album)     _anivLinks.aniv_link_album      = data.aniv_link_album;
+    }
+  } catch (err) {
+    console.warn('[loadSettings]', err);
+    // Mantém fallbacks definidos no topo
+  }
+}
+
+// ====================================================================
+// HELPERS
+// ====================================================================
+
+function getSlug() {
+  const params = new URLSearchParams(location.search);
+  if (params.get('projeto')) return params.get('projeto');
+  if (params.get('escola'))  return params.get('escola');  // compatibilidade legada
+  const path = location.pathname.replace(/^\/+|\/+$/g, '').split('/');
+  const last = path[path.length - 1];
+  if (last && last !== 'portal.html') return last;
+  return null;
+}
+
+// ====================================================================
+// MÁSCARAS DE INPUT (CPF, RG, telefone)
+// ====================================================================
+
+function maskCPF(v) {
+  return (v || '').replace(/\D/g, '').slice(0, 11)
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+}
+
+function maskRG(v) {
+  // Formato fixo XX.XXX.XXX-X (9 dígitos; último pode ser X como dígito verificador)
+  const d = (v || '').toUpperCase().replace(/[^0-9X]/g, '').slice(0, 9);
+  if (d.length === 0) return '';
+  if (d.length <= 2) return d;
+  if (d.length <= 5) return d.slice(0, 2) + '.' + d.slice(2);
+  if (d.length <= 8) return d.slice(0, 2) + '.' + d.slice(2, 5) + '.' + d.slice(5);
+  return d.slice(0, 2) + '.' + d.slice(2, 5) + '.' + d.slice(5, 8) + '-' + d.slice(8);
+}
+
+function maskPhone(v) {
+  const d = (v || '').replace(/\D/g, '').slice(0, 11);
+  if (d.length === 0) return '';
+  if (d.length <= 2) return '(' + d;
+  if (d.length <= 6) return '(' + d.slice(0, 2) + ') ' + d.slice(2);
+  if (d.length <= 10) return '(' + d.slice(0, 2) + ') ' + d.slice(2, 6) + '-' + d.slice(6);
+  return '(' + d.slice(0, 2) + ') ' + d.slice(2, 7) + '-' + d.slice(7);
+}
+
+// Aplica máscara em um input enquanto o usuário digita
+function attachMask(id, fn) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('input', () => { el.value = fn(el.value); });
+  el.value = fn(el.value);
+}
+
+attachMask('cad-cpf', maskCPF);
+attachMask('cad-rg',  maskRG);
+attachMask('cad-tel', maskPhone);
+
+function show(screenId) {
+  ['screen-erro','screen-auth','screen-authorize','screen-denied','screen-catalogo','screen-confirm','screen-minha-conta','screen-filhos','screen-add-filho'].forEach(id => {
+    document.getElementById(id).style.display = (id === screenId ? 'block' : 'none');
+  });
+  if (screenId !== 'screen-catalogo') {
+    const fab = document.getElementById('cart-fab');
+    if (fab) fab.style.display = 'none';
+    document.getElementById('cart-overlay')?.classList.remove('open');
+    document.getElementById('cart-drawer')?.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+}
+
+window.toggleSenha = toggleSenha;
+function toggleSenha(id, btn) {
+  const inp = document.getElementById(id);
+  const show = inp.type === 'password';
+  inp.type = show ? 'text' : 'password';
+  btn.textContent = show ? '🙈' : '👁';
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function daysUntilBirthday(dob) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const b = new Date(dob);
+  let next = new Date(today.getFullYear(), b.getMonth(), b.getDate());
+  if (next < today) next.setFullYear(today.getFullYear() + 1);
+  return Math.round((next - today) / 86400000);
+}
+
+const SERVICOS_ANIV = {
+  cobertura: {
+    emoji: '📸',
+    titulo: 'Cobertura fotográfica',
+    desc: 'Eternize cada momento com ensaio profissional ou cobertura completa da festa.',
+    wppMsg: (nome, data) => `Olá! Sou responsável de ${nome} e o aniversário está chegando (${data}). Tenho interesse em cobertura fotográfica da festa pela Play Up! 📸`,
+    imgKey: 'aniv_img_cobertura',
+    linkKey: 'aniv_link_cobertura',
+  },
+  totem: {
+    emoji: '🖨️',
+    titulo: 'Totem fotográfico',
+    desc: 'Fotos impressas na hora para os convidados levarem de lembrança!',
+    wppMsg: (nome, data) => `Olá! Sou responsável de ${nome} e o aniversário está chegando (${data}). Tenho interesse no totem fotográfico da Play Up! 🖨️`,
+    imgKey: 'aniv_img_totem',
+    linkKey: 'aniv_link_totem',
+  },
+  album: {
+    emoji: '📕',
+    titulo: 'Álbum impresso',
+    desc: 'As melhores fotos da festa em um álbum para guardar para sempre.',
+    wppMsg: (nome, data) => `Olá! Sou responsável de ${nome} e o aniversário está chegando (${data}). Tenho interesse em álbum impresso pela Play Up! 📕`,
+    imgKey: 'aniv_img_album',
+    linkKey: 'aniv_link_album',
+  },
+};
+
+let _anivNome = '';
+let _anivData = '';
+let _anivImgs = {};
+let _anivLinks = {};
+
+window.abrirServicoAniv = abrirServicoAniv;
+window.fecharServicoAniv = fecharServicoAniv;
+
+function abrirServicoAniv(tipo) {
+  const s = SERVICOS_ANIV[tipo];
+  if (!s) return;
+  document.getElementById('servico-aniv-titulo').textContent = s.titulo;
+  document.getElementById('servico-aniv-desc').textContent = s.desc;
+  document.getElementById('servico-aniv-emoji').textContent = s.emoji;
+  const imgUrl = _anivImgs[s.imgKey];
+  const imgEl = document.getElementById('servico-aniv-img');
+  const placeholder = document.getElementById('servico-aniv-placeholder');
+  if (imgUrl) {
+    imgEl.src = imgUrl; imgEl.style.display = 'block'; placeholder.style.display = 'none';
+  } else {
+    imgEl.style.display = 'none'; placeholder.style.display = 'flex';
+  }
+  const msg = encodeURIComponent(s.wppMsg(_anivNome, _anivData));
+  document.getElementById('servico-aniv-wpp').href = `https://wa.me/${WPP_NUMERO}?text=${msg}`;
+  const linkSite = _anivLinks[s.linkKey] || 'https://www.playupfotografia.com.br';
+  const btnSite = document.getElementById('servico-aniv-site');
+  if (btnSite) btnSite.href = linkSite;
+  const modal = document.getElementById('modal-servico-aniv');
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function fecharServicoAniv(e) {
+  if (e && e.target !== document.getElementById('modal-servico-aniv') && e.type !== 'click') return;
+  document.getElementById('modal-servico-aniv').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function showAniversarioSection(nome, dob) {
+  const dias = daysUntilBirthday(dob);
+  if (dias > 60) return;
+  const b = new Date(dob);
+  const meses = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  const dataFmt = `${b.getDate()} de ${meses[b.getMonth()]}`;
+  const subtitulo = dias === 0 ? `🎉 Hoje é o grande dia!`
+                  : dias === 1 ? `Amanhã é o grande dia! 🎉`
+                  : `Faltam ${dias} dias para o grande dia (${dataFmt})`;
+
+  _anivNome = nome;
+  _anivData = dataFmt;
+
+  document.getElementById('aniv-titulo').textContent = `O aniversário de ${nome} está chegando!`;
+  document.getElementById('aniv-subtitulo').textContent = subtitulo;
+
+  const msg = encodeURIComponent(`Olá! Sou responsável de ${nome} e o aniversário está chegando (${dataFmt}). Tenho interesse nos serviços da Play Up para a festa! 🎂`);
+  document.getElementById('aniv-wpp-btn').href = `https://wa.me/${WPP_NUMERO}?text=${msg}`;
+
+  document.getElementById('mc-aniversario-section').style.display = '';
+}
+
+function setWpp(msg) {
+  const url = `https://wa.me/${WPP_NUMERO}?text=${encodeURIComponent(msg || 'Olá! Preciso de ajuda com meu pedido na For School.')}`;
+  document.getElementById('wpp-float').href = url;
+}
+
+// ====================================================================
+// RENDER MÉTODOS DE PAGAMENTO (tela de confirmação)
+// ====================================================================
+
+function renderPaymentMethods(total, orderNumber, el) {
+  if (!el) el = document.getElementById('confirm-payment-methods');
+  const blocks = [];
+
+  const canPixManual = escola?.payment_pix_manual && PIX_KEY;
+  const canInter     = escola?.payment_inter;  // sempre placeholder por enquanto
+  const canExtLink   = escola?.payment_external_link && PAY_LINK_URL;
+
+  // PIX manual
+  if (canPixManual) {
+    blocks.push(`
+      <div class="pix-block">
+        <div style="font-weight:600;margin-bottom:5px;color:var(--gray-700)">💚 Pagar via PIX (sem taxa)</div>
+        <div style="font-size:12px;color:var(--gray-500);margin-bottom:7px">
+          Use a chave abaixo no app do seu banco. Valor: <b>${fmtMoney(total)}</b>
+        </div>
+        <div class="pix-key">${escapeHtml(PIX_KEY)}${PIX_LABEL ? '  <span style="color:var(--gray-400)">(' + escapeHtml(PIX_LABEL) + ')</span>' : ''}</div>
+        <button class="btn btn-sm btn-secondary" style="margin-top:8px" onclick="copyPix('${escapeHtml(PIX_KEY).replace(/'/g, "\\'")}')">📋 Copiar chave</button>
+        <div style="font-size:11px;color:var(--gray-500);margin-top:8px">
+          Após pagar, envie o comprovante pelo WhatsApp acima. Confirmação manual leva até algumas horas.
+        </div>
+      </div>
+    `);
+  }
+
+  // Inter — placeholder
+  if (canInter) {
+    blocks.push(`
+      <div class="pix-block" style="border-color:var(--yellow);background:#FFFBEB">
+        <div style="font-weight:600;margin-bottom:5px;color:#854D0E">⚡ PIX automático via Inter <span style="background:var(--yellow);color:#854D0E;font-size:10px;padding:1px 6px;border-radius:4px;margin-left:6px;font-weight:700">EM BREVE</span></div>
+        <div style="font-size:12px;color:var(--gray-600)">
+          Em breve: QR Code dinâmico já com valor pré-preenchido + confirmação automática.
+        </div>
+      </div>
+    `);
+  }
+
+  // Link externo (SumUp/MP)
+  if (canExtLink) {
+    const parcelaInfo = total >= MIN_INSTALLMENT_VALUE
+      ? `<div style="font-size:11px;color:var(--green);font-weight:600;margin-top:5px">✓ Disponível em até ${MAX_INSTALLMENTS}× no cartão sem juros</div>`
+      : `<div style="font-size:11px;color:var(--gray-400);margin-top:5px">Cartão em 1× (parcelamento a partir de ${fmtMoney(MIN_INSTALLMENT_VALUE)})</div>`;
+    blocks.push(`
+      <div class="pix-block" style="border-color:var(--purple);background:var(--purple-light)">
+        <div style="font-weight:600;margin-bottom:7px;color:var(--purple)">💳 ${escapeHtml(PAY_LINK_LABEL || 'Pagar com cartão ou PIX')}</div>
+        <div style="font-size:12px;color:var(--gray-600);margin-bottom:7px">
+          Valor a pagar: <b>${fmtMoney(total)}</b> — copie esse valor antes de clicar.
+        </div>
+        <a href="${escapeHtml(PAY_LINK_URL)}" target="_blank" rel="noopener" class="btn btn-block" style="background:var(--purple);color:white;text-decoration:none;padding:10px">
+          🔗 Abrir link de pagamento
+        </a>
+        ${parcelaInfo}
+      </div>
+    `);
+  }
+
+  // Nada habilitado — fallback
+  if (blocks.length === 0) {
+    blocks.push(`
+      <div class="alert alert-warning">
+        <b>Nenhum método de pagamento configurado pra essa escola.</b><br>
+        Entre em contato com a Play Up pelo WhatsApp pra combinar o pagamento.
+      </div>
+    `);
+  }
+
+  el.innerHTML = blocks.join('<div style="text-align:center;font-size:11px;color:var(--gray-400);text-transform:uppercase;letter-spacing:1px;margin:14px 0 10px">ou</div>');
+}
+
+// Copia chave PIX pra área de transferência
+window.copyPix = async function(key) {
+  try {
+    await navigator.clipboard.writeText(key);
+    toast('Chave PIX copiada!', 'ok');
+  } catch {
+    toast('Não foi possível copiar. Selecione e copie manualmente.', 'warn');
+  }
+};
+
+// ====================================================================
+// LOAD ESCOLA
+// ====================================================================
+
+async function loadEscola() {
+  const slug = getSlug();
+  if (!slug) {
+    document.getElementById('erro-msg').textContent = 'Link sem identificação de escola. Use o QR Code ou link enviado pela escola.';
+    show('screen-erro');
+    document.getElementById('p-esc-nome').textContent = '—';
+    return;
+  }
+
+  try {
+    // Busca projeto pelo slug (join com escola)
+    const { data, error } = await supabase
+      .from('projects')
+      .select('*, school:schools(id, name, phone, logo_url)')
+      .eq('slug', slug)
+      .eq('active', true)
+      .maybeSingle();
+
+    if (error || !data) {
+      document.getElementById('erro-msg').textContent = `Não encontramos o projeto "${slug}". Confira o link ou QR code.`;
+      show('screen-erro');
+      document.getElementById('p-esc-nome').textContent = '—';
+      return;
+    }
+
+    projeto = data;
+    // Monta objeto escola com campos que o resto do portal já usa
+    escola = {
+      id:                   data.school.id,
+      name:                 data.school.name,
+      phone:                data.school.phone,
+      logo_url:             data.school.logo_url || null,
+      order_deadline:       data.order_deadline,
+      delivery_date:        data.delivery_date,
+      payment_pix_manual:   data.payment_pix_manual,
+      payment_inter:        data.payment_inter,
+      payment_external_link: data.payment_external_link,
+      active:               data.active,
+      slug:                 data.slug,
+    };
+
+    document.getElementById('p-esc-nome').textContent = escola.name;
+    document.getElementById('auth-esc-nome').textContent = escola.name;
+    setWpp(`Olá! Sou responsável de aluno na ${escola.name} e preciso de ajuda.`);
+
+    // Logo da escola no topbar
+    if (escola.logo_url) {
+      const logoEl = document.getElementById('escola-logo-topbar');
+      if (logoEl) { logoEl.src = escola.logo_url; logoEl.style.display = 'block'; }
+    }
+
+    // Carregar anos e turmas pra dropdown de cadastro
+    const [yearsResp, classesResp] = await Promise.all([
+      supabase.from('school_years').select('id,name').eq('school_id', escola.id).order('sort_order'),
+      supabase.from('school_classes').select('id,name,year_id'),
+    ]);
+    years = yearsResp.data || [];
+    classes = classesResp.data || [];
+
+    // Popular dropdown de ano
+    const selAno = document.getElementById('cad-al-ano');
+    selAno.innerHTML = '<option value="">— Selecione —</option>';
+    years.forEach(y => {
+      const o = document.createElement('option');
+      o.value = y.id; o.textContent = y.name;
+      selAno.appendChild(o);
+    });
+
+    // Carrega termo de autorização do projeto
+    try {
+      const termId = projeto.authorization_term_id;
+      if (termId) {
+        const { data: termo } = await supabase
+          .from('authorization_terms')
+          .select('*')
+          .eq('id', termId)
+          .maybeSingle();
+        if (termo) currentTerm = termo;
+      } else {
+        // Fallback: primeiro termo ativo
+        const { data: termo } = await supabase
+          .from('authorization_terms')
+          .select('*')
+          .eq('active', true)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (termo) currentTerm = termo;
+      }
+    } catch { /* termo opcional */ }
+
+    // Verifica sessão existente
+    const user = await getCurrentUser();
+    if (user) {
+      await afterLogin(user);
+    } else {
+      show('screen-auth');
+    }
+  } catch (err) {
+    handleError(err, 'loadEscola');
+    document.getElementById('erro-msg').textContent = 'Erro ao carregar escola: ' + (err.message || 'desconhecido');
+    show('screen-erro');
+  }
+}
+
+// Substitui {{placeholder}} pelos valores do contexto
+function renderTermPlaceholders(text, vars) {
+  if (!text) return '';
+  return String(text).replace(/\{\{\s*(\w+)\s*\}\}/g, (match, key) => {
+    const v = vars[key];
+    if (v === undefined || v === null || v === '') return '_____________';
+    return String(v);
+  });
+}
+
+// ====================================================================
+// AUTH
+// ====================================================================
+
+// Toggle entre cadastro e login
+document.getElementById('tab-cadastro').addEventListener('click', () => {
+  document.getElementById('tab-cadastro').classList.add('active');
+  document.getElementById('tab-login').classList.remove('active');
+  document.getElementById('form-cadastro').style.display = 'block';
+  document.getElementById('form-login').style.display = 'none';
+});
+document.getElementById('tab-login').addEventListener('click', () => {
+  document.getElementById('tab-login').classList.add('active');
+  document.getElementById('tab-cadastro').classList.remove('active');
+  document.getElementById('form-login').style.display = 'block';
+  document.getElementById('form-cadastro').style.display = 'none';
+});
+
+// Cascata Ano → Turma
+document.getElementById('cad-al-ano').addEventListener('change', e => {
+  const yearId = e.target.value;
+  const sel = document.getElementById('cad-al-turma');
+  sel.innerHTML = '<option value="">— Selecione —</option>';
+  classes.filter(c => c.year_id === yearId).forEach(c => {
+    const o = document.createElement('option');
+    o.value = c.id; o.textContent = 'Turma ' + c.name;
+    sel.appendChild(o);
+  });
+});
+
+// Submit cadastro
+document.getElementById('form-cadastro').addEventListener('submit', async e => {
+  e.preventDefault();
+  const erroEl = document.getElementById('cad-erro');
+  erroEl.style.display = 'none';
+
+  const email = document.getElementById('cad-email').value.trim();
+  const password = document.getElementById('cad-senha').value;
+  const nome = document.getElementById('cad-nome').value.trim();
+  const cpf  = document.getElementById('cad-cpf').value.trim();
+  const rg   = document.getElementById('cad-rg').value.trim();
+  const tel  = document.getElementById('cad-tel').value.trim();
+  const parentesco = document.getElementById('cad-parentesco').value;
+  const alNome = document.getElementById('cad-al-nome').value.trim();
+  const yearId = document.getElementById('cad-al-ano').value;
+  const classId = document.getElementById('cad-al-turma').value;
+  const nasc = document.getElementById('cad-al-nasc').value;
+
+  if (!email || !password || !nome || !cpf || !rg || !tel || !parentesco || !alNome || !yearId || !classId) {
+    erroEl.textContent = 'Preencha todos os campos obrigatórios marcados com *.';
+    erroEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    // 1. Sign-up (cria auth.users + trigger cria public.users)
+    await signUp(email, password, { name: nome, cpf, rg, phone: tel, relationship: parentesco });
+
+    // Pequena espera pra trigger rodar (handle_new_user)
+    await new Promise(r => setTimeout(r, 400));
+
+    // 2. Login automático (em alguns setups Supabase já cria sessão; em outros precisa fazer signIn)
+    let user = await getCurrentUser();
+    if (!user) {
+      await signIn(email, password);
+      user = await getCurrentUser();
+    }
+    if (!user) throw new Error('Cadastro feito, mas não conseguimos entrar. Tente fazer login na aba "Já tenho cadastro".');
+
+    // 3. Criar student com número de ficha auto-gerado
+    const { data: maxRow } = await supabase
+      .from('students')
+      .select('photo_seq_number')
+      .eq('school_id', escola.id)
+      .not('photo_seq_number', 'is', null)
+      .order('photo_seq_number', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const nextSeq = ((maxRow?.photo_seq_number) || 0) + 1;
+
+    const g2Nome = document.getElementById('cad-g2-nome').value.trim();
+    const g2Tel  = document.getElementById('cad-g2-tel').value.trim();
+    const g2Par  = document.getElementById('cad-g2-parentesco').value;
+
+    const { error: stErr } = await supabase
+      .from('students')
+      .insert({
+        name: alNome,
+        birth_date: nasc || null,
+        user_id: user.id,
+        class_id: classId,
+        school_id: escola.id,
+        photo_seq_number: nextSeq,
+        guardian2_name: g2Nome || null,
+        guardian2_phone: g2Tel || null,
+        guardian2_relationship: g2Par || null,
+      });
+    if (stErr) throw stErr;
+
+    await afterLogin(user);
+  } catch (err) {
+    const msg = err.message || '';
+    const jaExiste = msg.includes('already registered') || msg.includes('already been registered') || msg.includes('User already registered');
+    if (jaExiste) {
+      // Tenta logar com a senha digitada — pai já tem conta, quer adicionar 2º filho
+      try {
+        await signIn(email, password);
+        const user = await getCurrentUser();
+        if (!user) throw new Error('Login falhou.');
+        currentUser = user;
+        // Popular selects do form de adicionar filho
+        const selAno = document.getElementById('af-ano');
+        selAno.innerHTML = '<option value="">— Selecione —</option>';
+        years.forEach(y => selAno.insertAdjacentHTML('beforeend', `<option value="${y.id}">${escapeHtml(y.name)}</option>`));
+        document.getElementById('af-turma').innerHTML = '<option value="">— Selecione —</option>';
+        show('screen-add-filho');
+      } catch {
+        erroEl.textContent = 'Este e-mail já tem cadastro. Se a senha estiver errada, use a aba "Já tenho cadastro" e clique em "Esqueceu a senha?".';
+        erroEl.style.display = 'block';
+      }
+      return;
+    }
+    erroEl.textContent = msg || 'Erro ao criar cadastro.';
+    erroEl.style.display = 'block';
+  }
+});
+
+// Cascata ano→turma no form de adicionar filho
+document.getElementById('af-ano').addEventListener('change', e => {
+  const yearId = e.target.value;
+  const sel = document.getElementById('af-turma');
+  sel.innerHTML = '<option value="">— Selecione —</option>';
+  classes.filter(c => c.year_id === yearId).forEach(c => {
+    sel.insertAdjacentHTML('beforeend', `<option value="${c.id}">${escapeHtml(c.name)}</option>`);
+  });
+});
+
+// Submit do form de adicionar filho
+document.getElementById('form-add-filho').addEventListener('submit', async e => {
+  e.preventDefault();
+  const erroEl = document.getElementById('af-erro');
+  erroEl.style.display = 'none';
+  const alNome  = document.getElementById('af-nome').value.trim();
+  const yearId  = document.getElementById('af-ano').value;
+  const classId = document.getElementById('af-turma').value;
+  const nasc    = document.getElementById('af-nasc').value;
+  if (!alNome || !yearId || !classId) {
+    erroEl.textContent = 'Preencha nome, ano e turma do(a) filho(a).';
+    erroEl.style.display = 'block';
+    return;
+  }
+  try {
+    const user = await getCurrentUser();
+    const { data: maxRow } = await supabase
+      .from('students')
+      .select('photo_seq_number')
+      .eq('school_id', escola.id)
+      .not('photo_seq_number', 'is', null)
+      .order('photo_seq_number', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const nextSeq = ((maxRow?.photo_seq_number) || 0) + 1;
+    const { error: stErr } = await supabase.from('students').insert({
+      name: alNome,
+      birth_date: nasc || null,
+      user_id: user.id,
+      class_id: classId,
+      school_id: escola.id,
+      photo_seq_number: nextSeq,
+    });
+    if (stErr) throw stErr;
+    // Busca o aluno recém-criado e vai para autorização
+    const { data: novo } = await supabase
+      .from('students')
+      .select('id, name, birth_date, class_id, school_id, authorize_individual, authorize_class, authorization_date, authorization_signed_by, school_classes(name, year:school_years(name))')
+      .eq('user_id', user.id)
+      .eq('school_id', escola.id)
+      .eq('name', alNome)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    student = novo;
+    showAutorizacao(user);
+  } catch (err) {
+    erroEl.textContent = err.message || 'Erro ao cadastrar filho.';
+    erroEl.style.display = 'block';
+  }
+});
+
+// Esqueceu a senha
+document.getElementById('btn-esqueceu-senha').addEventListener('click', async () => {
+  const email = document.getElementById('log-email').value.trim();
+  if (!email) { toast('Digite seu e-mail acima antes de redefinir a senha.', 'warn'); return; }
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.href
+  });
+  if (error) { toast('Erro ao enviar e-mail: ' + error.message, 'error'); return; }
+  toast('E-mail de redefinição enviado! Verifique sua caixa de entrada.', 'success');
+});
+
+// Submit login
+document.getElementById('form-login').addEventListener('submit', async e => {
+  e.preventDefault();
+  const erroEl = document.getElementById('log-erro');
+  erroEl.style.display = 'none';
+  const email = document.getElementById('log-email').value.trim();
+  const password = document.getElementById('log-senha').value;
+  try {
+    await signIn(email, password);
+    const user = await getCurrentUser();
+    if (!user) throw new Error('Falha ao recuperar sessão.');
+    await afterLogin(user);
+  } catch (err) {
+    erroEl.textContent = err.message || 'E-mail ou senha incorretos.';
+    erroEl.style.display = 'block';
+  }
+});
+
+// Botão sair (topbar)
+document.getElementById('btn-sair').addEventListener('click', async () => {
+  await signOut();
+  location.reload();
+});
+
+// Botão sair (tela de erro)
+document.getElementById('btn-sair-erro').addEventListener('click', async () => {
+  await signOut();
+  location.reload();
+});
+
+// ====================================================================
+// APÓS LOGIN
+// ====================================================================
+
+let _filhosUser = null;
+let _todosFilhos = [];
+
+window.selecionarFilho = selecionarFilho;
+
+function showSelecaoFilhos(students, user) {
+  _filhosUser = user;
+  _todosFilhos = students;
+  const lista = document.getElementById('lista-filhos');
+  lista.innerHTML = students.map((s, i) => {
+    const turma = s.school_classes;
+    const anoNome   = turma?.year?.name  || '';
+    const turmaNome = turma?.name        || '';
+    const sub = [anoNome, turmaNome].filter(Boolean).join(' — ');
+    const inicial = (s.name || '?')[0].toUpperCase();
+    return `
+      <div onclick="selecionarFilho(${i})" style="display:flex;align-items:center;gap:14px;background:white;border-radius:14px;padding:16px;box-shadow:0 2px 10px rgba(0,0,0,.07);cursor:pointer;border:2px solid transparent;transition:border-color .2s" onmouseover="this.style.borderColor='#4B6BFB'" onmouseout="this.style.borderColor='transparent'">
+        <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#4B6BFB,#7C3AED);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:white;flex-shrink:0">${inicial}</div>
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:16px;color:#1a1a2e">${escapeHtml(s.name)}</div>
+          ${sub ? `<div style="font-size:13px;color:#666;margin-top:2px">${escapeHtml(sub)}</div>` : ''}
+        </div>
+        <div style="color:#4B6BFB;font-size:22px">›</div>
+      </div>`;
+  }).join('');
+  show('screen-filhos');
+}
+
+async function selecionarFilho(idx) {
+  student = _todosFilhos[idx];
+  const user = _filhosUser;
+  // Continua o fluxo normal a partir da autorização
+  if (!student.authorization_date) {
+    showAutorizacao(user);
+    return;
+  }
+  if (!student.authorize_individual && !student.authorize_class) {
+    showNegado();
+    return;
+  }
+  const { data: pedidosExist } = await supabase
+    .from('orders')
+    .select('id')
+    .eq('student_id', student.id)
+    .eq('project_id', projeto.id)
+    .limit(1);
+  if (pedidosExist && pedidosExist.length > 0) {
+    await loadMinhaConta();
+  } else {
+    await loadCatalogo(user);
+  }
+}
+
+async function afterLogin(user) {
+  document.getElementById('p-user-nome').textContent = user.email;
+  document.getElementById('btn-sair').style.display = 'inline-flex';
+
+  // Buscar perfil completo do user (rg, cpf, parentesco)
+  const { data: userProfile } = await supabase
+    .from('users')
+    .select('id, name, cpf, rg, phone, email, relationship')
+    .eq('id', user.id)
+    .maybeSingle();
+  currentUser = userProfile || { id: user.id, email: user.email };
+
+  // Buscar aluno desse pai nessa escola (com campos de autorização)
+  const { data: students } = await supabase
+    .from('students')
+    .select(`
+      id, name, birth_date, class_id, school_id,
+      authorize_individual, authorize_class, authorization_date, authorization_signed_by,
+      school_classes(name, year:school_years(name))
+    `)
+    .eq('user_id', user.id)
+    .eq('school_id', escola.id);
+
+  if (!students || students.length === 0) {
+    // Pai logado mas não tem aluno nessa escola — talvez seja conta admin, ou de outra escola
+    document.getElementById('erro-titulo').textContent = 'Conta sem aluno em ' + escola.name;
+    document.getElementById('erro-msg').innerHTML = `
+      A conta logada (<b>${escapeHtml(user.email)}</b>) não tem nenhum aluno cadastrado nessa escola.<br><br>
+      <b>Possíveis causas:</b><br>
+      • Você logou com a conta de <b>admin</b> — admin não tem alunos, só pais têm. Saia e cadastre-se como responsável com outro e-mail.<br>
+      • Você tem cadastro em outra escola — confira se o link/QR é da escola certa.<br>
+      • Cadastrou pela primeira vez agora mas o aluno não foi criado por algum erro — saia e cadastre novamente.
+    `;
+    document.getElementById('btn-sair-erro').style.display = 'inline-flex';
+    show('screen-erro');
+    return;
+  }
+
+  if (students.length > 1) {
+    showSelecaoFilhos(students, user);
+    return;
+  }
+
+  student = students[0];
+
+  // Rota baseada em autorização
+  if (!student.authorization_date) {
+    // Ainda não autorizou — tela de autorização
+    showAutorizacao(user);
+    return;
+  }
+  if (!student.authorize_individual && !student.authorize_class) {
+    // Já registrou que não autoriza nada — tela de despedida
+    showNegado();
+    return;
+  }
+  // Autorizou ao menos um tipo → verifica se já tem pedido nesse projeto
+  const { data: pedidosExist } = await supabase
+    .from('orders')
+    .select('id')
+    .eq('student_id', student.id)
+    .eq('project_id', projeto.id)
+    .limit(1);
+
+  if (pedidosExist && pedidosExist.length > 0) {
+    await loadMinhaConta();
+  } else {
+    await loadCatalogo(user);
+  }
+}
+
+// =====================================================================
+// MINHA CONTA
+// =====================================================================
+
+async function loadMinhaConta() {
+  // Mostra botão "Minha conta" no topbar
+  document.getElementById('btn-minha-conta').style.display = 'inline-flex';
+
+  // Preenche header
+  const turma = student.school_classes;
+  const anoNome  = turma?.year?.name || '';
+  const turmaNome = turma?.name || '';
+  const turmaSub = [anoNome, turmaNome].filter(Boolean).join(' — ');
+  const inicial  = (student.name || '?')[0].toUpperCase();
+
+  document.getElementById('mc-avatar-inicial').textContent = inicial;
+  document.getElementById('mc-aluno-nome').textContent = student.name || '—';
+  document.getElementById('mc-aluno-sub').textContent = [turmaSub, escola.name].filter(Boolean).join(' · ');
+  const primeiroNome = (student.name || '').split(' ')[0];
+  document.getElementById('mc-sessoes-titulo').textContent = `Dia das Fotos de ${primeiroNome}`;
+
+  // Aniversário
+  document.getElementById('mc-aniversario-section').style.display = 'none';
+  if (student.birth_date) showAniversarioSection(student.name, student.birth_date);
+
+  // Botão WhatsApp
+  document.getElementById('btn-mc-wpp').href = `https://wa.me/${WPP_NUMERO}?text=${encodeURIComponent(
+    `Olá! Sou responsável de ${student.name} (${escola.name}). Preciso de ajuda.`
+  )}`;
+
+  show('screen-minha-conta');
+
+  // Carrega pedidos
+  const { data: pedidos, error: pErr } = await supabase
+    .from('orders')
+    .select(`
+      id, order_number, status, total_amount, created_at, kit_type,
+      order_kits(quantity, kit:school_kits(name, kit_type)),
+      order_items(quantity, product:products(name))
+    `)
+    .eq('student_id', student.id)
+    .eq('project_id', projeto.id)
+    .order('created_at', { ascending: false });
+
+  const pedidosEl = document.getElementById('mc-pedidos-lista');
+  if (pErr || !pedidos || pedidos.length === 0) {
+    pedidosEl.innerHTML = '<div class="mc-empty">Nenhum pedido encontrado.</div>';
+  } else {
+    const statusMap = { pendente: ['mc-status-pend','⏳ Aguardando pagamento'], pago: ['mc-status-pago','✓ Pago'], cancelado: ['mc-status-cancel','✕ Cancelado'] };
+    pedidosEl.innerHTML = pedidos.map(p => {
+      const [statusCls, statusLabel] = statusMap[p.status] || ['mc-status-pend', p.status];
+      const data = new Date(p.created_at).toLocaleDateString('pt-BR');
+
+      // Monta descrição dos kits
+      const kitsDesc = (p.order_kits || []).map(ok => {
+        const nome = ok.kit?.name || ok.kit?.kit_type || '—';
+        return ok.quantity > 1 ? `${ok.quantity}× ${nome}` : nome;
+      }).join(', ');
+
+      // Avulsos
+      const avulsosDesc = (p.order_items || []).map(oi => {
+        const nome = oi.product?.name || '—';
+        return oi.quantity > 1 ? `${oi.quantity}× ${nome}` : nome;
+      }).join(', ');
+
+      const detalhe = [kitsDesc, avulsosDesc].filter(Boolean).join(' + ');
+
+      const barCls = p.status === 'pago' ? 'mc-order-bar-pago' : p.status === 'cancelado' ? 'mc-order-bar-cancel' : 'mc-order-bar-pend';
+      return `
+      <div class="mc-order-card">
+        <div class="mc-order-bar ${barCls}"></div>
+        <div class="mc-order-body">
+          <div class="mc-order-top">
+            <span class="mc-order-num">#${p.order_number}</span>
+            <span class="mc-status ${statusCls}">${statusLabel}</span>
+          </div>
+          <div class="mc-order-kit">${detalhe || '—'}</div>
+          <div class="mc-order-detail">Pedido em ${data}</div>
+          <div class="mc-order-total">${fmtMoney(p.total_amount || 0)}</div>
+          ${p.status === 'pendente' ? `<div id="mc-pay-${p.order_number}" style="margin-top:10px"></div>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+
+    // Instrução de pagamento para pedidos pendentes
+    pedidos.filter(p => p.status === 'pendente').forEach(p => {
+      const el = document.getElementById(`mc-pay-${p.order_number}`);
+      if (el) renderPaymentMethods(p.total_amount || 0, p.order_number, el);
+    });
+  }
+
+  // Carrega sessões de foto da turma do aluno
+  const { data: sessoes } = await supabase
+    .from('project_sessions')
+    .select(`
+      id, photo_date, period, order_deadline,
+      project_session_classes!inner(school_class_id)
+    `)
+    .eq('project_id', projeto.id)
+    .eq('project_session_classes.school_class_id', student.class_id)
+    .order('photo_date');
+
+  const sessoesEl = document.getElementById('mc-sessoes-lista');
+  if (!sessoes || sessoes.length === 0) {
+    sessoesEl.innerHTML = '<div class="mc-empty">Sessões ainda não cadastradas.</div>';
+  } else {
+    const periodoMap = { 'manhã':'Manhã', tarde:'Tarde', integral:'Integral', outro:'Outro' };
+    const mesesAbrev = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
+    sessoesEl.innerHTML = '<div class="mc-session-cal">' + sessoes.map(s => {
+      const d = s.photo_date ? new Date(s.photo_date + 'T00:00:00') : null;
+      const dia = d ? d.getDate() : '—';
+      const mes = d ? mesesAbrev[d.getMonth()] : '';
+      const per = periodoMap[s.period] || s.period || '';
+      const prazo = s.order_deadline ? 'Pedido até ' + new Date(s.order_deadline + 'T00:00:00').toLocaleDateString('pt-BR') : '';
+      return `<div class="mc-cal-card">
+        <div class="mc-cal-month">${mes}</div>
+        <div class="mc-cal-day">${dia}</div>
+        <div class="mc-cal-dot"></div>
+        <div class="mc-cal-period">${per}</div>
+        ${prazo ? `<div class="mc-cal-prazo">${prazo}</div>` : ''}
+      </div>`;
+    }).join('') + '</div>';
+  }
+
+  // Comunicados do projeto
+  await loadComunicadosPortal();
+}
+
+async function loadComunicadosPortal() {
+  if (!projeto?.id) return;
+  const { data } = await supabase
+    .from('announcements')
+    .select('*')
+    .eq('published', true)
+    .or(`project_id.eq.${projeto.id},project_id.is.null`)
+    .order('created_at', { ascending: false })
+    .limit(10);
+
+  const section = document.getElementById('mc-comunicados-section');
+  const lista   = document.getElementById('mc-comunicados-lista');
+  if (!data || data.length === 0) { section.style.display = 'none'; return; }
+
+  section.style.display = '';
+  lista.innerHTML = data.map(c => `
+    <div style="background:var(--gray-50);border-radius:10px;overflow:hidden;margin-bottom:12px">
+      ${c.image_url ? `<img src="${c.image_url}" alt="" style="width:100%;max-height:260px;object-fit:cover">` : ''}
+      ${c.caption ? `<div style="padding:12px;font-size:14px;color:var(--gray-700);white-space:pre-line">${escapeHtml(c.caption)}</div>` : ''}
+    </div>
+  `).join('');
+}
+
+document.getElementById('btn-minha-conta').addEventListener('click', async () => {
+  await loadMinhaConta();
+});
+
+document.getElementById('btn-mc-catalogo').addEventListener('click', async () => {
+  const user = await getCurrentUser();
+  if (user) await loadCatalogo(user);
+});
+
+document.getElementById('btn-confirm-minha-conta').addEventListener('click', async () => {
+  await loadMinhaConta();
+});
+
+// =====================================================================
+// AUTORIZAÇÃO DE IMAGEM
+// =====================================================================
+
+function showAutorizacao(user) {
+  document.getElementById('auth-aluno-nome').textContent = student.name;
+  document.getElementById('auth-empresa').textContent = BUSINESS_NAME;
+  document.getElementById('auth-signature').value = currentUser?.name || '';
+  document.getElementById('auth-individual').checked = true;
+  document.getElementById('auth-class').checked = true;
+  document.getElementById('auth-error').style.display = 'none';
+
+  // Monta o contexto de placeholders pro termo
+  const turma = student.school_classes;
+  const vars = {
+    nome_responsavel: currentUser?.name || '',
+    rg: currentUser?.rg || '',
+    cpf: currentUser?.cpf || '',
+    whatsapp: currentUser?.phone || '',
+    grau_parentesco: currentUser?.relationship || '',
+    nome_aluno: student.name || '',
+    ano: turma?.year?.name || '',
+    turma: turma?.name || '',
+    escola: escola?.name || '',
+    empresa: BUSINESS_NAME,
+    data_hoje: new Date().toLocaleDateString('pt-BR'),
+  };
+
+  // Renderiza o termo do banco com placeholders preenchidos (ou cai no fallback)
+  const termEl = document.getElementById('auth-term');
+  if (currentTerm && (currentTerm.body_html || currentTerm.intro_text)) {
+    const intro   = renderTermPlaceholders(currentTerm.intro_text, vars);
+    const body    = renderTermPlaceholders(currentTerm.body_html, vars);
+    const purpose = renderTermPlaceholders(currentTerm.purpose_text, vars);
+    const partes  = [intro, body, purpose ? `Para uso exclusivo de: <b>${escapeHtml(purpose)}</b>` : ''].filter(Boolean);
+    // Quebra de linha → parágrafo
+    termEl.innerHTML = partes
+      .map(p => p.split(/\n+/).map(l => `<div style="margin-bottom:7px">${escapeHtml(l).replace(/_____________/g, '<span style="background:var(--yellow);padding:0 4px;border-radius:3px">____</span>')}</div>`).join(''))
+      .join('<hr style="border:none;border-top:1px dashed var(--gray-200);margin:8px 0">');
+
+    // Atualiza labels e descrições dos 2 checkboxes (vêm do termo)
+    const indLabelEl = document.querySelector('#auth-individual')?.closest('.auth-choice')?.querySelector('.auth-choice-text b');
+    const indDescEl  = document.querySelector('#auth-individual')?.closest('.auth-choice')?.querySelector('.auth-choice-text span');
+    const clsLabelEl = document.querySelector('#auth-class')?.closest('.auth-choice')?.querySelector('.auth-choice-text b');
+    const clsDescEl  = document.querySelector('#auth-class')?.closest('.auth-choice')?.querySelector('.auth-choice-text span');
+    if (indLabelEl) indLabelEl.textContent = '📸 ' + (currentTerm.individual_label || 'Fotos individuais');
+    if (indDescEl)  indDescEl.textContent  = currentTerm.individual_description || '';
+    if (clsLabelEl) clsLabelEl.textContent = '👥 ' + (currentTerm.class_label || 'Fotos de turma');
+    if (clsDescEl)  clsDescEl.textContent  = currentTerm.class_description || '';
+  }
+
+  // Mostra/esconde checkboxes conforme o modo do termo
+  const mode = currentTerm?.authorization_mode || 'choice';
+  const choicesBlock = document.getElementById('auth-choices-block');
+  const allOrNothingBlock = document.getElementById('auth-all-or-nothing-block');
+  const confirmBtn = document.getElementById('btn-auth-confirm');
+  if (mode === 'all_or_nothing') {
+    choicesBlock.style.display = 'none';
+    allOrNothingBlock.style.display = 'block';
+    // Pré-marca ambos como true (será usado no submit)
+    document.getElementById('auth-individual').checked = true;
+    document.getElementById('auth-class').checked = true;
+    confirmBtn.textContent = 'AUTORIZO →';
+  } else {
+    choicesBlock.style.display = 'block';
+    allOrNothingBlock.style.display = 'none';
+    confirmBtn.textContent = 'Confirmar autorização →';
+  }
+
+  show('screen-authorize');
+}
+
+function showNegado() {
+  document.getElementById('denied-empresa').textContent = BUSINESS_NAME;
+  show('screen-denied');
+}
+
+document.getElementById('btn-auth-confirm').addEventListener('click', async () => {
+  const erroEl = document.getElementById('auth-error');
+  erroEl.style.display = 'none';
+
+  const individual = document.getElementById('auth-individual').checked;
+  const turma      = document.getElementById('auth-class').checked;
+  const signature  = document.getElementById('auth-signature').value.trim();
+
+  if (!individual && !turma) {
+    erroEl.textContent = 'Você desmarcou as duas opções. Se realmente não quer autorizar, use o botão "Não autorizo nenhuma foto" no canto esquerdo.';
+    erroEl.style.display = 'block';
+    return;
+  }
+  if (!signature || signature.length < 5) {
+    erroEl.textContent = 'Por favor, digite seu nome completo como assinatura digital.';
+    erroEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    const now = new Date().toISOString();
+    const logEntry = { action: 'authorized', date: now, signed_by: signature, individual, class: turma };
+    const currentLog = Array.isArray(student.authorization_log) ? student.authorization_log : [];
+    const { error } = await supabase.from('students').update({
+      authorize_individual: individual,
+      authorize_class: turma,
+      authorization_date: now,
+      authorization_signed_by: signature,
+      authorization_log: [...currentLog, logEntry],
+    }).eq('id', student.id);
+    if (error) throw error;
+
+    // Atualiza state local
+    student.authorize_individual = individual;
+    student.authorize_class = turma;
+    student.authorization_date = now;
+    student.authorization_signed_by = signature;
+    student.authorization_log = [...currentLog, logEntry];
+
+    toast('Autorização confirmada!', 'ok');
+    const user = await getCurrentUser();
+    await loadCatalogo(user);
+  } catch (err) {
+    handleError(err, 'submitAutorizacao');
+  }
+});
+
+document.getElementById('btn-auth-deny').addEventListener('click', async () => {
+  if (!confirm(
+    'Tem certeza que NÃO QUER autorizar nenhuma foto?\n\n' +
+    '• Seu(sua) filho(a) NÃO será fotografado(a) na sessão.\n' +
+    '• Você NÃO terá acesso ao catálogo de produtos.\n' +
+    `• Pra mudar de ideia depois, vai precisar falar direto com a equipe da ${BUSINESS_NAME}.`
+  )) return;
+
+  try {
+    const now = new Date().toISOString();
+    const logEntry = { action: 'denied', date: now };
+    const currentLog = Array.isArray(student.authorization_log) ? student.authorization_log : [];
+    const { error } = await supabase.from('students').update({
+      authorize_individual: false,
+      authorize_class: false,
+      authorization_date: now,
+      authorization_signed_by: '(recusou autorização)',
+      authorization_log: [...currentLog, logEntry],
+    }).eq('id', student.id);
+    if (error) throw error;
+
+    student.authorize_individual = false;
+    student.authorize_class = false;
+    student.authorization_date = now;
+    student.authorization_log = [...currentLog, logEntry];
+    showNegado();
+  } catch (err) {
+    handleError(err, 'denyAutorizacao');
+  }
+});
+
+document.getElementById('btn-denied-mudei').addEventListener('click', () => {
+  // Volta ao termo — a decisão anterior continua salva no banco até o pai confirmar ou recusar de novo
+  show('screen-authorize');
+});
+
+document.getElementById('btn-denied-sair').addEventListener('click', async () => {
+  await signOut();
+  location.reload();
+});
+
+// ====================================================================
+// CATÁLOGO
+// ====================================================================
+
+async function loadCatalogo(user) {
+  show('screen-catalogo');
+
+  // Welcome card
+  const turma = student.school_classes;
+  const anoNome = turma?.year?.name || '';
+  const turmaNome = turma?.name || '';
+  document.getElementById('cat-ola').textContent = `Olá! ${student.name}`;
+  document.getElementById('cat-info').textContent = `${escola.name} · ${anoNome}${turmaNome ? ' / Turma ' + turmaNome : ''}`;
+  const prazo = escola.order_deadline ? new Date(escola.order_deadline + 'T00:00:00').toLocaleDateString('pt-BR') : '';
+  document.getElementById('cat-prazo').textContent = prazo ? `⏰ Pedidos até ${prazo}` : '';
+
+  // Buscar kits + items + produtos — prefere nível de projeto, cai para escola
+  const projId = projeto?.id;
+  const [kitsProj, kitsEsc, itemsResp, prodsResp, pricesProj, pricesEsc] = await Promise.all([
+    projId ? supabase.from('school_kits').select('*').eq('project_id', projId).eq('available', true).order('kit_type') : Promise.resolve({ data: [] }),
+    supabase.from('school_kits').select('*').eq('school_id', escola.id).is('project_id', null).eq('available', true).order('kit_type'),
+    supabase.from('school_kit_items').select('*, kit:school_kits!inner(school_id), product:products(*)').eq('kit.school_id', escola.id),
+    supabase.from('products').select('*').eq('active', true).eq('type', 'avulso').order('sort_order'),
+    projId ? supabase.from('school_prices').select('*').eq('project_id', projId) : Promise.resolve({ data: [] }),
+    supabase.from('school_prices').select('*').eq('school_id', escola.id).is('project_id', null),
+  ]);
+  // Usa kits do projeto se existirem, senão usa da escola
+  const kitsResp = (kitsProj.data && kitsProj.data.length) ? kitsProj : kitsEsc;
+  // Usa preços do projeto se existirem, senão usa da escola
+  const pricesResp = (pricesProj.data && pricesProj.data.length) ? pricesProj : pricesEsc;
+
+  if (kitsResp.error) { handleError(kitsResp.error, 'loadKits'); return; }
+  kits = (kitsResp.data || []).map(k => ({
+    ...k,
+    items: (itemsResp.data || []).filter(it => it.kit_id === k.id).map(it => ({
+      product: it.product, quantity: it.quantity
+    }))
+  }));
+
+  // Avulsos disponíveis: produtos atômicos × school_prices (filtro de disponibilidade)
+  const priceMap = {};
+  (pricesResp.data || []).forEach(p => { priceMap[p.product_id] = p; });
+  avulsosDisp = (prodsResp.data || [])
+    .filter(p => {
+      const sp = priceMap[p.id];
+      // Se não tem linha em school_prices, é disponível por padrão
+      return sp ? sp.available : true;
+    })
+    .map(p => {
+      const sp = priceMap[p.id];
+      return {
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        image_url: p.image_url,
+        price_with_promo:    sp?.price_with_promo    ?? p.base_price_with_promo,
+        price_without_promo: sp?.price_without_promo ?? p.base_price_without_promo,
+      };
+    });
+
+  renderKits();
+  renderAvulsos();
+  renderCart();
+}
+
+function renderKits() {
+  const el = document.getElementById('kits-grid');
+  if (kits.length === 0) {
+    el.innerHTML = '<div class="cart-empty" style="grid-column:1/-1">Nenhum kit disponível ainda. Aguarde a escola configurar.</div>';
+    return;
+  }
+  const order = { basico: 1, inter: 2, promo: 3 };
+  const sorted = [...kits].sort((a, b) => (order[a.kit_type] || 9) - (order[b.kit_type] || 9));
+  el.innerHTML = sorted.map(k => {
+    const tagClass   = { basico: 'tag-bas', inter: 'tag-int', promo: 'tag-pro' }[k.kit_type] || 'tag-av';
+    const bgClass    = { basico: 'bg-bas',  inter: 'bg-int',  promo: 'bg-pro'  }[k.kit_type] || '';
+    const colorClass = { basico: 'color-bas', inter: 'color-int', promo: 'color-pro' }[k.kit_type] || 'color-av';
+    const label = { basico: 'Kit Básico', inter: 'Kit Intermediário', promo: 'Kit Promocional' }[k.kit_type] || k.kit_type;
+    const isUrl = k.image_url && k.image_url.startsWith('http');
+    const img = isUrl ? `<img src="${escapeHtml(k.image_url)}" alt="">`
+                       : `<span style="font-size:38px">${escapeHtml(k.image_url || '🎁')}</span>`;
+    const qty = kitsCarrinho[k.kit_type] || 0;
+    const compTxt = k.items && k.items.length > 0
+      ? k.items.map(it => `${it.quantity}× ${escapeHtml(it.product?.name || '')}`).join(', ')
+      : (k.description ? escapeHtml(k.description) : '');
+    return `
+      <div class="pp-card${qty > 0 ? ' selected' : ''}" data-kit="${k.kit_type}">
+        <div class="pp-card-img ${bgClass}">${img}</div>
+        <div class="pp-card-body">
+          <span class="pp-card-tag ${tagClass}">${label}${k.kit_type === 'promo' ? ' ⭐' : ''}</span>
+          <div class="pp-card-name">${escapeHtml(k.name)}</div>
+          <div class="pp-card-desc">${compTxt}</div>
+          <div class="pp-card-price ${colorClass}">${fmtMoney(k.price)}</div>
+          ${k.kit_type === 'promo' ? '<div style="font-size:11px;color:var(--green);font-weight:600;margin-top:3px">★ Desconto nos avulsos</div>' : ''}
+          <div class="pp-card-qty">
+            <button data-kit-dec="${k.kit_type}">−</button>
+            <span class="qty-num" id="kit-qty-${k.kit_type}">${qty}</span>
+            <button data-kit-inc="${k.kit_type}">+</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  el.querySelectorAll('[data-kit-inc]').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation();
+    const tipo = b.dataset.kitInc;
+    kitsCarrinho[tipo] = (kitsCarrinho[tipo] || 0) + 1;
+    document.getElementById('kit-qty-' + tipo).textContent = kitsCarrinho[tipo];
+    b.closest('.pp-card').classList.add('selected');
+    renderAvulsos();
+    renderCart();
+  }));
+  el.querySelectorAll('[data-kit-dec]').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation();
+    const tipo = b.dataset.kitDec;
+    kitsCarrinho[tipo] = Math.max(0, (kitsCarrinho[tipo] || 0) - 1);
+    document.getElementById('kit-qty-' + tipo).textContent = kitsCarrinho[tipo];
+    if (kitsCarrinho[tipo] === 0) {
+      delete kitsCarrinho[tipo];
+      b.closest('.pp-card').classList.remove('selected');
+    }
+    renderAvulsos();
+    renderCart();
+  }));
+}
+
+function renderAvulsos() {
+  const el = document.getElementById('avulsos-grid');
+  if (avulsosDisp.length === 0) {
+    el.innerHTML = '<div class="cart-empty" style="grid-column:1/-1">Nenhum avulso disponível nessa escola.</div>';
+    document.getElementById('promo-banner').style.display = 'none';
+    return;
+  }
+
+  const isPromo = (kitsCarrinho['promo'] || 0) > 0;
+  document.getElementById('promo-banner').style.display = isPromo ? 'flex' : 'none';
+
+  el.innerHTML = avulsosDisp.map(a => {
+    const price = isPromo ? a.price_with_promo : a.price_without_promo;
+    const oldPrice = (isPromo && a.price_without_promo > a.price_with_promo) ? a.price_without_promo : null;
+    const isUrl = a.image_url && a.image_url.startsWith('http');
+    const img = isUrl ? `<img src="${escapeHtml(a.image_url)}" alt="">`
+                       : `<span style="font-size:34px">${escapeHtml(a.image_url || '📦')}</span>`;
+    const qty = avulsosCarrinho[a.id] || 0;
+    return `
+      <div class="pp-card">
+        <div class="pp-card-img" style="background:var(--c-av-bg)">${img}</div>
+        <div class="pp-card-body">
+          <span class="pp-card-tag tag-av">Avulso</span>
+          <div class="pp-card-name">${escapeHtml(a.name)}</div>
+          <div class="pp-card-desc">${escapeHtml(a.description || '')}</div>
+          <div>
+            <span class="pp-card-price ${isPromo ? 'color-bas' : 'color-av'}">${fmtMoney(price)}</span>
+            ${oldPrice ? `<span class="pp-card-price-old">${fmtMoney(oldPrice)}</span>` : ''}
+          </div>
+          <div class="pp-card-qty">
+            <button data-av-dec="${a.id}">−</button>
+            <span class="qty-num" id="qty-${a.id}">${qty}</span>
+            <button data-av-inc="${a.id}">+</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  el.querySelectorAll('[data-av-inc]').forEach(b => b.addEventListener('click', () => {
+    const id = b.dataset.avInc;
+    avulsosCarrinho[id] = (avulsosCarrinho[id] || 0) + 1;
+    document.getElementById('qty-' + id).textContent = avulsosCarrinho[id];
+    renderCart();
+  }));
+  el.querySelectorAll('[data-av-dec]').forEach(b => b.addEventListener('click', () => {
+    const id = b.dataset.avDec;
+    avulsosCarrinho[id] = Math.max(0, (avulsosCarrinho[id] || 0) - 1);
+    document.getElementById('qty-' + id).textContent = avulsosCarrinho[id];
+    if (avulsosCarrinho[id] === 0) delete avulsosCarrinho[id];
+    renderCart();
+  }));
+}
+
+function calcCart() {
+  const items = [];
+  let total = 0;
+  const kitRank = { promo: 3, inter: 2, basico: 1 };
+  Object.entries(kitsCarrinho).sort((a,b) => (kitRank[a[0]]||0)-(kitRank[b[0]]||0)).forEach(([kitType, qty]) => {
+    if (qty <= 0) return;
+    const kit = kits.find(k => k.kit_type === kitType);
+    if (!kit) return;
+    const price = Number(kit.price) * qty;
+    items.push({ tipo: 'kit', kitType, kit, label: `${kit.name}${qty > 1 ? ' ×' + qty : ''}`, price, qty, unit: Number(kit.price) });
+    total += price;
+  });
+  const isPromo = (kitsCarrinho['promo'] || 0) > 0;
+  Object.entries(avulsosCarrinho).forEach(([id, qty]) => {
+    const av = avulsosDisp.find(x => x.id === id);
+    if (!av || qty <= 0) return;
+    const unit = isPromo ? av.price_with_promo : av.price_without_promo;
+    items.push({ tipo: 'avulso', id, label: `${av.name}${qty > 1 ? ' ×' + qty : ''}`, price: unit * qty, qty, unit });
+    total += unit * qty;
+  });
+  return { items, total };
+}
+
+function renderCart() {
+  const { items, total } = calcCart();
+  const el = document.getElementById('cart-items');
+  if (items.length === 0) {
+    el.innerHTML = '<div class="cart-empty">Nenhum item ainda. Escolha um kit pra começar.</div>';
+  } else {
+    el.innerHTML = items.map((i, idx) => `
+      <div class="cart-item">
+        <span class="cart-item-name">${escapeHtml(i.label)}</span>
+        <span style="display:flex;align-items:center;gap:6px">
+          <span class="cart-item-price">${fmtMoney(i.price)}</span>
+          <button type="button" data-cart-rm="${idx}" title="Remover" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:15px;line-height:1;padding:2px 3px">×</button>
+        </span>
+      </div>
+    `).join('');
+    el.querySelectorAll('[data-cart-rm]').forEach(b => b.addEventListener('click', () => {
+      const item = items[+b.dataset.cartRm];
+      if (!item) return;
+      if (item.tipo === 'kit') {
+        delete kitsCarrinho[item.kitType];
+        renderKits();
+        renderAvulsos();
+      } else {
+        delete avulsosCarrinho[item.id];
+        renderAvulsos();
+      }
+      renderCart();
+    }));
+  }
+  document.getElementById('cart-total').textContent = fmtMoney(total);
+
+  // Atualiza botão flutuante
+  const fab = document.getElementById('cart-fab');
+  const badge = document.getElementById('cart-fab-badge');
+  const fabTotal = document.getElementById('cart-fab-total');
+  if (fab) {
+    fab.style.display = items.length > 0 ? 'flex' : 'none';
+    if (badge) badge.textContent = items.length;
+    if (fabTotal) fabTotal.textContent = fmtMoney(total);
+  }
+}
+
+function openCartDrawer() {
+  document.getElementById('cart-overlay').classList.add('open');
+  document.getElementById('cart-drawer').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeCartDrawer() {
+  document.getElementById('cart-overlay').classList.remove('open');
+  document.getElementById('cart-drawer').classList.remove('open');
+  document.body.style.overflow = '';
+}
+document.getElementById('cart-fab').addEventListener('click', openCartDrawer);
+document.getElementById('cart-overlay').addEventListener('click', closeCartDrawer);
+document.getElementById('cart-drawer-close').addEventListener('click', closeCartDrawer);
+
+// ====================================================================
+// FINALIZAR PEDIDO
+// ====================================================================
+
+document.getElementById('btn-finalizar').addEventListener('click', async () => {
+  const { items, total } = calcCart();
+  if (items.length === 0) { toast('Adicione pelo menos um item antes de finalizar.', 'warn'); return; }
+  const hasKit = Object.values(kitsCarrinho).some(q => q > 0);
+  if (!hasKit && items.every(i => i.tipo === 'avulso')) {
+    if (!confirm('Você está comprando apenas avulsos, sem kit. Deseja continuar?')) return;
+  }
+
+  try {
+    const user = await getCurrentUser();
+    if (!user) throw new Error('Sessão expirada. Faça login novamente.');
+
+    // Kit principal = kit de maior valor no carrinho (para campo legado orders.kit_type)
+    const kitRank = { promo: 3, inter: 2, basico: 1 };
+    const kitEntries = Object.entries(kitsCarrinho).filter(([,q]) => q > 0);
+    const primaryKitType = kitEntries.sort((a,b) => (kitRank[b[0]]||0)-(kitRank[a[0]]||0))[0]?.[0] || null;
+
+    // Cria o pedido
+    const { data: order, error: orderErr } = await supabase
+      .from('orders')
+      .insert({
+        student_id: student.id,
+        user_id: user.id,
+        school_id: escola.id,
+        project_id: projeto?.id || null,
+        kit_type: primaryKitType,
+        total_amount: total,
+        payment_method: 'pix',
+        payment_status: 'pending',
+        source: 'parent',
+      })
+      .select('id, order_number')
+      .single();
+    if (orderErr) throw orderErr;
+
+    // order_kits: um registro por kit (suporta múltiplos kits e quantidades)
+    const isPromo = (kitsCarrinho['promo'] || 0) > 0;
+    const orderKitsToInsert = [];
+    kitEntries.forEach(([kitType, qty]) => {
+      const kit = kits.find(k => k.kit_type === kitType);
+      if (!kit || qty <= 0) return;
+      orderKitsToInsert.push({ order_id: order.id, kit_id: kit.id, quantity: qty, unit_price: Number(kit.price) });
+    });
+    if (orderKitsToInsert.length > 0) {
+      const { error: okErr } = await supabase.from('order_kits').insert(orderKitsToInsert);
+      if (okErr) throw okErr;
+    }
+
+    // order_items: avulsos
+    const itemsToInsert = [];
+    Object.entries(avulsosCarrinho).forEach(([id, qty]) => {
+      const av = avulsosDisp.find(x => x.id === id);
+      if (!av || qty <= 0) return;
+      const unit = isPromo ? av.price_with_promo : av.price_without_promo;
+      itemsToInsert.push({
+        order_id: order.id,
+        product_id: id,
+        quantity: qty,
+        unit_price: unit,
+        discount_applied: isPromo,
+      });
+    });
+
+    if (itemsToInsert.length > 0) {
+      const { error: itErr } = await supabase.from('order_items').insert(itemsToInsert);
+      if (itErr) throw itErr;
+    }
+
+    // Tela de confirmação — atualiza com valores dinâmicos
+    document.getElementById('confirm-num').textContent = order.order_number;
+    document.getElementById('confirm-total').textContent = fmtMoney(total);
+
+    renderPaymentMethods(total, order.order_number);
+
+    document.getElementById('link-wpp').href = `https://wa.me/${WPP_NUMERO}?text=${encodeURIComponent(
+      `Olá! Sou responsável de ${student.name}. Acabei de fazer o pedido ${order.order_number} de ${escola.name} no valor de ${fmtMoney(total)}.`
+    )}`;
+    show('screen-confirm');
+  } catch (err) {
+    handleError(err, 'finalizar');
+  }
+});
+
+// ====================================================================
+// INIT
+// ====================================================================
+
+(async () => {
+  await loadSettings();  // carrega chave PIX, WhatsApp, etc do banco
+  await loadEscola();
+})();
+</script>
+</body>
+</html>
