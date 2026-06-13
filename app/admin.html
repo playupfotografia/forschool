@@ -5802,8 +5802,7 @@ let bilheteProj = null;          // projeto selecionado (com school, kits, sessi
 let bilheteAppSettings = null;   // cache das configs (whatsapp, business_name)
 
 function getPortalUrl(slug) {
-  const base = location.pathname.replace(/\/admin\.html$/, '');
-  return `${location.origin}${base}/portal.html?escola=${encodeURIComponent(slug)}`;
+  return `${location.origin}/?escola=${encodeURIComponent(slug)}`;
 }
 
 async function loadBilhete() {
