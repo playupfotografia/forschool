@@ -1312,6 +1312,30 @@ document.getElementById('cad-al-ano').addEventListener('change', e => {
   });
 });
 
+// Validações de cadastro
+function validarCPF(cpf) {
+  cpf = cpf.replace(/\D/g, '');
+  if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
+  let s = 0;
+  for (let i = 0; i < 9; i++) s += +cpf[i] * (10 - i);
+  let r = (s * 10) % 11; if (r >= 10) r = 0;
+  if (r !== +cpf[9]) return false;
+  s = 0;
+  for (let i = 0; i < 10; i++) s += +cpf[i] * (11 - i);
+  r = (s * 10) % 11; if (r >= 10) r = 0;
+  return r === +cpf[10];
+}
+function validarRG(rg) {
+  return rg.replace(/\D/g, '').length >= 7;
+}
+function validarEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
+}
+function validarWhatsApp(tel) {
+  const d = tel.replace(/\D/g, '');
+  return d.length === 11 && /^[1-9]{2}9\d{8}$/.test(d);
+}
+
 // Submit cadastro
 document.getElementById('form-cadastro').addEventListener('submit', async e => {
   e.preventDefault();
@@ -1332,6 +1356,31 @@ document.getElementById('form-cadastro').addEventListener('submit', async e => {
 
   if (!email || !password || !nome || !cpf || !rg || !tel || !parentesco || !alNome || !yearId || !classId) {
     erroEl.textContent = 'Preencha todos os campos obrigatórios marcados com *.';
+    erroEl.style.display = 'block';
+    return;
+  }
+  if (!validarCPF(cpf)) {
+    erroEl.textContent = 'CPF inválido. Verifique o número digitado.';
+    erroEl.style.display = 'block';
+    return;
+  }
+  if (!validarRG(rg)) {
+    erroEl.textContent = 'RG inválido. Digite pelo menos 7 números.';
+    erroEl.style.display = 'block';
+    return;
+  }
+  if (!validarEmail(email)) {
+    erroEl.textContent = 'E-mail inválido. Verifique o endereço digitado.';
+    erroEl.style.display = 'block';
+    return;
+  }
+  if (!validarWhatsApp(tel)) {
+    erroEl.textContent = 'WhatsApp inválido. Digite DDD + número (11 dígitos), ex: (11) 99999-9999.';
+    erroEl.style.display = 'block';
+    return;
+  }
+  if (password.length < 6) {
+    erroEl.textContent = 'A senha precisa ter pelo menos 6 caracteres.';
     erroEl.style.display = 'block';
     return;
   }
