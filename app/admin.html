@@ -5716,10 +5716,15 @@ document.getElementById('btn-al-reset-auth').addEventListener('click', async () 
 async function excluirAluno(id) {
   const aluno = alunosCache.find(a => a.id === id);
   const nome  = aluno?.name || 'este aluno';
-  if (!confirm(`Excluir "${nome}"? Se ele tiver pedidos vinculados, a exclusão será bloqueada pelo banco.`)) return;
+  if (!confirm(`Excluir "${nome}"? Isso removerá o aluno e, se o responsável não tiver outros filhos cadastrados, também apagará o acesso dele ao portal.`)) return;
   try {
+    const userId = aluno?.user_id;
     const { error } = await supabase.from('students').delete().eq('id', id);
     if (error) throw error;
+    // Se havia um responsável vinculado, apaga do auth se não tiver mais alunos
+    if (userId) {
+      await supabase.rpc('delete_parent_if_no_students', { uid: userId });
+    }
     toast('Aluno excluído', 'warn');
     loadAlunos();
   } catch (err) {
