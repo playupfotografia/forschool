@@ -1404,8 +1404,9 @@ document.getElementById('form-cadastro').addEventListener('submit', async e => {
       }
       return;
     }
-    erroEl.textContent = msg || 'Erro ao criar cadastro.';
+    erroEl.textContent = msg || err.code || err.details || JSON.stringify(err) || 'Erro ao criar cadastro.';
     erroEl.style.display = 'block';
+    console.error('[cadastro]', err);
   }
 });
 
