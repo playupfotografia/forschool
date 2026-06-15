@@ -730,12 +730,15 @@ tr:hover td{background:var(--gray-50)}
             <option value="cancelled">Cancelados</option>
           </select>
         </div>
-        <span id="pd-count" style="font-size:12px;color:var(--gray-400)"></span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="pd-count" style="font-size:12px;color:var(--gray-400)"></span>
+          <button id="pd-btn-excluir" class="btn btn-sm" style="display:none;color:var(--red);border:1px solid var(--red);background:none" onclick="excluirPedidosSelecionados()">Excluir selecionados (<span id="pd-sel-count">0</span>)</button>
+        </div>
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Nº</th><th>Aluno</th><th>Escola</th><th>Kit</th><th>Total</th><th>Método</th><th>Data</th><th>Status</th><th>Ações</th></tr></thead>
-          <tbody id="pd-tab"><tr><td colspan="9" class="loading"><span class="spinner"></span>Carregando pedidos…</td></tr></tbody>
+          <thead><tr><th style="width:32px"><input type="checkbox" id="pd-sel-all" title="Selecionar todos" onchange="toggleSelecionarTodosPedidos(this)"></th><th>Nº</th><th>Aluno</th><th>Escola</th><th>Kit</th><th>Total</th><th>Método</th><th>Data</th><th>Status</th><th>Ações</th></tr></thead>
+          <tbody id="pd-tab"><tr><td colspan="10" class="loading"><span class="spinner"></span>Carregando pedidos…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -2224,7 +2227,8 @@ function filtrarPedidos() {
   // Tabela
   const tb = document.getElementById('pd-tab');
   if (lista.length === 0) {
-    tb.innerHTML = '<tr><td colspan="9" class="empty">Nenhum pedido encontrado.</td></tr>';
+    tb.innerHTML = '<tr><td colspan="10" class="empty">Nenhum pedido encontrado.</td></tr>';
+    atualizarBtnExcluirPedidos();
     return;
   }
 
@@ -2253,6 +2257,7 @@ function filtrarPedidos() {
     ].filter(Boolean).join(' ');
 
     return `<tr style="cursor:pointer" data-ped-row="${p.id}">
+      <td onclick="event.stopPropagation()"><input type="checkbox" class="pd-chk" data-id="${p.id}" onchange="atualizarBtnExcluirPedidos()"></td>
       <td style="font-family:monospace;font-size:12px">${escapeHtml(p.order_number || '—')}</td>
       <td class="td-name">${escapeHtml(p.student?.name || '—')}</td>
       <td>${escapeHtml(p.school?.name || '—')}</td>
@@ -2268,8 +2273,46 @@ function filtrarPedidos() {
   tb.querySelectorAll('[data-ped-row]').forEach(tr => tr.addEventListener('click', () => abrirDetalhesPedido(tr.dataset.pedRow)));
   tb.querySelectorAll('[data-ped-pago]').forEach(b => b.addEventListener('click', () => marcarPedidoPago(b.dataset.pedPago)));
   tb.querySelectorAll('[data-ped-pend]').forEach(b => b.addEventListener('click', () => marcarPedidoPendente(b.dataset.pedPend)));
+
+  // Resetar "selecionar todos"
+  const selAll = document.getElementById('pd-sel-all');
+  if (selAll) selAll.checked = false;
+  atualizarBtnExcluirPedidos();
 }
-window.filtrarPedidos       = filtrarPedidos;        // exposto pro onchange/oninput inline
+
+function atualizarBtnExcluirPedidos() {
+  const selecionados = document.querySelectorAll('.pd-chk:checked');
+  const btn = document.getElementById('pd-btn-excluir');
+  const count = document.getElementById('pd-sel-count');
+  if (btn) btn.style.display = selecionados.length > 0 ? '' : 'none';
+  if (count) count.textContent = selecionados.length;
+}
+
+function toggleSelecionarTodosPedidos(chk) {
+  document.querySelectorAll('.pd-chk').forEach(c => c.checked = chk.checked);
+  atualizarBtnExcluirPedidos();
+}
+
+async function excluirPedidosSelecionados() {
+  const ids = [...document.querySelectorAll('.pd-chk:checked')].map(c => c.dataset.id);
+  if (ids.length === 0) return;
+  if (!confirm(`Excluir ${ids.length} pedido(s) selecionado(s)? Essa ação não pode ser desfeita.`)) return;
+  try {
+    await supabase.from('order_kits').delete().in('order_id', ids);
+    await supabase.from('order_items').delete().in('order_id', ids);
+    const { error } = await supabase.from('orders').delete().in('id', ids);
+    if (error) throw error;
+    toast(`${ids.length} pedido(s) excluído(s)`, 'warn');
+    loadPedidos();
+  } catch (err) {
+    handleError(err, 'excluirPedidos');
+  }
+}
+
+window.filtrarPedidos               = filtrarPedidos;
+window.atualizarBtnExcluirPedidos   = atualizarBtnExcluirPedidos;
+window.toggleSelecionarTodosPedidos = toggleSelecionarTodosPedidos;
+window.excluirPedidosSelecionados   = excluirPedidosSelecionados;
 window.filtrarAlunos        = filtrarAlunos;
 window.onFiltroEscolaAlunos = onFiltroEscolaAlunos;
 window.onFiltroAnoAlunos    = onFiltroAnoAlunos;
