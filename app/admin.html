@@ -7284,7 +7284,7 @@ async function carregarMontagem() {
   const { data: alunos, error } = await supabase
     .from('students')
     .select(`id, name, photo_url,
-      orders:orders(id, status,
+      orders:orders(id, payment_status,
         items:order_items(product:products(id, name, frame_url, frame_width_mm, frame_height_mm)),
         kits:order_kits(kit:school_kits(name,
           items:school_kit_items(product:products(id, name, frame_url, frame_width_mm, frame_height_mm))
