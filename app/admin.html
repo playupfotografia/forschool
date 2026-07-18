@@ -6152,19 +6152,20 @@ function getPortalUrl(slug) {
 async function loadBilhete() {
   try {
     const sel = document.getElementById('bil-proj-sel');
-    if (sel.options.length <= 1) {
-      const { data: projs } = await supabase
-        .from('projects')
-        .select('id, name, slug, school:schools(name)')
-        .eq('active', true)
-        .order('name');
-      (projs || []).forEach(p => {
-        const o = document.createElement('option');
-        o.value = p.id;
-        o.textContent = `${p.name}${p.school?.name ? ' — ' + p.school.name : ''}`;
-        sel.appendChild(o);
-      });
-    }
+    const valorAtual = sel.value;
+    sel.innerHTML = '<option value="">Selecione…</option>';
+    const { data: projs } = await supabase
+      .from('projects')
+      .select('id, name, slug, school:schools(name)')
+      .eq('active', true)
+      .order('name');
+    (projs || []).forEach(p => {
+      const o = document.createElement('option');
+      o.value = p.id;
+      o.textContent = `${p.name}${p.school?.name ? ' — ' + p.school.name : ''}`;
+      sel.appendChild(o);
+    });
+    if (valorAtual) sel.value = valorAtual;
 
     if (!bilheteAppSettings) {
       const { data } = await supabase
