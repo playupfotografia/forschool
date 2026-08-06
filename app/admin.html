@@ -5619,6 +5619,117 @@ function atualizarBtnImprimirFichas() {
   }
 }
 
+/**
+ * Monta o HTML de uma ficha de identificação + o payload do QR code.
+ * Usado tanto por "Imprimir fichas" (seleção manual) quanto por
+ * "Fichas da sessão", pra garantir que as duas telas gerem sempre
+ * o mesmo resultado.
+ * @param {object} a - aluno { id, name, photo_seq_number, school, school_class, user }
+ * @param {object} ped - pedido { items: [{quantity, product}], kits: [{quantity, kit}] } ou undefined
+ */
+function montarFichaCard(a, ped) {
+  const turma  = a.school_class?.name || '—';
+  const ano    = a.school_class?.year?.name || '—';
+  const escola = a.school?.name || '—';
+  const resp   = a.user || {};
+
+  let compradoPartes = [];
+  if (ped) {
+    (ped.items || []).forEach(it => {
+      const qty = parseInt(it.quantity || 1);
+      compradoPartes.push((qty > 1 ? qty + '× ' : '') + (it.product?.name || '?'));
+    });
+    (ped.kits || []).forEach(ok => {
+      const kqty = parseInt(ok.quantity || 1);
+      compradoPartes.push((kqty > 1 ? kqty + '× ' : '') + (ok.kit?.name || '?'));
+    });
+  }
+  const comprou = compradoPartes.length > 0;
+  const compradoStr = comprou ? compradoPartes.join(' · ') : '';
+
+  // Payload do QR — lido pelo organizador_fotos.py no dia da foto
+  const qrPayload = JSON.stringify({ id: a.id, n: a.name, t: turma, a: ano, e: escola });
+
+  const badge = comprou
+    ? `<div class="ficha-badge ficha-badge-comprou">✅ COMPROU</div>`
+    : `<div class="ficha-badge ficha-badge-autorizou">📷 SÓ AUTORIZOU</div>`;
+
+  const html = `<div class="ficha">
+  <div class="ficha-header">
+    <div class="ficha-seq">${a.photo_seq_number ? 'Ficha #' + a.photo_seq_number : ''}</div>
+    <div class="ficha-escola">${escapeHtml(escola)}</div>
+    <canvas id="qr-${a.id}" class="ficha-qr"></canvas>
+  </div>
+  ${badge}
+  <div class="ficha-nome">${escapeHtml(a.name)}</div>
+  <div class="ficha-info">
+    <span><b>Ano:</b> ${escapeHtml(ano)}</span>
+    <span><b>Turma:</b> ${escapeHtml(turma)}</span>
+  </div>
+  ${comprou ? `<div class="ficha-comprado"><b>Comprado:</b> ${escapeHtml(compradoStr)}</div>` : '<div class="ficha-comprado" style="color:#888;font-style:italic">Não realizou pedido — fotografar e oferecer depois</div>'}
+  <div class="ficha-resp"><b>Responsável:</b> ${escapeHtml(resp.name || '—')}${resp.phone ? ' · ' + escapeHtml(resp.phone) : ''}</div>
+  <div class="ficha-obs">Obs / Anotações:</div>
+</div>`;
+
+  return { html, qrPayload };
+}
+
+/**
+ * Abre a janela de impressão com as fichas já montadas + script de QR code.
+ * Compartilhado por "Imprimir fichas" e "Fichas da sessão".
+ */
+function abrirJanelaFichas(fichasHtml, qrPayloads, total) {
+  const qrJson = JSON.stringify(qrPayloads).replace(/</g, '\\u003c');
+  const win = window.open('', '_blank', 'width=900,height=700');
+  win.document.write(`<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="UTF-8">
+<title>Fichas de Alunos — For School</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',Arial,sans-serif;background:#fff;color:#111}
+@page{size:A4 portrait;margin:8mm}
+@media screen{body{padding:12px;max-width:210mm;margin:0 auto}
+  .btn-print{display:block;margin:0 auto 16px;padding:8px 20px;background:#4B6BFB;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-family:inherit}}
+@media print{.btn-print{display:none}}
+.ficha{height:calc((297mm - 16mm) / 3);border:1px dashed #bbb;border-radius:6px;padding:7mm 8mm;display:flex;flex-direction:column;gap:4px;break-inside:avoid;overflow:hidden}
+.ficha-header{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.ficha-seq{font-size:10px;color:#888;font-weight:600;white-space:nowrap}
+.ficha-escola{font-size:13px;color:#555;text-align:right;flex:1}
+.ficha-qr{width:28mm;height:28mm;flex-shrink:0;image-rendering:pixelated}
+.ficha-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;margin-bottom:2px;width:fit-content}
+.ficha-badge-comprou{background:#d1fae5;color:#065f46}
+.ficha-badge-autorizou{background:#fef3c7;color:#92400e}
+.ficha-nome{font-size:52px;font-weight:800;line-height:1.05;color:#111;letter-spacing:-.5px;text-align:center}
+.ficha-info{display:flex;gap:16px;font-size:14px;color:#444;flex-wrap:wrap}
+.ficha-comprado{font-size:14px;color:#333;border-top:1px solid #eee;padding-top:5px;margin-top:2px}
+.ficha-resp{font-size:13px;color:#555}
+.ficha-obs{flex:1;margin-top:4px;border:1px solid #ddd;border-radius:4px;padding:5px 8px;font-size:13px;color:#aaa}
+</style>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"><\/script>
+</head><body>
+<button class="btn-print" onclick="window.print()">🖨 Imprimir (${total} ficha${total !== 1 ? 's' : ''})</button>
+${fichasHtml}
+<script>
+(function(){
+  const payloads = ${qrJson};
+  function gerarQRs() {
+    Object.entries(payloads).forEach(([id, data]) => {
+      const canvas = document.getElementById('qr-' + id);
+      if (!canvas) return;
+      QRCode.toCanvas(canvas, data, { width: Math.round(canvas.offsetWidth || 106), margin: 1,
+        color: { dark: '#000000', light: '#ffffff' } }, function(err){ if(err) console.warn(err); });
+    });
+  }
+  if (document.readyState === 'complete') gerarQRs();
+  else window.addEventListener('load', gerarQRs);
+})();
+<\/script>
+</body></html>`);
+  win.document.close();
+}
+
 async function imprimirFichasSelecionadas() {
   const ids = [...document.querySelectorAll('.al-chk:checked')].map(c => c.dataset.id);
   if (!ids.length) return;
@@ -5631,151 +5742,28 @@ async function imprimirFichasSelecionadas() {
   try {
     const alunos = alunosCache.filter(a => ids.includes(a.id));
 
-    // Buscar pedidos + itens para esses alunos
-    const { data: pedidos } = await supabase
+    // Buscar pedidos + itens/kits para esses alunos (mesmo formato usado em "Fichas da sessão")
+    const { data: pedidos, error: pedErr } = await supabase
       .from('orders')
-      .select(`id, kit_type, total, student_id, project_id,
-        items:order_items(qty, product:products(name)),
-        project:projects(id, name, sessions:project_sessions(photo_date))`)
+      .select(`id, student_id,
+        items:order_items(quantity, product:products(name)),
+        kits:order_kits(quantity, kit:school_kits(name, items:school_kit_items(quantity, product:products(name))))`)
       .in('student_id', ids)
       .order('created_at', { ascending: false });
+    if (pedErr) throw pedErr;
 
-    // Buscar telefone dos responsáveis
-    const userIds = [...new Set(alunos.map(a => a.user?.id).filter(Boolean))];
-    let userMap = {};
-    if (userIds.length) {
-      const { data: users } = await supabase.from('users').select('id,name,phone').in('id', userIds);
-      (users || []).forEach(u => userMap[u.id] = u);
-    }
-
-    // Montar mapa pedido por aluno (o mais recente por aluno)
     const pedidoMap = {};
-    (pedidos || []).forEach(p => {
-      if (!pedidoMap[p.student_id]) pedidoMap[p.student_id] = p;
-    });
+    (pedidos || []).forEach(p => { if (!pedidoMap[p.student_id]) pedidoMap[p.student_id] = p; });
 
-    const kitLabel = { basico: 'Kit Básico', inter: 'Kit Intermediário', promo: 'Kit Promocional' };
-
-    // Mapa id → string JSON para gerar os QR codes na janela de impressão
     const qrPayloads = {};
-
     const fichasHtml = alunos.map(a => {
-      const ped = pedidoMap[a.id];
-      const resp = userMap[a.user?.id] || a.user || {};
-      const turma = a.school_class?.name || '—';
-      const ano   = a.school_class?.year?.name || '—';
-      const escola = a.school?.name || '—';
-
-      // Data das fotos: primeira sessão do projeto do pedido
-      let dataFotos = '—';
-      if (ped?.project?.sessions?.length) {
-        const datas = ped.project.sessions
-          .map(s => s.photo_date)
-          .filter(Boolean)
-          .sort();
-        if (datas.length) dataFotos = new Date(datas[0] + 'T12:00:00').toLocaleDateString('pt-BR');
-      }
-
-      // O que foi comprado
-      let comprado = '—';
-      if (ped) {
-        const partes = [];
-        if (ped.kit_type) partes.push(kitLabel[ped.kit_type] || ped.kit_type);
-        (ped.items || []).forEach(it => {
-          const qty = it.qty > 1 ? `${it.qty}× ` : '';
-          partes.push(qty + (it.product?.name || '?'));
-        });
-        if (partes.length) comprado = partes.join(' · ');
-      }
-
-      // Payload do QR — lido pelo organizador_fotos.py no dia da foto
-      qrPayloads[a.id] = JSON.stringify({
-        id: a.id,
-        n:  a.name,
-        t:  turma,
-        e:  escola,
-        p:  comprado !== '—' ? comprado : ''
-      });
-
-      return `<div class="ficha">
-  <div class="ficha-header">
-    <div class="ficha-seq">${a.photo_seq_number ? 'Ficha #' + a.photo_seq_number : ''}</div>
-    <div class="ficha-escola">${escapeHtml(escola)}</div>
-    <canvas id="qr-${a.id}" class="ficha-qr"></canvas>
-  </div>
-  <div class="ficha-nome">${escapeHtml(a.name)}</div>
-  <div class="ficha-info">
-    <span><b>Ano:</b> ${escapeHtml(ano)}</span>
-    <span><b>Turma:</b> ${escapeHtml(turma)}</span>
-    <span><b>Data foto:</b> ${dataFotos}</span>
-  </div>
-  <div class="ficha-comprado"><b>Comprado:</b> ${escapeHtml(comprado)}</div>
-  <div class="ficha-resp"><b>Responsável:</b> ${escapeHtml(resp.name || '—')}${resp.phone ? ' · ' + escapeHtml(resp.phone) : ''}</div>
-  <div class="ficha-obs">Obs / Anotações:</div>
-</div>`;
+      const { html, qrPayload } = montarFichaCard(a, pedidoMap[a.id]);
+      qrPayloads[a.id] = qrPayload;
+      return html;
     }).join('');
 
-    const qrPayloadsJson = JSON.stringify(qrPayloads).replace(/</g, '\\u003c');
-
-    const win = window.open('', '_blank', 'width=900,height=700');
-    win.document.write(`<!DOCTYPE html>
-<html lang="pt-BR"><head>
-<meta charset="UTF-8">
-<title>Fichas de Alunos — For School</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'DM Sans',Arial,sans-serif;background:#fff;color:#111}
-@page{size:A4 portrait;margin:8mm}
-@media screen{body{padding:12px;max-width:210mm;margin:0 auto}
-  .btn-print{display:block;margin:0 auto 16px;padding:8px 20px;background:#4B6BFB;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-family:inherit}}
-@media print{.btn-print{display:none}}
-.ficha{
-  height:calc((297mm - 16mm) / 3);
-  border:1px dashed #bbb;
-  border-radius:6px;
-  padding:7mm 8mm;
-  display:flex;
-  flex-direction:column;
-  gap:5px;
-  break-inside:avoid;
-  overflow:hidden;
-}
-.ficha-header{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
-.ficha-seq{font-size:10px;color:#888;font-weight:600;white-space:nowrap}
-.ficha-escola{font-size:13px;color:#555;text-align:right;flex:1}
-.ficha-qr{width:28mm;height:28mm;flex-shrink:0;image-rendering:pixelated}
-.ficha-nome{font-size:56px;font-weight:800;line-height:1.05;color:#111;letter-spacing:-.5px;margin:4px 0 4px;text-align:center}
-.ficha-info{display:flex;gap:16px;font-size:14px;color:#444;flex-wrap:wrap}
-.ficha-comprado{font-size:14px;color:#333;border-top:1px solid #eee;padding-top:5px;margin-top:3px}
-.ficha-resp{font-size:14px;color:#555}
-.ficha-obs{flex:1;margin-top:4px;border:1px solid #ddd;border-radius:4px;padding:5px 8px;font-size:13px;color:#aaa}
-</style>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;800&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"><\/script>
-</head><body>
-<button class="btn-print" onclick="window.print()">🖨 Imprimir</button>
-${fichasHtml}
-<script>
-(function(){
-  const payloads = ${qrPayloadsJson};
-  function gerarQRs() {
-    Object.entries(payloads).forEach(([id, data]) => {
-      const canvas = document.getElementById('qr-' + id);
-      if (!canvas) return;
-      QRCode.toCanvas(canvas, data, {
-        width: Math.round(canvas.offsetWidth || 106),
-        margin: 1,
-        color: { dark: '#000000', light: '#ffffff' }
-      }, function(err){ if(err) console.warn('QR erro:', err); });
-    });
-  }
-  if (document.readyState === 'complete') gerarQRs();
-  else window.addEventListener('load', gerarQRs);
-})();
-<\/script>
-</body></html>`);
-    win.document.close();
-  } catch(err) {
+    abrirJanelaFichas(fichasHtml, qrPayloads, alunos.length);
+  } catch (err) {
     toast('Erro ao gerar fichas: ' + err.message, 'error');
   } finally {
     btnEl.innerHTML = orig;
@@ -5859,105 +5847,15 @@ async function imprimirFichasSessao() {
     const pedidoMap = {};
     (pedidos || []).forEach(p => { if (!pedidoMap[p.student_id]) pedidoMap[p.student_id] = p; });
 
-    // 4. Monta fichas
+    // 4. Monta fichas (mesmo layout/QR usado em "Imprimir fichas")
     const qrPayloads = {};
     const fichasHtml = autorizados.map(a => {
-      const turma  = a.school_class?.name || '—';
-      const ano    = a.school_class?.year?.name || '—';
-      const escola = a.school?.name || '—';
-      const resp   = a.user || {};
-      const ped    = pedidoMap[a.id];
-
-      // Produtos comprados
-      let compradoPartes = [];
-      if (ped) {
-        (ped.items || []).forEach(it => {
-          const qty = parseInt(it.quantity || 1);
-          compradoPartes.push((qty > 1 ? qty + '× ' : '') + (it.product?.name || '?'));
-        });
-        (ped.kits || []).forEach(ok => {
-          const kqty = parseInt(ok.quantity || 1);
-          compradoPartes.push((kqty > 1 ? kqty + '× ' : '') + (ok.kit?.name || '?'));
-        });
-      }
-      const comprou = compradoPartes.length > 0;
-      const compradoStr = comprou ? compradoPartes.join(' · ') : '';
-
-      // QR payload para o organizador (inclui 'a' = ano)
-      qrPayloads[a.id] = JSON.stringify({ id: a.id, n: a.name, t: turma, a: ano, e: escola });
-
-      const badge = comprou
-        ? `<div class="ficha-badge ficha-badge-comprou">✅ COMPROU</div>`
-        : `<div class="ficha-badge ficha-badge-autorizou">📷 SÓ AUTORIZOU</div>`;
-
-      return `<div class="ficha">
-  <div class="ficha-header">
-    <div class="ficha-seq">${a.photo_seq_number ? 'Ficha #' + a.photo_seq_number : ''}</div>
-    <div class="ficha-escola">${escapeHtml(escola)}</div>
-    <canvas id="qr-${a.id}" class="ficha-qr"></canvas>
-  </div>
-  ${badge}
-  <div class="ficha-nome">${escapeHtml(a.name)}</div>
-  <div class="ficha-info">
-    <span><b>Ano:</b> ${escapeHtml(ano)}</span>
-    <span><b>Turma:</b> ${escapeHtml(turma)}</span>
-  </div>
-  ${comprou ? `<div class="ficha-comprado"><b>Comprado:</b> ${escapeHtml(compradoStr)}</div>` : '<div class="ficha-comprado" style="color:#888;font-style:italic">Não realizou pedido — fotografar e oferecer depois</div>'}
-  <div class="ficha-resp"><b>Responsável:</b> ${escapeHtml(resp.name || '—')}${resp.phone ? ' · ' + escapeHtml(resp.phone) : ''}</div>
-  <div class="ficha-obs">Obs / Anotações:</div>
-</div>`;
+      const { html, qrPayload } = montarFichaCard(a, pedidoMap[a.id]);
+      qrPayloads[a.id] = qrPayload;
+      return html;
     }).join('');
 
-    const qrJson = JSON.stringify(qrPayloads).replace(/</g, '\\u003c');
-
-    const win = window.open('', '_blank', 'width=900,height=700');
-    win.document.write(`<!DOCTYPE html>
-<html lang="pt-BR"><head>
-<meta charset="UTF-8">
-<title>Fichas da Sessão — For School</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'DM Sans',Arial,sans-serif;background:#fff;color:#111}
-@page{size:A4 portrait;margin:8mm}
-@media screen{body{padding:12px;max-width:210mm;margin:0 auto}
-  .btn-print{display:block;margin:0 auto 16px;padding:8px 20px;background:#4B6BFB;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-family:inherit}}
-@media print{.btn-print{display:none}}
-.ficha{height:calc((297mm - 16mm) / 3);border:1px dashed #bbb;border-radius:6px;padding:7mm 8mm;display:flex;flex-direction:column;gap:4px;break-inside:avoid;overflow:hidden}
-.ficha-header{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
-.ficha-seq{font-size:10px;color:#888;font-weight:600;white-space:nowrap}
-.ficha-escola{font-size:13px;color:#555;text-align:right;flex:1}
-.ficha-qr{width:28mm;height:28mm;flex-shrink:0;image-rendering:pixelated}
-.ficha-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;margin-bottom:2px;width:fit-content}
-.ficha-badge-comprou{background:#d1fae5;color:#065f46}
-.ficha-badge-autorizou{background:#fef3c7;color:#92400e}
-.ficha-nome{font-size:52px;font-weight:800;line-height:1.05;color:#111;letter-spacing:-.5px;text-align:center}
-.ficha-info{display:flex;gap:16px;font-size:14px;color:#444;flex-wrap:wrap}
-.ficha-comprado{font-size:14px;color:#333;border-top:1px solid #eee;padding-top:5px;margin-top:2px}
-.ficha-resp{font-size:13px;color:#555}
-.ficha-obs{flex:1;margin-top:4px;border:1px solid #ddd;border-radius:4px;padding:5px 8px;font-size:13px;color:#aaa}
-</style>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;800&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"><\/script>
-</head><body>
-<button class="btn-print" onclick="window.print()">🖨 Imprimir (${autorizados.length} fichas)</button>
-${fichasHtml}
-<script>
-(function(){
-  const payloads = ${qrJson};
-  function gerarQRs() {
-    Object.entries(payloads).forEach(([id, data]) => {
-      const canvas = document.getElementById('qr-' + id);
-      if (!canvas) return;
-      QRCode.toCanvas(canvas, data, { width: Math.round(canvas.offsetWidth || 106), margin: 1,
-        color: { dark: '#000000', light: '#ffffff' } }, function(err){ if(err) console.warn(err); });
-    });
-  }
-  if (document.readyState === 'complete') gerarQRs();
-  else window.addEventListener('load', gerarQRs);
-})();
-<\/script>
-</body></html>`);
-    win.document.close();
+    abrirJanelaFichas(fichasHtml, qrPayloads, autorizados.length);
     document.getElementById('mod-fichas-sessao').classList.remove('open');
   } catch(err) {
     toast('Erro ao gerar fichas: ' + err.message, 'error');
