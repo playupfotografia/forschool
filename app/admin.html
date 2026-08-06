@@ -5788,15 +5788,16 @@ async function imprimirFichasSessao() {
     if (!classIds.length) { toast('Esta sessão não tem turmas vinculadas.', 'error'); return; }
 
     // 2. Alunos autorizados nessas turmas
-    const { data: alunos } = await supabase
+    const { data: alunos, error: alunosErr } = await supabase
       .from('students')
       .select(`id, name, photo_seq_number, authorize_individual, authorize_class, authorization_date,
         school_class:school_classes(name, year:school_years(name)),
         school:schools(name),
         user:users(id, name, phone)`)
-      .in('school_class_id', classIds)
+      .in('class_id', classIds)
       .not('authorization_date', 'is', null)
       .order('name');
+    if (alunosErr) throw alunosErr;
 
     const autorizados = (alunos || []).filter(a => a.authorize_individual || a.authorize_class);
     if (!autorizados.length) { toast('Nenhum aluno autorizado nesta sessão.', 'error'); return; }
