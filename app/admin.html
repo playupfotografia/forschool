@@ -5749,7 +5749,7 @@ async function abrirModalFichasSessao() {
   sel.innerHTML = '<option value="">Selecione o projeto…</option>' +
     (projs || []).map(p => `<option value="${p.id}">${escapeHtml(p.name)}${p.school ? ' — ' + escapeHtml(p.school.name) : ''}</option>`).join('');
   document.getElementById('fs-sessao').innerHTML = '<option value="">Selecione o projeto primeiro…</option>';
-  document.getElementById('mod-fichas-sessao').classList.add('active');
+  document.getElementById('mod-fichas-sessao').classList.add('open');
 }
 
 async function onFichasSessaoProjeto() {
@@ -5912,7 +5912,7 @@ ${fichasHtml}
 <\/script>
 </body></html>`);
     win.document.close();
-    document.getElementById('mod-fichas-sessao').classList.remove('active');
+    document.getElementById('mod-fichas-sessao').classList.remove('open');
   } catch(err) {
     toast('Erro ao gerar fichas: ' + err.message, 'error');
   } finally {
