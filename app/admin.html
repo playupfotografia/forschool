@@ -5655,20 +5655,22 @@ function montarFichaCard(a, ped) {
     : `<div class="ficha-badge ficha-badge-autorizou">📷 SÓ AUTORIZOU</div>`;
 
   const html = `<div class="ficha">
-  <div class="ficha-header">
-    <div class="ficha-seq">${a.photo_seq_number ? 'Ficha #' + a.photo_seq_number : ''}</div>
-    <div class="ficha-escola">${escapeHtml(escola)}</div>
-    <canvas id="qr-${a.id}" class="ficha-qr"></canvas>
+  <div class="ficha-body">
+    <div class="ficha-header">
+      <div class="ficha-seq">${a.photo_seq_number ? 'Ficha #' + a.photo_seq_number : ''}</div>
+      <div class="ficha-escola">${escapeHtml(escola)}</div>
+    </div>
+    ${badge}
+    <div class="ficha-nome">${escapeHtml(a.name)}</div>
+    <div class="ficha-info">
+      <span><b>Ano:</b> ${escapeHtml(ano)}</span>
+      <span><b>Turma:</b> ${escapeHtml(turma)}</span>
+    </div>
+    ${comprou ? `<div class="ficha-comprado"><b>Comprado:</b> ${escapeHtml(compradoStr)}</div>` : '<div class="ficha-comprado" style="color:#888;font-style:italic">Não realizou pedido — fotografar e oferecer depois</div>'}
+    <div class="ficha-resp"><b>Responsável:</b> ${escapeHtml(resp.name || '—')}${resp.phone ? ' · ' + escapeHtml(resp.phone) : ''}</div>
+    <div class="ficha-obs">Obs / Anotações:</div>
   </div>
-  ${badge}
-  <div class="ficha-nome">${escapeHtml(a.name)}</div>
-  <div class="ficha-info">
-    <span><b>Ano:</b> ${escapeHtml(ano)}</span>
-    <span><b>Turma:</b> ${escapeHtml(turma)}</span>
-  </div>
-  ${comprou ? `<div class="ficha-comprado"><b>Comprado:</b> ${escapeHtml(compradoStr)}</div>` : '<div class="ficha-comprado" style="color:#888;font-style:italic">Não realizou pedido — fotografar e oferecer depois</div>'}
-  <div class="ficha-resp"><b>Responsável:</b> ${escapeHtml(resp.name || '—')}${resp.phone ? ' · ' + escapeHtml(resp.phone) : ''}</div>
-  <div class="ficha-obs">Obs / Anotações:</div>
+  <canvas id="qr-${a.id}" class="ficha-qr"></canvas>
 </div>`;
 
   return { html, qrPayload };
@@ -5692,11 +5694,12 @@ body{font-family:'DM Sans',Arial,sans-serif;background:#fff;color:#111}
 @media screen{body{padding:12px;max-width:210mm;margin:0 auto}
   .btn-print{display:block;margin:0 auto 16px;padding:8px 20px;background:#4B6BFB;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-family:inherit}}
 @media print{.btn-print{display:none}}
-.ficha{height:calc((297mm - 16mm) / 3);border:1px dashed #bbb;border-radius:6px;padding:7mm 8mm;display:flex;flex-direction:column;gap:4px;break-inside:avoid;overflow:hidden}
+.ficha{height:calc((297mm - 16mm) / 3);border:1px dashed #bbb;border-radius:6px;padding:7mm 8mm;display:flex;flex-direction:row;align-items:center;gap:10px;break-inside:avoid;overflow:hidden}
+.ficha-body{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0}
 .ficha-header{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
 .ficha-seq{font-size:10px;color:#888;font-weight:600;white-space:nowrap}
 .ficha-escola{font-size:13px;color:#555;text-align:right;flex:1}
-.ficha-qr{width:28mm;height:28mm;flex-shrink:0;image-rendering:pixelated}
+.ficha-qr{width:56mm;height:56mm;flex-shrink:0;image-rendering:pixelated}
 .ficha-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;margin-bottom:2px;width:fit-content}
 .ficha-badge-comprou{background:#d1fae5;color:#065f46}
 .ficha-badge-autorizou{background:#fef3c7;color:#92400e}
