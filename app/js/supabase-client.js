@@ -59,6 +59,26 @@ export async function signOut() {
   if (error) throw error;
 }
 
+/**
+ * Cria a conta de login de um responsável a partir do painel admin, sem
+ * derrubar a sessão do admin (usa um client Supabase isolado, sem
+ * persistir sessão em localStorage).
+ * Se o e-mail já tiver conta, lança erro com message contendo
+ * "already registered" (mesmo texto do signUp normal).
+ */
+export async function createParentAccount(email, password, meta = {}) {
+  const tempClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false }
+  });
+  const { data, error } = await tempClient.auth.signUp({
+    email,
+    password,
+    options: { data: meta }
+  });
+  if (error) throw error;
+  return data;
+}
+
 // ----------------------------------------------------------------------------
 // Helpers de UI
 // ----------------------------------------------------------------------------

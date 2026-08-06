@@ -2074,12 +2074,52 @@ tr:hover td{background:var(--gray-50)}
         </div>
       </div>
 
-      <!-- Seção responsáveis (só aparece ao editar) -->
-      <div id="al-resp-section" style="display:none;margin-top:12px">
+      <!-- Seção responsáveis -->
+      <div id="al-resp-section" style="margin-top:12px">
         <hr style="border:none;border-top:1px solid var(--gray-200);margin-bottom:12px">
-        <div style="font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">1º Responsável (cadastrado no portal)</div>
-        <div id="al-resp1-info" style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:11px;font-size:13px;color:var(--gray-700);margin-bottom:14px">
-          <span style="color:var(--gray-400);font-size:12px">Não cadastrado no portal ainda.</span>
+        <div style="font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">1º Responsável</div>
+
+        <!-- Mostrado quando o aluno já tem responsável com login (portal ou criado aqui) -->
+        <div id="al-resp1-info" style="display:none;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:11px;font-size:13px;color:var(--gray-700);margin-bottom:14px"></div>
+
+        <!-- Mostrado quando ainda não tem responsável — permite criar login na hora -->
+        <div id="al-resp-create" style="display:none;margin-bottom:14px">
+          <div style="font-size:12px;color:var(--gray-500);margin-bottom:8px">
+            Cadastre aqui os dados do responsável e crie um login pra ele. Depois ele pode entrar no portal e trocar a senha em "Esqueceu a senha?".
+          </div>
+          <div class="form-grid fg2" style="gap:8px">
+            <div class="form-group" style="grid-column:1/-1">
+              <label class="form-label">Nome completo</label>
+              <input class="form-input" id="al-r1-nome" placeholder="Ex: João Silva">
+            </div>
+            <div class="form-group">
+              <label class="form-label">E-mail (login)</label>
+              <input class="form-input" type="email" id="al-r1-email" placeholder="responsavel@email.com">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Senha</label>
+              <div style="display:flex;gap:6px">
+                <input class="form-input" type="text" id="al-r1-senha" placeholder="Mínimo 6 caracteres">
+                <button type="button" class="btn btn-secondary" id="btn-al-r1-gerar-senha" title="Gerar senha aleatória" style="white-space:nowrap">🎲 Gerar</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Telefone / WhatsApp</label>
+              <input class="form-input" id="al-r1-tel" placeholder="(11) 9 0000-0000">
+            </div>
+            <div class="form-group">
+              <label class="form-label">CPF</label>
+              <input class="form-input" id="al-r1-cpf" placeholder="000.000.000-00">
+            </div>
+            <div class="form-group">
+              <label class="form-label">RG</label>
+              <input class="form-input" id="al-r1-rg" placeholder="00.000.000-0">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Parentesco</label>
+              <input class="form-input" id="al-r1-parent" placeholder="Ex: Mãe, Pai, Avó…">
+            </div>
+          </div>
         </div>
 
         <div style="font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">2º Responsável</div>
@@ -2099,17 +2139,21 @@ tr:hover td{background:var(--gray-50)}
         </div>
       </div>
 
-      <!-- Seção autorização (só aparece ao editar) -->
-      <div id="al-auth-section" style="display:none;margin-top:12px">
+      <!-- Seção autorização -->
+      <div id="al-auth-section" style="margin-top:12px">
         <hr style="border:none;border-top:1px solid var(--gray-200);margin-bottom:12px">
         <div style="font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Autorização de imagem</div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;margin-bottom:8px">
+          <input type="checkbox" id="al-auth-simples" style="width:16px;height:16px">
+          Aluno autorizado (uso de imagem individual e de turma)
+        </label>
         <div id="al-auth-status" style="margin-bottom:10px"></div>
         <div id="al-auth-log-wrap" style="display:none">
           <div style="font-size:11px;color:var(--gray-500);margin-bottom:4px">Histórico de decisões</div>
           <div id="al-auth-log" style="font-size:12px;display:flex;flex-direction:column;gap:4px"></div>
         </div>
-        <button type="button" class="btn btn-secondary" id="btn-al-reset-auth" style="margin-top:10px;font-size:12px">↺ Resetar autorização</button>
-        <div style="font-size:11px;color:var(--gray-500);margin-top:4px">Reseta a decisão: na próxima vez que o responsável entrar no portal, o termo de autorização será exibido novamente.</div>
+        <button type="button" class="btn btn-secondary" id="btn-al-reset-auth" style="display:none;margin-top:10px;font-size:12px">↺ Resetar autorização</button>
+        <div id="al-auth-reset-hint" style="display:none;font-size:11px;color:var(--gray-500);margin-top:4px">Reseta a decisão: na próxima vez que o responsável entrar no portal, o termo de autorização será exibido novamente.</div>
       </div>
 
       <!-- Seção pedido (aparece quando aluno tem pedido) -->
@@ -2245,7 +2289,7 @@ tr:hover td{background:var(--gray-50)}
 
 <!-- ============ APP JS ============ -->
 <script type="module">
-import { supabase, getCurrentUser, isAdmin, signIn, signOut, fmtMoney, toast, handleError, uploadProductImage } from './js/supabase-client.js';
+import { supabase, getCurrentUser, isAdmin, signIn, signOut, fmtMoney, toast, handleError, uploadProductImage, createParentAccount } from './js/supabase-client.js';
 
 // ============================================================================
 // AUTH
@@ -5460,6 +5504,7 @@ let alunosCache = [];
 let editAlunoId = null;
 let alunosEscolasCache = [];
 let editAlunoOrderData = null;
+let editAlunoData = null;
 
 async function loadAlunos() {
   const tb = document.getElementById('al-tab');
@@ -5999,6 +6044,7 @@ async function onAnoModalAluno() {
 function abrirModalAluno() {
   editAlunoId = null;
   editAlunoOrderData = null;
+  editAlunoData = null;
   document.getElementById('mod-aluno-title').textContent = 'Novo aluno';
   document.getElementById('al-nome').value  = '';
   document.getElementById('al-nasc').value  = '';
@@ -6008,11 +6054,22 @@ function abrirModalAluno() {
   document.getElementById('al-esc').value   = '';
   document.getElementById('al-ano').innerHTML = '<option value="">Selecione…</option>';
   document.getElementById('al-tur').innerHTML = '<option value="">Selecione…</option>';
-  document.getElementById('al-auth-section').style.display = 'none';
-  document.getElementById('al-resp-section').style.display = 'none';
   document.getElementById('al-g2-nome').value   = '';
   document.getElementById('al-g2-tel').value    = '';
   document.getElementById('al-g2-parent').value = '';
+
+  // Novo aluno: sempre sem responsável ainda → mostra form de criar login
+  document.getElementById('al-resp1-info').style.display  = 'none';
+  document.getElementById('al-resp-create').style.display = 'block';
+  document.getElementById('al-r1-nome').value   = '';
+  document.getElementById('al-r1-email').value  = '';
+  document.getElementById('al-r1-senha').value  = '';
+  document.getElementById('al-r1-tel').value    = '';
+  document.getElementById('al-r1-cpf').value    = '';
+  document.getElementById('al-r1-rg').value     = '';
+  document.getElementById('al-r1-parent').value = '';
+
+  renderAuthSection({});
   document.getElementById('mod-aluno').classList.add('open');
 }
 
@@ -6033,6 +6090,7 @@ async function editarAluno(id) {
 
   editAlunoId = id;
   editAlunoOrderData = null;
+  editAlunoData = aluno;
   document.getElementById('mod-aluno-title').textContent = 'Editar aluno';
   document.getElementById('al-nome').value  = aluno.name || '';
   document.getElementById('al-nasc').value  = aluno.birth_date || '';
@@ -6063,10 +6121,13 @@ async function editarAluno(id) {
   document.getElementById('al-tur').value = aluno.school_class?.id || '';
 
   // Seção responsáveis
-  document.getElementById('al-resp-section').style.display = 'block';
   const u = aluno.user;
   const resp1El = document.getElementById('al-resp1-info');
+  const respCreateEl = document.getElementById('al-resp-create');
   if (u?.name) {
+    // Já tem responsável com login (portal ou criado aqui antes) — mostra só leitura
+    resp1El.style.display = 'block';
+    respCreateEl.style.display = 'none';
     const relMap = { mae: 'Mãe', pai: 'Pai', avo: 'Avó/Avô', tio: 'Tio/Tia', outro: 'Outro' };
     const rel = relMap[u.relationship] || u.relationship || '';
     resp1El.innerHTML = `
@@ -6078,7 +6139,16 @@ async function editarAluno(id) {
         <div><span style="font-size:11px;color:var(--gray-400)">RG</span><br>${escapeHtml(u.rg || '—')}</div>
       </div>`;
   } else {
-    resp1El.innerHTML = '<span style="color:var(--gray-400);font-size:12px">Não cadastrado no portal ainda.</span>';
+    // Ainda não tem responsável — permite criar login agora
+    resp1El.style.display = 'none';
+    respCreateEl.style.display = 'block';
+    document.getElementById('al-r1-nome').value   = '';
+    document.getElementById('al-r1-email').value  = '';
+    document.getElementById('al-r1-senha').value  = '';
+    document.getElementById('al-r1-tel').value    = '';
+    document.getElementById('al-r1-cpf').value    = '';
+    document.getElementById('al-r1-rg').value     = '';
+    document.getElementById('al-r1-parent').value = '';
   }
   document.getElementById('al-g2-nome').value   = aluno.guardian2_name || '';
   document.getElementById('al-g2-tel').value    = aluno.guardian2_phone || '';
@@ -6189,21 +6259,30 @@ async function toggleStatusPedidoModal(orderId, newStatus) {
 window.toggleStatusPedidoModal = toggleStatusPedidoModal;
 
 function renderAuthSection(aluno) {
-  const section = document.getElementById('al-auth-section');
-  const statusEl = document.getElementById('al-auth-status');
-  const logWrap = document.getElementById('al-auth-log-wrap');
-  const logEl = document.getElementById('al-auth-log');
+  const statusEl   = document.getElementById('al-auth-status');
+  const logWrap    = document.getElementById('al-auth-log-wrap');
+  const logEl      = document.getElementById('al-auth-log');
+  const resetBtn   = document.getElementById('btn-al-reset-auth');
+  const resetHint  = document.getElementById('al-auth-reset-hint');
+  const checkbox   = document.getElementById('al-auth-simples');
 
   const hasDecision = aluno.authorization_date != null;
-  if (!hasDecision) {
-    section.style.display = 'none';
-    return;
-  }
-  section.style.display = 'block';
-
-  // Status atual
   const ind = aluno.authorize_individual;
   const cls = aluno.authorize_class;
+  checkbox.checked = hasDecision && (ind || cls);
+
+  if (!hasDecision) {
+    statusEl.innerHTML = '';
+    logWrap.style.display = 'none';
+    resetBtn.style.display = 'none';
+    resetHint.style.display = 'none';
+    return;
+  }
+
+  resetBtn.style.display = 'inline-flex';
+  resetHint.style.display = 'block';
+
+  // Status atual
   const date = aluno.authorization_date ? new Date(aluno.authorization_date).toLocaleDateString('pt-BR') : '—';
   const signed = aluno.authorization_signed_by || '';
 
@@ -6265,9 +6344,9 @@ document.getElementById('btn-al-reset-auth').addEventListener('click', async () 
       aluno.authorization_date = null;
       aluno.authorization_signed_by = null;
       aluno.authorization_log = [...currentLog, logEntry];
+      renderAuthSection(aluno);
     }
     toast('Autorização resetada. O responsável verá o termo na próxima vez.', 'ok');
-    document.getElementById('al-auth-section').style.display = 'none';
   } catch (err) {
     handleError(err, 'resetarAutorizacao');
   }
@@ -6297,6 +6376,13 @@ async function excluirAluno(id) {
 }
 
 document.getElementById('btn-novo-aluno').addEventListener('click', abrirModalAluno);
+
+document.getElementById('btn-al-r1-gerar-senha').addEventListener('click', () => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  let senha = '';
+  for (let i = 0; i < 8; i++) senha += chars[Math.floor(Math.random() * chars.length)];
+  document.getElementById('al-r1-senha').value = senha;
+});
 
 document.getElementById('btn-salvar-aluno').addEventListener('click', async () => {
   const nome = document.getElementById('al-nome').value.trim();
@@ -6336,6 +6422,74 @@ document.getElementById('btn-salvar-aluno').addEventListener('click', async () =
       guardian2_phone:         document.getElementById('al-g2-tel').value.trim() || null,
       guardian2_relationship:  document.getElementById('al-g2-parent').value.trim() || null,
     };
+
+    // Cria login do 1º responsável, se o form de criação estiver visível e preenchido
+    const respCreateVisivel = document.getElementById('al-resp-create').style.display !== 'none';
+    if (respCreateVisivel) {
+      const r1Nome  = document.getElementById('al-r1-nome').value.trim();
+      const r1Email = document.getElementById('al-r1-email').value.trim();
+      const r1Senha = document.getElementById('al-r1-senha').value;
+      if (r1Nome || r1Email || r1Senha) {
+        if (!r1Nome || !r1Email || !r1Senha) {
+          toast('Preencha nome, e-mail e senha do responsável (ou deixe os três em branco).', 'warn');
+          return;
+        }
+        if (r1Senha.length < 6) {
+          toast('A senha do responsável precisa ter pelo menos 6 caracteres.', 'warn');
+          return;
+        }
+        try {
+          const acc = await createParentAccount(r1Email, r1Senha, {
+            name: r1Nome,
+            cpf: document.getElementById('al-r1-cpf').value.trim() || null,
+            rg: document.getElementById('al-r1-rg').value.trim() || null,
+            phone: document.getElementById('al-r1-tel').value.trim() || null,
+            relationship: document.getElementById('al-r1-parent').value.trim() || null,
+          });
+          payload.user_id = acc.user.id;
+          // Espera a trigger handle_new_user criar a linha em public.users
+          await new Promise(r => setTimeout(r, 400));
+        } catch (accErr) {
+          const msg = accErr.message || '';
+          const jaExiste = msg.includes('already registered') || msg.includes('already been registered');
+          if (jaExiste) {
+            const { data: existing } = await supabase.from('users').select('id').eq('email', r1Email).maybeSingle();
+            if (existing) {
+              payload.user_id = existing.id;
+              toast('Esse e-mail já tem cadastro — vinculando à conta existente.', 'info');
+            } else {
+              toast('Esse e-mail já tem uma conta, mas não consegui vincular automaticamente. Peça pro responsável se cadastrar pelo portal.', 'error');
+              return;
+            }
+          } else {
+            handleError(accErr, 'criarLoginResponsavel');
+            return;
+          }
+        }
+      }
+    }
+
+    // Autorização simples (checkbox)
+    const autorizado = document.getElementById('al-auth-simples').checked;
+    const jaAutorizado = editAlunoData?.authorization_date != null && (editAlunoData?.authorize_individual || editAlunoData?.authorize_class);
+    const jaTemDecisao = editAlunoData?.authorization_date != null;
+    if (autorizado && !jaAutorizado) {
+      const currentLog = Array.isArray(editAlunoData?.authorization_log) ? editAlunoData.authorization_log : [];
+      const now = new Date().toISOString();
+      payload.authorize_individual = true;
+      payload.authorize_class = true;
+      payload.authorization_date = now;
+      payload.authorization_signed_by = 'Admin (cadastro manual)';
+      payload.authorization_log = [...currentLog, { action: 'authorized', date: now, signed_by: 'Admin (cadastro manual)', individual: true, class: true }];
+    } else if (!autorizado && jaTemDecisao) {
+      const currentLog = Array.isArray(editAlunoData?.authorization_log) ? editAlunoData.authorization_log : [];
+      const now = new Date().toISOString();
+      payload.authorize_individual = null;
+      payload.authorize_class = null;
+      payload.authorization_date = null;
+      payload.authorization_signed_by = null;
+      payload.authorization_log = [...currentLog, { action: 'reset', date: now, reset_by: 'admin' }];
+    }
 
     if (editAlunoId) {
       const { error } = await supabase.from('students').update(payload).eq('id', editAlunoId);
