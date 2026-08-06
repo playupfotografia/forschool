@@ -1453,7 +1453,12 @@ document.getElementById('form-cadastro').addEventListener('submit', async e => {
       }
       return;
     }
-    erroEl.textContent = msg || err.code || err.details || JSON.stringify(err) || 'Erro ao criar cadastro.';
+    const dbError = msg.includes('Database error saving new user') || msg.includes('users_cpf_key') || msg.includes('duplicate key');
+    if (dbError) {
+      erroEl.textContent = 'Este CPF já está cadastrado no sistema. Verifique o número digitado ou entre em contato com a Play Up se o CPF estiver correto.';
+    } else {
+      erroEl.textContent = msg || err.code || err.details || JSON.stringify(err) || 'Erro ao criar cadastro.';
+    }
     erroEl.style.display = 'block';
     console.error('[cadastro]', err);
   }
