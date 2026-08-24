@@ -2446,9 +2446,14 @@ document.getElementById('reset-pw-form').addEventListener('submit', async (e) =>
   try {
     const { error } = await supabase.auth.updateUser({ password: nova });
     if (error) throw error;
-    toast('Senha alterada com sucesso!', 'ok');
+    // Encerra a sessão de recuperação e limpa o #type=recovery da URL,
+    // senão checkSession() fica bloqueado permanentemente por essa flag.
+    await signOut();
+    history.replaceState(null, '', location.pathname + location.search);
     document.getElementById('reset-pw-screen').style.display = 'none';
-    checkSession();
+    showLogin();
+    document.getElementById('login-info').textContent = 'Senha alterada com sucesso! Entre com a nova senha.';
+    document.getElementById('login-info').style.display = 'block';
   } catch (err) {
     errEl.textContent = err.message || 'Erro ao trocar a senha.';
     errEl.style.display = 'block';
