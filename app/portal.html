@@ -473,6 +473,33 @@ button,input,select,textarea{font-family:var(--font)}
   </div>
 </div>
 
+<!-- ============ TELA: DEFINIR NOVA SENHA (link de "Esqueceu a senha?") ============ -->
+<div id="screen-reset-pw" style="display:none">
+  <div class="container-narrow">
+    <div class="login-card">
+      <div class="login-hero">
+        <h1>Definir nova senha</h1>
+        <p>Escolha uma nova senha pra sua conta.</p>
+      </div>
+      <form id="form-reset-pw">
+        <div class="form-group">
+          <label class="form-label">Nova senha (mínimo 6 caracteres)</label>
+          <div style="position:relative">
+            <input class="form-input" type="password" id="reset-pw-nova" required minlength="6" autocomplete="new-password" style="padding-right:40px">
+            <button type="button" onclick="toggleSenha('reset-pw-nova',this)" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--gray-400);padding:2px">👁</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Confirme a nova senha</label>
+          <input class="form-input" type="password" id="reset-pw-confirma" required minlength="6" autocomplete="new-password">
+        </div>
+        <button class="btn btn-primary btn-block" type="submit" style="padding:12px">Salvar nova senha</button>
+        <div id="reset-pw-erro" class="error-msg" style="display:none"></div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <!-- ============ TELA: AUTORIZAÇÃO DE IMAGEM ============ -->
 <div id="screen-authorize" style="display:none">
   <div class="container">
@@ -956,7 +983,7 @@ attachMask('cad-rg',  maskRG);
 attachMask('cad-tel', maskPhone);
 
 function show(screenId) {
-  ['screen-erro','screen-auth','screen-authorize','screen-denied','screen-catalogo','screen-confirm','screen-minha-conta','screen-filhos','screen-add-filho'].forEach(id => {
+  ['screen-erro','screen-auth','screen-authorize','screen-denied','screen-catalogo','screen-confirm','screen-minha-conta','screen-filhos','screen-add-filho','screen-reset-pw'].forEach(id => {
     document.getElementById(id).style.display = (id === screenId ? 'block' : 'none');
   });
   if (screenId !== 'screen-catalogo') {
@@ -1522,6 +1549,38 @@ document.getElementById('form-add-filho').addEventListener('submit', async e => 
     showAutorizacao(user);
   } catch (err) {
     erroEl.textContent = err.message || 'Erro ao cadastrar filho.';
+    erroEl.style.display = 'block';
+  }
+});
+
+// Link de "Esqueceu a senha?" traz o usuário de volta com uma sessão de
+// recuperação — mostra a tela de definir nova senha em vez de ir direto pro catálogo.
+supabase.auth.onAuthStateChange((event) => {
+  if (event === 'PASSWORD_RECOVERY') {
+    show('screen-reset-pw');
+  }
+});
+
+document.getElementById('form-reset-pw').addEventListener('submit', async e => {
+  e.preventDefault();
+  const erroEl = document.getElementById('reset-pw-erro');
+  erroEl.style.display = 'none';
+  const nova = document.getElementById('reset-pw-nova').value;
+  const confirma = document.getElementById('reset-pw-confirma').value;
+  if (nova !== confirma) {
+    erroEl.textContent = 'As senhas não coincidem.';
+    erroEl.style.display = 'block';
+    return;
+  }
+  try {
+    const { error } = await supabase.auth.updateUser({ password: nova });
+    if (error) throw error;
+    toast('Senha alterada com sucesso!', 'success');
+    const user = await getCurrentUser();
+    if (user) await afterLogin(user);
+    else show('screen-auth');
+  } catch (err) {
+    erroEl.textContent = err.message || 'Erro ao trocar a senha.';
     erroEl.style.display = 'block';
   }
 });

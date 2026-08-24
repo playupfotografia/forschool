@@ -364,6 +364,33 @@ tr:hover td{background:var(--gray-50)}
   </div>
 </div>
 
+<!-- ============ TELA: DEFINIR NOVA SENHA (link de "Esqueceu a senha?") ============ -->
+<div id="reset-pw-screen" style="display:none">
+  <div class="login-card">
+    <div class="login-brand">
+      <img src="assets/logo.png" alt="For School" class="brand-logo-login"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+      <h1 style="display:none">For School</h1>
+      <p>Definir nova senha</p>
+    </div>
+    <form id="reset-pw-form" class="form-grid">
+      <div class="form-group">
+        <label class="form-label">Nova senha</label>
+        <div style="position:relative">
+          <input class="form-input" type="password" id="reset-pw-nova" required minlength="6" autocomplete="new-password" style="padding-right:40px" placeholder="Mínimo 6 caracteres">
+          <button type="button" id="toggle-reset-pw" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:18px;color:var(--gray-400);padding:0;line-height:1">👁</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Confirme a nova senha</label>
+        <input class="form-input" type="password" id="reset-pw-confirma" required minlength="6" autocomplete="new-password">
+      </div>
+      <button class="btn btn-primary w-full" type="submit" style="justify-content:center;padding:11px;margin-top:4px">Salvar nova senha</button>
+      <div id="reset-pw-error" class="alert alert-danger" style="display:none"></div>
+    </form>
+  </div>
+</div>
+
 <!-- ============ APP ============ -->
 <div id="app">
 <div class="app">
@@ -2374,6 +2401,7 @@ async function checkSession() {
 }
 
 function showLogin(msg) {
+  document.getElementById('reset-pw-screen').style.display = 'none';
   loginScreen.style.display = 'flex';
   appScreen.style.display = 'none';
   if (msg) {
@@ -2381,6 +2409,46 @@ function showLogin(msg) {
     loginError.style.display = 'block';
   }
 }
+
+// Link de "Esqueceu a senha?" traz o usuário de volta com uma sessão de
+// recuperação — mostra a tela de definir nova senha em vez de entrar direto.
+supabase.auth.onAuthStateChange((event) => {
+  if (event === 'PASSWORD_RECOVERY') {
+    loginScreen.style.display = 'none';
+    appScreen.style.display = 'none';
+    document.getElementById('reset-pw-screen').style.display = 'flex';
+  }
+});
+
+document.getElementById('toggle-reset-pw').addEventListener('click', () => {
+  const inp = document.getElementById('reset-pw-nova');
+  const btn = document.getElementById('toggle-reset-pw');
+  if (inp.type === 'password') { inp.type = 'text'; btn.textContent = '🙈'; }
+  else { inp.type = 'password'; btn.textContent = '👁'; }
+});
+
+document.getElementById('reset-pw-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('reset-pw-error');
+  errEl.style.display = 'none';
+  const nova = document.getElementById('reset-pw-nova').value;
+  const confirma = document.getElementById('reset-pw-confirma').value;
+  if (nova !== confirma) {
+    errEl.textContent = 'As senhas não coincidem.';
+    errEl.style.display = 'block';
+    return;
+  }
+  try {
+    const { error } = await supabase.auth.updateUser({ password: nova });
+    if (error) throw error;
+    toast('Senha alterada com sucesso!', 'ok');
+    document.getElementById('reset-pw-screen').style.display = 'none';
+    checkSession();
+  } catch (err) {
+    errEl.textContent = err.message || 'Erro ao trocar a senha.';
+    errEl.style.display = 'block';
+  }
+});
 
 function showApp(user) {
   loginScreen.style.display = 'none';
