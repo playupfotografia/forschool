@@ -863,6 +863,9 @@ button,input,select,textarea{font-family:var(--font)}
 <script type="module">
 import { supabase, getCurrentUser, signIn, signUp, signOut, fmtMoney, toast, handleError } from './js/supabase-client.js';
 
+// Link de "Esqueceu a senha?" chega com #type=recovery na URL
+const isPasswordRecoveryLink = location.hash.includes('type=recovery');
+
 // Fallbacks — vão ser sobrescritos pelos valores reais carregados de app_settings
 let WPP_NUMERO = '5511999363796';
 let PIX_KEY    = '22.654.700/0001-32';
@@ -1285,9 +1288,12 @@ async function loadEscola() {
       }
     } catch { /* termo opcional */ }
 
-    // Verifica sessão existente
+    // Verifica sessão existente (a menos que seja um link de "Esqueceu a senha?",
+    // que precisa mostrar a tela de nova senha antes de liberar o acesso)
     const user = await getCurrentUser();
-    if (user) {
+    if (isPasswordRecoveryLink) {
+      show('screen-reset-pw');
+    } else if (user) {
       await afterLogin(user);
     } else {
       show('screen-auth');

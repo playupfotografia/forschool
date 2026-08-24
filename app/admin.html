@@ -34,7 +34,7 @@ body{font-family:var(--font);background:var(--gray-50);color:var(--gray-800);fon
 button,input,select,textarea{font-family:var(--font)}
 
 /* LOGIN */
-#login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:22px;background:linear-gradient(135deg,var(--blue-light),var(--purple-light))}
+#login-screen,#reset-pw-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:22px;background:linear-gradient(135deg,var(--blue-light),var(--purple-light));position:fixed;inset:0;z-index:500}
 .login-card{background:var(--white);border-radius:16px;padding:30px;width:100%;max-width:420px;box-shadow:0 10px 40px rgba(0,0,0,.1)}
 .login-brand{text-align:center;margin-bottom:22px}
 .login-brand h1{font-family:'Playfair Display',serif;font-size:24px;color:var(--blue);margin-bottom:3px}
@@ -2387,7 +2387,12 @@ async function esqueceuSenhaAdmin(e) {
   }
 }
 
+// Link de "Esqueceu a senha?" chega com #type=recovery na URL — nesse caso
+// não deixa checkSession() liberar o painel direto, tem que trocar a senha primeiro.
+const isPasswordRecoveryLink = location.hash.includes('type=recovery');
+
 async function checkSession() {
+  if (isPasswordRecoveryLink) return;
   const user = await getCurrentUser();
   if (user && user.app_metadata?.role === 'admin') {
     showApp(user);
