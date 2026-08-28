@@ -6695,14 +6695,15 @@ function renderBilhetePreview() {
     <div class="b-sec">Como fazer o pedido online</div>
     <div class="b-step"><div class="b-num">1</div><div>Escaneie o <b>QR Code abaixo</b> ou acesse <span class="b-link">${escapeHtml(portalUrl)}</span></div></div>
     <div class="b-step"><div class="b-num">2</div><div>Faça seu <b>cadastro</b> com nome do responsável + dados do aluno</div></div>
-    <div class="b-step"><div class="b-num">3</div><div>Escolha o <b>kit</b> e adicione produtos avulsos se quiser</div></div>
-    <div class="b-step"><div class="b-num">4</div><div>Pague via <b>PIX</b>${bilheteProj?.payment_external_link ? ' ou <b>cartão</b>' : ''} · Dúvidas: WhatsApp <b>${escapeHtml(wppFmt)}</b></div></div>
+    <div class="b-step"><div class="b-num">3</div><div><b>Autorize o uso de imagem</b> do seu filho(a)</div></div>
+    <div class="b-step"><div class="b-num">4</div><div>Escolha o <b>kit</b> e adicione produtos avulsos se quiser</div></div>
+    <div class="b-step"><div class="b-num">5</div><div>Escolha a <b>melhor forma de pagamento</b> e finalize seu pedido · Dúvidas: WhatsApp <b>${escapeHtml(wppFmt)}</b></div></div>
 
     <div class="b-qr-area">
       <div id="bil-qr-container"></div>
       <div class="b-qr-text">
         <b>Aponte a câmera do celular pro QR Code</b>
-        Vai abrir a página de cadastro${escNome ? ' da ' + escapeHtml(escNome) : ''} no portal.
+        Vai abrir o portal da Play Up Fotografia com o cadastro e o catálogo${escNome ? ' do(a) ' + escapeHtml(escNome) : ''}.
       </div>
     </div>
 
@@ -6796,6 +6797,12 @@ document.getElementById('btn-baixar-pdf-bil').addEventListener('click', async ()
   const el = document.getElementById('bilhete-prev');
   const nome = `Bilhete-${bilheteProj.slug || 'projeto'}.pdf`;
   toast('Gerando PDF…', 'info');
+  // Remove o limite de altura/scroll do preview só durante a captura,
+  // senão o html2canvas só "fotografa" o que cabe na tela e o resto é cortado.
+  const prevMaxHeight = el.style.maxHeight;
+  const prevOverflow = el.style.overflow;
+  el.style.maxHeight = 'none';
+  el.style.overflow = 'visible';
   try {
     await html2pdf().set({
       margin: [10, 10, 10, 10],
@@ -6807,6 +6814,9 @@ document.getElementById('btn-baixar-pdf-bil').addEventListener('click', async ()
     toast('PDF baixado!', 'ok');
   } catch (err) {
     handleError(err, 'baixarPDF');
+  } finally {
+    el.style.maxHeight = prevMaxHeight;
+    el.style.overflow = prevOverflow;
   }
 });
 
