@@ -3588,7 +3588,7 @@ document.getElementById('btn-nova-escola').addEventListener('click', async () =>
   contatosTemp = [];
   kitsTemp = { basico: kitVazio('basico'), inter: kitVazio('inter'), promo: kitVazio('promo') };
   document.getElementById('mod-esc-title').textContent = 'Nova escola';
-  ['e-nome','e-slug','e-cnpj','e-tel','e-dfoto','e-prazo','e-entrega',
+  ['e-nome','e-slug','e-cnpj','e-tel',
    'e-endereco','e-complemento','e-bairro','e-cep','e-cidade'].forEach(id => {
     document.getElementById(id).value = '';
   });
@@ -3644,7 +3644,6 @@ async function editarEscola(id) {
     document.getElementById('e-slug-prev').textContent = esc.slug || 'slug';
     document.getElementById('e-cnpj').value    = esc.cnpj || '';
     document.getElementById('e-tel').value     = esc.phone || '';
-    document.getElementById('e-entrega').value = esc.delivery_date || '';
     document.getElementById('pm-pix-manual').checked = esc.payment_pix_manual !== false;
     document.getElementById('pm-inter').checked      = !!esc.payment_inter;
     document.getElementById('pm-external').checked   = !!esc.payment_external_link;
@@ -4014,7 +4013,6 @@ document.getElementById('btn-salvar-escola').addEventListener('click', async () 
     slug: slug,
     cnpj: document.getElementById('e-cnpj').value.trim() || null,
     phone: document.getElementById('e-tel').value.trim() || null,
-    delivery_date: document.getElementById('e-entrega').value || null,
     payment_pix_manual:    document.getElementById('pm-pix-manual').checked,
     payment_inter:         document.getElementById('pm-inter').checked,
     payment_external_link: document.getElementById('pm-external').checked,
