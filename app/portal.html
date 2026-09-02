@@ -188,6 +188,9 @@ button,input,select,textarea{font-family:var(--font)}
 .pay-ok-icon{width:56px;height:56px;border-radius:50%;background:var(--green);color:#fff;font-size:30px;display:flex;align-items:center;justify-content:center;margin:0 auto 11px}
 .pay-ok-titulo{font-size:17px;font-weight:800;color:#14532d}
 .pay-ok-valor{font-size:22px;font-weight:800;color:var(--gray-900);margin:5px 0 3px}
+.pay-ok-logo{height:50px;width:auto;margin:0 auto 12px;display:block;object-fit:contain}
+.pay-duvida{display:flex;align-items:center;justify-content:center;gap:7px;margin-top:12px;padding:9px 12px;border:1px solid #25D366;border-radius:9px;background:#F0FFF4;color:#166534;font-size:12.5px;font-weight:600;text-decoration:none}
+.pay-duvida:hover{background:#DCFCE7}
 
 /* MODAL DETALHE PRODUTO */
 .pd-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;pointer-events:none;transition:opacity .2s}
@@ -1360,6 +1363,7 @@ function blocoEscolhaPagamento(pedido, total) {
     <div class="pay-titulo">Como você prefere pagar?</div>
     <div class="pay-lista">${opts.join('')}</div>
     ${dica}
+    ${botaoDuvida(pedido?.order_number)}
     <div id="pay-erro" class="pay-erro" style="display:none"></div>`;
 }
 
@@ -1372,6 +1376,19 @@ function blocoEscolhaPagamento(pedido, total) {
 // Para sozinho apos 20 min pra nao consultar pra sempre numa aba esquecida.
 // ---------------------------------------------------------------------------
 let _vigias = {};
+
+// Botao de duvidas sempre a mao na area de pagamento. Leva o numero do pedido
+// na mensagem pra Play Up nao precisar perguntar quem e'.
+function botaoDuvida(numeroPedido) {
+  const nome = student?.name ? ` do(a) ${student.name}` : '';
+  const ped = numeroPedido ? ` (pedido ${numeroPedido})` : '';
+  const msg = encodeURIComponent(
+    `Olá! Sou responsável${nome} e tenho uma dúvida sobre o pagamento${ped}.`
+  );
+  return `<a href="https://wa.me/${WPP_NUMERO}?text=${msg}" target="_blank" rel="noopener" class="pay-duvida">
+    💬 Dúvidas? Fale com a Play Up
+  </a>`;
+}
 
 function pararVigia(orderId) {
   if (_vigias[orderId]) { clearInterval(_vigias[orderId]); delete _vigias[orderId]; }
@@ -1397,11 +1414,13 @@ function vigiarPagamento(orderId, container) {
       const valor = Number(data.amount_charged ?? data.total_amount) || 0;
       container.innerHTML = `
         <div class="pay-ok">
+          <img src="assets/logo.png" alt="Play Up" class="pay-ok-logo" onerror="this.style.display='none'">
           <div class="pay-ok-icon">✓</div>
           <div class="pay-ok-titulo">Pagamento confirmado!</div>
           <div class="pay-ok-valor">${fmtMoney(valor)}</div>
           <div style="font-size:12.5px;color:#166534">Pedido ${escapeHtml(data.order_number || '')} está pago. Não precisa enviar comprovante.</div>
           <div class="pay-box-nota">Guarde este número. No dia da foto, é só o aluno comparecer.</div>
+          ${botaoDuvida(data.order_number)}
         </div>`;
       toast('Pagamento confirmado! 🎉', 'ok');
     } catch (e) {
@@ -1429,6 +1448,7 @@ function blocoCobranca(pedido) {
           </button>` : ''}
         <div class="pay-aguarda"><span class="dot"></span> Aguardando o pagamento… esta tela avisa sozinha</div>
         <div class="pay-box-nota">Assim que o pagamento cair, seu pedido é confirmado automaticamente — não precisa mandar comprovante.</div>
+        ${botaoDuvida(pedido?.order_number)}
       </div>`;
   }
 
@@ -1443,6 +1463,7 @@ function blocoCobranca(pedido) {
       </a>
       <div class="pay-aguarda"><span class="dot"></span> Aguardando o pagamento… esta tela avisa sozinha</div>
       <div class="pay-box-nota">Você vai para a página segura do Asaas pra digitar os dados do cartão. A Play Up não armazena nada do seu cartão.</div>
+      ${botaoDuvida(pedido?.order_number)}
     </div>`;
 }
 
