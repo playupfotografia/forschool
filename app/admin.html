@@ -1240,6 +1240,11 @@ tr:hover td{background:var(--gray-50)}
             <label class="chk-inline" style="gap:6px"><input type="checkbox" id="cfg-pay-credit"> Cartão de crédito</label>
             <label class="chk-inline" style="gap:6px"><input type="checkbox" id="cfg-pay-debit"> Cartão de débito</label>
           </div>
+          <div class="alert alert-warning" style="font-size:12px;margin-bottom:14px">
+            ⚠️ <b>Débito ainda não foi liberado na conta Asaas.</b> Ao criar a cobrança, a API responde
+            <i>"A forma de pagamento não é permitida para cobranças"</i>. A taxa aparece na tabela de preços deles,
+            então provavelmente é só habilitar — fale com o suporte do Asaas antes de ligar essa opção.
+          </div>
 
           <div class="form-group" style="margin-bottom:14px">
             <label class="form-label">Quem paga a taxa do cartão</label>
@@ -2635,6 +2640,25 @@ document.querySelectorAll('.sb-item').forEach(btn => {
 
 let pedidosCache = [];   // todos os pedidos carregados (pra filtrar client-side sem requery)
 
+// Rotulo do metodo de pagamento, ja considerando a cobranca do gateway.
+// Mostra se veio do Asaas (automatico) ou se e' pagamento manual, como antes.
+const METODO_LABEL = {
+  pix: 'PIX',
+  cartao_1x: 'Cartão 1×',
+  cartao_2x: 'Cartão 2×',
+  cartao_debito: 'Débito',
+  dinheiro: 'Dinheiro',
+  outro: 'Outro',
+};
+function rotuloMetodo(p) {
+  if (!p.payment_method) return '<span style="color:var(--gray-400)">—</span>';
+  const nome = METODO_LABEL[p.payment_method] || p.payment_method.toUpperCase();
+  const auto = p.gateway === 'asaas'
+    ? '<span title="Cobrança gerada pelo Asaas — confirmação automática" style="background:var(--green-light);color:var(--green);font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:20px;margin-left:5px">AUTO</span>'
+    : '<span title="Pagamento manual — confirmado pelo admin" style="color:var(--gray-400);font-size:10px;margin-left:5px">manual</span>';
+  return `<span style="font-size:12px;color:var(--gray-700)">${escapeHtml(nome)}</span>${auto}`;
+}
+
 async function loadPedidos() {
   const tb = document.getElementById('pd-tab');
   tb.innerHTML = '<tr><td colspan="9" class="loading"><span class="spinner"></span>Carregando pedidos…</td></tr>';
@@ -2655,6 +2679,7 @@ async function loadPedidos() {
       .select(`
         id, order_number, kit_type, total_amount, payment_method, payment_status,
         payment_proof_url, paid_at, created_at, source, notes,
+        gateway, gateway_status, installments, amount_charged, surcharge_amount,
         student:students(id, name),
         school:schools(id, name, slug)
       `)
@@ -2710,9 +2735,14 @@ function filtrarPedidos() {
     const kitBadge = p.kit_type
       ? `<span class="badge ${kitClass[p.kit_type] || 'badge-gray'}">${kitMap[p.kit_type] || p.kit_type}</span>`
       : '<span style="color:var(--gray-400);font-size:11px">só avulsos</span>';
-    const metBadge = p.payment_method
-      ? `<span style="font-size:12px;color:var(--gray-600)">${escapeHtml(p.payment_method.toUpperCase())}</span>`
-      : '—';
+    const metBadge = rotuloMetodo(p);
+    // O pai pode ter pago mais que o preco de tabela (taxa do cartao repassada).
+    // total_amount continua sendo a receita da Play Up; amount_charged e' o que
+    // saiu do bolso do responsavel.
+    const pago = Number(p.amount_charged || 0);
+    const extra = pago > Number(p.total_amount || 0)
+      ? `<div style="font-size:11px;color:var(--gray-500);font-weight:400">pai pagou ${fmtMoney(pago)}</div>`
+      : '';
     const acoes = [
       (p.payment_status === 'pending'
         ? `<button class="btn btn-sm btn-success" data-ped-pago="${p.id}" title="Marcar como pago" onclick="event.stopPropagation()">✓</button>`
@@ -2728,7 +2758,7 @@ function filtrarPedidos() {
       <td class="td-name">${escapeHtml(p.student?.name || '—')}</td>
       <td>${escapeHtml(p.school?.name || '—')}</td>
       <td>${kitBadge}</td>
-      <td style="font-weight:600">${fmtMoney(p.total_amount)}</td>
+      <td style="font-weight:600">${fmtMoney(p.total_amount)}${extra}</td>
       <td>${metBadge}</td>
       <td style="font-size:12px;color:var(--gray-500)">${data}</td>
       <td>${stBadge}</td>
@@ -2935,9 +2965,22 @@ async function abrirDetalhesPedido(id) {
           <div class="card" style="border-color:var(--gray-100)">
             <div class="card-header" style="padding:9px 13px"><div class="card-title" style="font-size:12px">Pagamento</div></div>
             <div class="card-body" style="padding:11px 13px;font-size:13px">
-              <div>Método: <b>${ped.payment_method ? ped.payment_method.toUpperCase() : '—'}</b></div>
+              <div>Método: ${rotuloMetodo(ped)}</div>
               <div style="margin-top:4px">Status: ${stBadge}</div>
               ${paidAt ? `<div style="font-size:12px;color:var(--gray-500);margin-top:3px">Pago em ${paidAt}</div>` : ''}
+              ${ped.gateway === 'asaas' ? `
+                <hr class="sep" style="margin:9px 0">
+                <div style="font-size:12px;color:var(--gray-600)">
+                  <div>Cobrado do responsável: <b>${fmtMoney(ped.amount_charged ?? ped.total_amount)}</b></div>
+                  ${Number(ped.surcharge_amount) > 0
+                    ? `<div style="margin-top:2px">Taxa repassada: ${fmtMoney(ped.surcharge_amount)}</div>` : ''}
+                  <div style="margin-top:2px">Recebido pela Play Up: <b>${fmtMoney(ped.total_amount)}</b></div>
+                  ${Number(ped.installments) > 1 ? `<div style="margin-top:2px">Parcelas: ${ped.installments}×</div>` : ''}
+                  ${ped.gateway_status ? `<div style="margin-top:2px;color:var(--gray-400)">Status no Asaas: ${escapeHtml(ped.gateway_status)}</div>` : ''}
+                  ${ped.gateway_id ? `<div style="margin-top:2px;color:var(--gray-400);font-family:monospace;font-size:11px">${escapeHtml(ped.gateway_id)}</div>` : ''}
+                </div>
+                ${ped.checkout_url ? `<div style="margin-top:8px"><a href="${escapeHtml(ped.checkout_url)}" target="_blank" class="btn btn-sm btn-secondary" style="text-decoration:none">🔗 Abrir cobrança no Asaas</a></div>` : ''}
+              ` : ''}
               ${ped.payment_proof_url ? `
                 <div style="margin-top:9px">
                   <a href="${escapeHtml(ped.payment_proof_url)}" target="_blank" class="btn btn-sm btn-secondary" style="text-decoration:none">📎 Ver comprovante</a>
