@@ -3950,6 +3950,7 @@ async function editarEscola(id) {
     const years = yearsResp.data || [];
     const classes = classesResp.data || [];
     anosTemp = years.map(y => ({
+      id: y.id,
       name: y.name,
       classes: classes.filter(c => c.year_id === y.id).map(c => c.name)
     }));
@@ -4339,20 +4340,54 @@ document.getElementById('btn-salvar-escola').addEventListener('click', async () 
       schoolId = data.id;
     }
 
-    // 2. Anos & Turmas (replace pattern: apagar e reinserir)
-    await supabase.from('school_years').delete().eq('school_id', schoolId);
+    // 2. Anos & Turmas — reconciliacao por identidade (NAO apagar e reinserir).
+    // Os ids de school_classes sao referenciados por students.class_id
+    // (on delete set null) e por project_session_classes (on delete cascade).
+    // Recriar tudo a cada save fazia os alunos perderem a turma e as sessoes
+    // do projeto perderem as turmas que aparecem no bilhete.
     const anosValidos = anosTemp.filter(a => a.name && a.name.trim());
+    const anosMantidos = anosValidos.map(a => a.id).filter(Boolean);
+    {
+      let delAnos = supabase.from('school_years').delete().eq('school_id', schoolId);
+      if (anosMantidos.length) delAnos = delAnos.not('id', 'in', `(${anosMantidos.join(',')})`);
+      const { error: delErr } = await delAnos;
+      if (delErr) throw delErr;
+    }
     for (let i = 0; i < anosValidos.length; i++) {
       const a = anosValidos[i];
-      const { data: anoIns, error: anoErr } = await supabase
-        .from('school_years')
-        .insert({ school_id: schoolId, name: a.name.trim(), sort_order: i })
-        .select('id').single();
-      if (anoErr) throw anoErr;
-      const turmas = (a.classes || []).filter(t => t && t.trim());
-      if (turmas.length > 0) {
-        const rows = turmas.map(t => ({ year_id: anoIns.id, name: t.trim() }));
-        const { error: clErr } = await supabase.from('school_classes').insert(rows);
+      let yearId = a.id || null;
+      if (yearId) {
+        const { error: anoErr } = await supabase
+          .from('school_years')
+          .update({ name: a.name.trim(), sort_order: i })
+          .eq('id', yearId);
+        if (anoErr) throw anoErr;
+      } else {
+        const { data: anoIns, error: anoErr } = await supabase
+          .from('school_years')
+          .insert({ school_id: schoolId, name: a.name.trim(), sort_order: i })
+          .select('id').single();
+        if (anoErr) throw anoErr;
+        yearId = anoIns.id;
+        a.id = yearId;
+      }
+
+      const turmas = [...new Set((a.classes || []).map(t => (t || '').trim()).filter(Boolean))];
+      const { data: turmasDb, error: tdErr } = await supabase
+        .from('school_classes').select('id, name').eq('year_id', yearId);
+      if (tdErr) throw tdErr;
+      const nomesDb = (turmasDb || []).map(t => t.name);
+
+      const remover = (turmasDb || []).filter(t => !turmas.includes(t.name)).map(t => t.id);
+      if (remover.length) {
+        const { error: rmErr } = await supabase.from('school_classes').delete().in('id', remover);
+        if (rmErr) throw rmErr;
+      }
+      const novas = turmas.filter(t => !nomesDb.includes(t));
+      if (novas.length) {
+        const { error: clErr } = await supabase
+          .from('school_classes')
+          .insert(novas.map(t => ({ year_id: yearId, name: t })));
         if (clErr) throw clErr;
       }
     }
@@ -4795,12 +4830,18 @@ async function loadPjEscolaClasses(schoolId) {
   pjEscolaClasses = [];
   if (!schoolId) return;
   try {
-    const [yearsResp, classesResp] = await Promise.all([
-      supabase.from('school_years').select('id, name, sort_order').eq('school_id', schoolId).order('sort_order'),
-      supabase.from('school_classes').select('id, name, year_id').order('name'),
-    ]);
-    const years = yearsResp.data || [];
-    const classes = classesResp.data || [];
+    const { data: yearsData, error: yErr } = await supabase
+      .from('school_years').select('id, name, sort_order').eq('school_id', schoolId).order('sort_order');
+    if (yErr) throw yErr;
+    const years = yearsData || [];
+    let classes = [];
+    if (years.length) {
+      const { data: clData, error: cErr } = await supabase
+        .from('school_classes').select('id, name, year_id')
+        .in('year_id', years.map(y => y.id)).order('name');
+      if (cErr) throw cErr;
+      classes = clData || [];
+    }
     // Monta estrutura agrupada por ano
     pjEscolaClasses = years.map(y => ({
       year_id: y.id,
@@ -5518,9 +5559,10 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
           .select('id').single();
         if (sErr) { console.error('sessão', sErr); continue; }
         if (s.class_ids.length) {
-          await supabase.from('project_session_classes').insert(
+          const { error: scErr } = await supabase.from('project_session_classes').insert(
             s.class_ids.map(cid => ({ session_id: newSess.id, school_class_id: cid }))
           );
+          if (scErr) throw scErr;
         }
       }
     }
