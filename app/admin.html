@@ -2036,7 +2036,10 @@ tr:hover td{background:var(--gray-50)}
           Kits e avulsos específicos para <b>este projeto</b>. Serão usados no portal no lugar dos kits da escola.
           Deixe todos desmarcados se quiser usar os kits já cadastrados na escola.
         </div>
-        <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Kits do projeto</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
+          <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px">Kits do projeto</div>
+          <button type="button" class="btn btn-sm btn-secondary" id="btn-pj-copiar-escola" style="white-space:nowrap">📋 Copiar kits e avulsos da escola</button>
+        </div>
         <div id="pj-kits-area"></div>
         <hr class="sep" style="margin:16px 0">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
@@ -4919,6 +4922,79 @@ window.removerSessao = function(idx) {
   sessoesTemp.splice(idx, 1);
   renderSessoes();
 };
+
+// Copia os kits e avulsos ja cadastrados na escola para este projeto
+document.getElementById('btn-pj-copiar-escola').addEventListener('click', async (ev) => {
+  const schoolId = document.getElementById('pj-escola').value;
+  if (!schoolId) { toast('Selecione a escola na aba Dados primeiro.', 'error'); return; }
+
+  const jaTemKit = KIT_TYPES.some(t => {
+    const k = pjKitsTemp[t];
+    return k && (k.items?.length || k.price || (k.description || '').trim());
+  });
+  const jaTemAvulso = pjAvulsosTemp.some(a => a.available || a.price_with_promo != null || a.price_without_promo != null);
+  if ((jaTemKit || jaTemAvulso) &&
+      !confirm('Isso substitui os kits e avulsos ja preenchidos neste projeto pelos da escola. Continuar?')) return;
+
+  const btn = ev.currentTarget;
+  const txtOriginal = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Copiando…';
+  try {
+    const [kitsResp, itemsResp, pricesResp] = await Promise.all([
+      supabase.from('school_kits').select('*').eq('school_id', schoolId).is('project_id', null),
+      supabase.from('school_kit_items').select('*, kit:school_kits!inner(school_id, project_id)')
+        .eq('kit.school_id', schoolId).is('kit.project_id', null),
+      supabase.from('school_prices').select('*').eq('school_id', schoolId).is('project_id', null),
+    ]);
+    if (kitsResp.error) throw kitsResp.error;
+    if (itemsResp.error) throw itemsResp.error;
+    if (pricesResp.error) throw pricesResp.error;
+
+    const itens = itemsResp.data || [];
+    pjKitsTemp = {};
+    KIT_TYPES.forEach(t => { pjKitsTemp[t] = kitVazio(t); });
+    let nKits = 0;
+    (kitsResp.data || []).forEach(k => {
+      if (!KIT_TYPES.includes(k.kit_type)) return;
+      nKits++;
+      pjKitsTemp[k.kit_type] = {
+        kit_type: k.kit_type,
+        available: k.available,
+        name: k.name || KIT_LABELS[k.kit_type],
+        description: k.description || '',
+        image_url: k.image_url || '',
+        price: k.price || 0,
+        items: itens.filter(it => it.kit_id === k.id).map(it => ({ product_id: it.product_id, quantity: it.quantity })),
+      };
+    });
+
+    const priceMap = {};
+    (pricesResp.data || []).forEach(pr => { priceMap[pr.product_id] = pr; });
+    let nAvulsos = 0;
+    pjAvulsosTemp = produtosAtomicos.map(p => {
+      const sp = priceMap[p.id];
+      if (sp && sp.available) nAvulsos++;
+      return {
+        product_id: p.id, name: p.name,
+        available: sp ? sp.available : false,
+        price_with_promo: sp ? sp.price_with_promo : null,
+        price_without_promo: sp ? sp.price_without_promo : null,
+        base_pcom: p.base_price_with_promo, base_psem: p.base_price_without_promo,
+      };
+    });
+
+    renderPjKits();
+    renderPjAvulsos();
+    if (!nKits && !nAvulsos) toast('Essa escola nao tem kits nem avulsos cadastrados.', 'info');
+    else toast(`Copiado da escola: ${nKits} kit(s) e ${nAvulsos} avulso(s). Revise e clique em Salvar projeto.`, 'success');
+  } catch (err) {
+    handleError(err, 'copiarKitsDaEscola');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = txtOriginal;
+  }
+});
 
 document.getElementById('btn-add-sessao').addEventListener('click', () => {
   sessoesTemp.push({ photo_date: '', order_deadline: '', period: 'manhã', class_ids: [] });
