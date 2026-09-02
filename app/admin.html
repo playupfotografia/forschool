@@ -1281,6 +1281,28 @@ tr:hover td{background:var(--gray-50)}
           </div>
 
           <hr class="sep">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
+            <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px">Antecipação do recebimento</div>
+            <label class="chk-inline" style="gap:6px;font-size:12px"><input type="checkbox" id="cfg-antec-on"> Somar ao valor do cartão</label>
+          </div>
+          <div class="alert alert-info" style="font-size:12px">
+            Cartão de crédito só cai <b>32 dias</b> depois. Antecipar custa um percentual <b>ao mês</b>.
+            Ligando aqui, esse custo entra no valor do cartão. <b>PIX não é afetado</b> — cai na hora, não há o que antecipar.
+          </div>
+          <div class="form-grid fg2" style="gap:8px">
+            <div class="form-group">
+              <label class="form-label">Antecipação — à vista (%)</label>
+              <input class="form-input" id="cfg-antec-avista" type="number" step="0.01" placeholder="1,15">
+              <div class="slug-hint">Automática 1,15% · manual 1,25%</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Antecipação — 2× (%)</label>
+              <input class="form-input" id="cfg-antec-parc" type="number" step="0.01" placeholder="2,60">
+              <div class="slug-hint">1,6%/mês × ~1,6 meses (a 2ª parcela cai em ~62 dias)</div>
+            </div>
+          </div>
+
+          <hr class="sep">
           <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Simulador</div>
           <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
             <div class="form-group" style="margin:0">
@@ -3216,6 +3238,9 @@ async function loadConfig() {
     document.getElementById('cfg-fee-credit-fix').value   = data.card_fee_fixed ?? 0;
     document.getElementById('cfg-fee-debit').value        = data.debit_fee_percent ?? 1.89;
     document.getElementById('cfg-fee-debit-fix').value    = data.debit_fee_fixed ?? 0.35;
+    document.getElementById('cfg-antec-on').checked       = data.anticipation_enabled === true;
+    document.getElementById('cfg-antec-avista').value     = data.anticipation_fee_percent ?? 1.15;
+    document.getElementById('cfg-antec-parc').value       = data.anticipation_fee_percent_installment ?? 2.60;
     renderSimuladorTaxas();
     ['cobertura','totem','album'].forEach(k => {
       const imgUrl = data[`aniv_img_${k}`];
@@ -3257,6 +3282,10 @@ function renderSimuladorTaxas() {
   const fDebFix  = document.getElementById('cfg-fee-debit-fix').value;
   const minParc  = parseFloat(document.getElementById('cfg-min-installment').value) || 0;
   const maxParc  = parseInt(document.getElementById('cfg-max-installments').value) || 1;
+  // Antecipacao entra somando ao percentual do cartao. Nao afeta PIX.
+  const antecOn  = document.getElementById('cfg-antec-on').checked;
+  const antec1   = antecOn ? (parseFloat(document.getElementById('cfg-antec-avista').value) || 0) : 0;
+  const antec2   = antecOn ? (parseFloat(document.getElementById('cfg-antec-parc').value) || 0) : 0;
 
   if (valor <= 0) { out.innerHTML = '<span style="color:var(--gray-400)">Digite um valor.</span>'; return; }
 
@@ -3273,10 +3302,11 @@ function renderSimuladorTaxas() {
   let html = linha('PIX', valor, valor, 'na hora, sem acrescimo');
 
   if (repassa) {
-    const c1 = valorComTaxa(valor, fCred, fCredFix);
-    html += linha('Credito 1x', c1, valor, `+${fmtMoney(c1 - valor)} de taxa &middot; recebe em 32 dias`);
+    const c1 = valorComTaxa(valor, (parseFloat(fCred) || 0) + antec1, fCredFix);
+    const quando1 = antecOn ? 'recebe em ~1 dia (antecipado)' : 'recebe em 32 dias';
+    html += linha('Credito 1x', c1, valor, `+${fmtMoney(c1 - valor)} de taxa &middot; ${quando1}`);
     if (maxParc >= 2) {
-      const c2 = valorComTaxa(valor, fCredP, fCredFix);
+      const c2 = valorComTaxa(valor, (parseFloat(fCredP) || 0) + antec2, fCredFix);
       const parcela = Math.ceil((c2 / 2) * 100) / 100;
       html += parcela >= minParc
         ? linha('Credito 2x', c2, valor, `2x de ${fmtMoney(parcela)} &middot; +${fmtMoney(c2 - valor)} de taxa`)
@@ -3332,6 +3362,9 @@ document.getElementById('btn-salvar-config').addEventListener('click', async () 
     card_fee_fixed:               parseFloat(document.getElementById('cfg-fee-credit-fix').value) || 0,
     debit_fee_percent:            parseFloat(document.getElementById('cfg-fee-debit').value) || 0,
     debit_fee_fixed:              parseFloat(document.getElementById('cfg-fee-debit-fix').value) || 0,
+    anticipation_enabled:         document.getElementById('cfg-antec-on').checked,
+    anticipation_fee_percent:             parseFloat(document.getElementById('cfg-antec-avista').value) || 0,
+    anticipation_fee_percent_installment: parseFloat(document.getElementById('cfg-antec-parc').value) || 0,
   };
   try {
     // Upload imagens de aniversário se houver arquivo selecionado

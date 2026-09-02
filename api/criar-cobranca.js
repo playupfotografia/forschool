@@ -51,6 +51,7 @@ module.exports = async (req, res) => {
       '/app_settings?id=eq.1&select=' +
       'card_fee_percent,card_fee_percent_installment,card_fee_fixed,' +
       'debit_fee_percent,debit_fee_fixed,surcharge_mode,' +
+      'anticipation_enabled,anticipation_fee_percent,anticipation_fee_percent_installment,' +
       'pay_pix_enabled,pay_credit_enabled,pay_debit_enabled,' +
       'min_installment_value,max_installments'
     );
@@ -77,11 +78,21 @@ module.exports = async (req, res) => {
       return res.status(400).json({ erro: `Maximo de ${maxParc}x.` });
     }
 
+    // Antecipacao: soma ao percentual do cartao de credito quando ligada.
+    // Nao vale pra PIX (cai na hora) nem pra debito (cai em 3 dias).
+    const antecipa = cfg.anticipation_enabled === true;
     let valorCobrado = valorBase;
     if (repassa && metodo !== 'pix') {
-      const pct = metodo === 'debito'
-        ? cfg.debit_fee_percent
-        : (parcelas > 1 ? cfg.card_fee_percent_installment : cfg.card_fee_percent);
+      let pct = Number(
+        metodo === 'debito'
+          ? cfg.debit_fee_percent
+          : (parcelas > 1 ? cfg.card_fee_percent_installment : cfg.card_fee_percent)
+      ) || 0;
+      if (antecipa && metodo === 'credito') {
+        pct += Number(
+          parcelas > 1 ? cfg.anticipation_fee_percent_installment : cfg.anticipation_fee_percent
+        ) || 0;
+      }
       const fixa = metodo === 'debito' ? cfg.debit_fee_fixed : cfg.card_fee_fixed;
       valorCobrado = valorComTaxa(valorBase, pct, fixa);
     }

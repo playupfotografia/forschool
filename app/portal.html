@@ -1006,7 +1006,7 @@ async function loadSettings() {
   try {
     const { data, error } = await supabase
       .from('app_settings')
-      .select('whatsapp_number, whatsapp_message, pix_key, pix_key_type, pix_label, business_name, payment_link_url, payment_link_label, min_installment_value, max_installments, aniv_img_cobertura, aniv_img_totem, aniv_img_album, aniv_link_cobertura, aniv_link_totem, aniv_link_album, pay_pix_enabled, pay_credit_enabled, pay_debit_enabled, surcharge_mode, card_fee_percent, card_fee_percent_installment, card_fee_fixed, debit_fee_percent, debit_fee_fixed')
+      .select('whatsapp_number, whatsapp_message, pix_key, pix_key_type, pix_label, business_name, payment_link_url, payment_link_label, min_installment_value, max_installments, aniv_img_cobertura, aniv_img_totem, aniv_img_album, aniv_link_cobertura, aniv_link_totem, aniv_link_album, pay_pix_enabled, pay_credit_enabled, pay_debit_enabled, surcharge_mode, card_fee_percent, card_fee_percent_installment, card_fee_fixed, debit_fee_percent, debit_fee_fixed, anticipation_enabled, anticipation_fee_percent, anticipation_fee_percent_installment')
       .eq('id', 1)
       .maybeSingle();
     if (error) throw error;
@@ -1034,6 +1034,11 @@ async function loadSettings() {
         feeCreditoFixa: data.card_fee_fixed ?? 0,
         feeDebito:      data.debit_fee_percent ?? 1.89,
         feeDebitoFixa:  data.debit_fee_fixed ?? 0.35,
+        // Antecipacao soma ao percentual do cartao. Nao afeta PIX nem debito
+        // (debito ja cai em 3 dias).
+        antecipa:       data.anticipation_enabled === true,
+        antecAvista:    data.anticipation_fee_percent ?? 0,
+        antecParc:      data.anticipation_fee_percent_installment ?? 0,
       };
       if (data.aniv_img_cobertura) _anivImgs.aniv_img_cobertura = data.aniv_img_cobertura;
       if (data.aniv_img_totem)     _anivImgs.aniv_img_totem     = data.aniv_img_totem;
@@ -1280,8 +1285,11 @@ function blocoEscolhaPagamento(pedido, total) {
 
   let economia = 0;
 
+  const antec1 = PAY_CFG.antecipa ? (Number(PAY_CFG.antecAvista) || 0) : 0;
+  const antec2 = PAY_CFG.antecipa ? (Number(PAY_CFG.antecParc) || 0) : 0;
+
   if (PAY_CFG.credito) {
-    const c1 = PAY_CFG.repassa ? valorComTaxa(total, PAY_CFG.feeCredito, PAY_CFG.feeCreditoFixa) : total;
+    const c1 = PAY_CFG.repassa ? valorComTaxa(total, (Number(PAY_CFG.feeCredito) || 0) + antec1, PAY_CFG.feeCreditoFixa) : total;
     economia = c1 - total;
     opts.push(`
       <button type="button" class="pay-opt" onclick="escolherPagamento('${oid}','credito',1)">
@@ -1291,7 +1299,7 @@ function blocoEscolhaPagamento(pedido, total) {
       </button>`);
 
     if (MAX_INSTALLMENTS >= 2) {
-      const c2 = PAY_CFG.repassa ? valorComTaxa(total, PAY_CFG.feeCreditoParc, PAY_CFG.feeCreditoFixa) : total;
+      const c2 = PAY_CFG.repassa ? valorComTaxa(total, (Number(PAY_CFG.feeCreditoParc) || 0) + antec2, PAY_CFG.feeCreditoFixa) : total;
       const parcela = Math.ceil((c2 / 2) * 100) / 100;
       if (parcela >= MIN_INSTALLMENT_VALUE) {
         opts.push(`
