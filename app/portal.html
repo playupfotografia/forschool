@@ -152,6 +152,33 @@ button,input,select,textarea{font-family:var(--font)}
 .pix-block{background:var(--gray-50);border:2px dashed var(--gray-200);border-radius:var(--radius);padding:13px;margin:16px 0;text-align:left;font-size:13px}
 .pix-key{font-family:monospace;background:var(--white);padding:7px 9px;border-radius:6px;border:1px solid var(--gray-200);margin-top:5px;word-break:break-all;font-size:12px}
 
+/* ---- Escolha de forma de pagamento (Asaas) ---- */
+.pay-titulo{font-size:14px;font-weight:700;color:var(--gray-700);margin:16px 0 9px;text-align:center}
+.pay-lista{display:flex;flex-direction:column;gap:9px}
+.pay-opt{width:100%;text-align:left;background:var(--white);border:2px solid var(--gray-200);border-radius:12px;padding:13px 14px;cursor:pointer;font-family:inherit;transition:border-color .15s,box-shadow .15s}
+.pay-opt:hover:not(:disabled){border-color:var(--blue);box-shadow:0 2px 10px rgba(75,107,251,.13)}
+.pay-opt:disabled{cursor:default}
+.pay-opt-pix{border-color:var(--green);background:#F0FDF4}
+.pay-opt-pix:hover:not(:disabled){border-color:var(--green);box-shadow:0 2px 10px rgba(39,174,96,.18)}
+.pay-opt-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px}
+.pay-opt-nome{font-size:14px;font-weight:700;color:var(--gray-800)}
+.pay-opt-badge{background:var(--green);color:#fff;font-size:9.5px;font-weight:800;letter-spacing:.4px;padding:2px 7px;border-radius:20px}
+.pay-opt-valor{font-size:19px;font-weight:800;color:var(--gray-900);line-height:1.2}
+.pay-opt-sub{font-size:11.5px;color:var(--gray-500);margin-top:2px}
+.pay-dica{margin-top:11px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:9px;padding:9px 11px;font-size:12.5px;color:#14532d;text-align:center}
+.pay-erro{margin-top:10px;background:#FEF2F2;border:1px solid #FECACA;border-radius:9px;padding:9px 11px;font-size:12.5px;color:#991B1B}
+
+/* ---- Cobranca ja criada ---- */
+.pay-box{border-radius:12px;padding:16px;margin-top:14px;text-align:center;border:2px solid}
+.pay-box-pix{border-color:var(--green);background:#F0FDF4}
+.pay-box-card{border-color:var(--purple);background:var(--purple-light)}
+.pay-box-titulo{font-size:14px;font-weight:700;color:var(--gray-800)}
+.pay-box-valor{font-size:24px;font-weight:800;color:var(--gray-900);margin:5px 0 11px}
+.pay-qr{width:210px;max-width:100%;height:auto;background:#fff;border-radius:9px;padding:8px;border:1px solid var(--gray-200)}
+.pay-box-label{font-size:11.5px;color:var(--gray-500);margin:12px 0 4px}
+.pay-copiacola{font-family:monospace;font-size:10.5px;background:#fff;border:1px solid var(--gray-200);border-radius:7px;padding:8px;word-break:break-all;max-height:78px;overflow-y:auto;text-align:left;line-height:1.45}
+.pay-box-nota{font-size:11.5px;color:var(--gray-500);margin-top:11px;line-height:1.5}
+
 /* MODAL DETALHE PRODUTO */
 .pd-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;pointer-events:none;transition:opacity .2s}
 .pd-overlay.open{opacity:1;pointer-events:all}
@@ -931,8 +958,26 @@ let PIX_LABEL  = 'CNPJ Play Up Fotografia';
 let BUSINESS_NAME = 'Play Up Fotografia';
 let PAY_LINK_URL   = '';
 let PAY_LINK_LABEL = 'Pagar com cartão ou PIX';
-let MIN_INSTALLMENT_VALUE = 100;
+let MIN_INSTALLMENT_VALUE = 40;
 let MAX_INSTALLMENTS = 2;
+
+// Pagamento online (Asaas). Preenchido por loadSettings().
+let PAY_CFG = {
+  pix: false, credito: false, debito: false,
+  repassa: true,
+  feeCredito: 2.99, feeCreditoParc: 3.49, feeCreditoFixa: 0,
+  feeDebito: 1.89, feeDebitoFixa: 0.35,
+};
+
+// Acrescimo do cartao (gross-up). Precisa bater com valorComTaxa() do
+// admin.html e do api/_lib.js — o servidor recalcula e e' ele quem manda.
+function valorComTaxa(valor, pct, fixa) {
+  const pr = (Number(pct) || 0) / 100;
+  const f = Number(fixa) || 0;
+  const v = Number(valor) || 0;
+  if (pr >= 1) return v;
+  return Math.ceil(((v + f) / (1 - pr)) * 100) / 100;
+}
 
 // ====================================================================
 // STATE
@@ -956,7 +1001,7 @@ async function loadSettings() {
   try {
     const { data, error } = await supabase
       .from('app_settings')
-      .select('whatsapp_number, whatsapp_message, pix_key, pix_key_type, pix_label, business_name, payment_link_url, payment_link_label, min_installment_value, max_installments, aniv_img_cobertura, aniv_img_totem, aniv_img_album, aniv_link_cobertura, aniv_link_totem, aniv_link_album')
+      .select('whatsapp_number, whatsapp_message, pix_key, pix_key_type, pix_label, business_name, payment_link_url, payment_link_label, min_installment_value, max_installments, aniv_img_cobertura, aniv_img_totem, aniv_img_album, aniv_link_cobertura, aniv_link_totem, aniv_link_album, pay_pix_enabled, pay_credit_enabled, pay_debit_enabled, surcharge_mode, card_fee_percent, card_fee_percent_installment, card_fee_fixed, debit_fee_percent, debit_fee_fixed')
       .eq('id', 1)
       .maybeSingle();
     if (error) throw error;
@@ -974,6 +1019,17 @@ async function loadSettings() {
       if (data.payment_link_label) PAY_LINK_LABEL = data.payment_link_label;
       if (data.min_installment_value != null) MIN_INSTALLMENT_VALUE = Number(data.min_installment_value);
       if (data.max_installments != null) MAX_INSTALLMENTS = Number(data.max_installments);
+      PAY_CFG = {
+        pix:     data.pay_pix_enabled === true,
+        credito: data.pay_credit_enabled === true,
+        debito:  data.pay_debit_enabled === true,
+        repassa: (data.surcharge_mode || 'pass_on') !== 'absorb',
+        feeCredito:     data.card_fee_percent ?? 2.99,
+        feeCreditoParc: data.card_fee_percent_installment ?? 3.49,
+        feeCreditoFixa: data.card_fee_fixed ?? 0,
+        feeDebito:      data.debit_fee_percent ?? 1.89,
+        feeDebitoFixa:  data.debit_fee_fixed ?? 0.35,
+      };
       if (data.aniv_img_cobertura) _anivImgs.aniv_img_cobertura = data.aniv_img_cobertura;
       if (data.aniv_img_totem)     _anivImgs.aniv_img_totem     = data.aniv_img_totem;
       if (data.aniv_img_album)     _anivImgs.aniv_img_album      = data.aniv_img_album;
@@ -1172,8 +1228,174 @@ function setWpp(msg) {
 // RENDER MÉTODOS DE PAGAMENTO (tela de confirmação)
 // ====================================================================
 
-function renderPaymentMethods(total, orderNumber, el) {
+// ---------------------------------------------------------------------------
+// Pagamento
+//
+// Fluxo: o pedido ja existe como 'pending'. Aqui o responsavel escolhe o
+// metodo; so' nesse clique a cobranca e' criada no Asaas (por /api/criar-cobranca,
+// que recalcula o valor no servidor — o que vai daqui e' so' a escolha).
+// Se a cobranca ja existe, mostramos ela direto em vez do seletor.
+//
+// Quando nenhum metodo online esta habilitado, cai no fluxo manual antigo
+// (chave PIX + link externo), pra nao quebrar quem ainda usa assim.
+// ---------------------------------------------------------------------------
+function renderPaymentMethods(pedido, el) {
   if (!el) el = document.getElementById('confirm-payment-methods');
+  if (!el) return;
+  const total = Number(pedido?.total_amount) || 0;
+
+  if (pedido?.pix_payload || pedido?.pix_qr_image || pedido?.checkout_url) {
+    el.innerHTML = blocoCobranca(pedido);
+    return;
+  }
+
+  if (PAY_CFG.pix || PAY_CFG.credito || PAY_CFG.debito) {
+    el.innerHTML = blocoEscolhaPagamento(pedido, total);
+    return;
+  }
+
+  renderPagamentoManual(total, el);
+}
+
+function blocoEscolhaPagamento(pedido, total) {
+  const oid = pedido?.id || '';
+  const opts = [];
+
+  if (PAY_CFG.pix) {
+    opts.push(`
+      <button type="button" class="pay-opt pay-opt-pix" onclick="escolherPagamento('${oid}','pix',1)">
+        <div class="pay-opt-head">
+          <span class="pay-opt-nome">💚 PIX</span>
+          <span class="pay-opt-badge">MAIS BARATO</span>
+        </div>
+        <div class="pay-opt-valor">${fmtMoney(total)}</div>
+        <div class="pay-opt-sub">Aprovação na hora, sem acréscimo</div>
+      </button>`);
+  }
+
+  let economia = 0;
+
+  if (PAY_CFG.credito) {
+    const c1 = PAY_CFG.repassa ? valorComTaxa(total, PAY_CFG.feeCredito, PAY_CFG.feeCreditoFixa) : total;
+    economia = c1 - total;
+    opts.push(`
+      <button type="button" class="pay-opt" onclick="escolherPagamento('${oid}','credito',1)">
+        <div class="pay-opt-head"><span class="pay-opt-nome">💳 Cartão de crédito</span></div>
+        <div class="pay-opt-valor">${fmtMoney(c1)}</div>
+        <div class="pay-opt-sub">${c1 > total ? `Inclui ${fmtMoney(c1 - total)} de taxa da operadora` : 'À vista'}</div>
+      </button>`);
+
+    if (MAX_INSTALLMENTS >= 2) {
+      const c2 = PAY_CFG.repassa ? valorComTaxa(total, PAY_CFG.feeCreditoParc, PAY_CFG.feeCreditoFixa) : total;
+      const parcela = Math.ceil((c2 / 2) * 100) / 100;
+      if (parcela >= MIN_INSTALLMENT_VALUE) {
+        opts.push(`
+          <button type="button" class="pay-opt" onclick="escolherPagamento('${oid}','credito',2)">
+            <div class="pay-opt-head"><span class="pay-opt-nome">💳 Crédito em 2×</span></div>
+            <div class="pay-opt-valor">2× de ${fmtMoney(parcela)}</div>
+            <div class="pay-opt-sub">Total ${fmtMoney(c2)}${c2 > total ? ` · inclui ${fmtMoney(c2 - total)} de taxa` : ''}</div>
+          </button>`);
+      }
+    }
+  }
+
+  if (PAY_CFG.debito) {
+    const d1 = PAY_CFG.repassa ? valorComTaxa(total, PAY_CFG.feeDebito, PAY_CFG.feeDebitoFixa) : total;
+    opts.push(`
+      <button type="button" class="pay-opt" onclick="escolherPagamento('${oid}','debito',1)">
+        <div class="pay-opt-head"><span class="pay-opt-nome">💳 Cartão de débito</span></div>
+        <div class="pay-opt-valor">${fmtMoney(d1)}</div>
+        <div class="pay-opt-sub">${d1 > total ? `Inclui ${fmtMoney(d1 - total)} de taxa` : 'À vista'}</div>
+      </button>`);
+  }
+
+  const dica = (PAY_CFG.pix && economia > 0)
+    ? `<div class="pay-dica">💡 Pagando no PIX você economiza <b>${fmtMoney(economia)}</b></div>`
+    : '';
+
+  return `
+    <div class="pay-titulo">Como você prefere pagar?</div>
+    <div class="pay-lista">${opts.join('')}</div>
+    ${dica}
+    <div id="pay-erro" class="pay-erro" style="display:none"></div>`;
+}
+
+// Cobranca ja criada — mostra QR/copia-e-cola ou o botao do checkout
+function blocoCobranca(pedido) {
+  const valor = Number(pedido?.amount_charged ?? pedido?.total_amount) || 0;
+
+  if (pedido?.pix_payload || pedido?.pix_qr_image) {
+    const codigo = pedido.pix_payload || '';
+    return `
+      <div class="pay-box pay-box-pix">
+        <div class="pay-box-titulo">💚 Pague com PIX</div>
+        <div class="pay-box-valor">${fmtMoney(valor)}</div>
+        ${pedido.pix_qr_image ? `<img src="${pedido.pix_qr_image}" alt="QR Code PIX" class="pay-qr">` : ''}
+        ${codigo ? `
+          <div class="pay-box-label">Ou copie o código:</div>
+          <div class="pay-copiacola">${escapeHtml(codigo)}</div>
+          <button type="button" class="btn btn-success btn-block" style="margin-top:8px"
+                  onclick="copyPix(document.querySelector('.pay-copiacola').textContent)">
+            📋 Copiar código PIX
+          </button>` : ''}
+        <div class="pay-box-nota">Assim que o pagamento cair, seu pedido é confirmado automaticamente — não precisa mandar comprovante.</div>
+      </div>`;
+  }
+
+  const parc = Number(pedido?.installments) || 1;
+  return `
+    <div class="pay-box pay-box-card">
+      <div class="pay-box-titulo">💳 Pagamento com cartão</div>
+      <div class="pay-box-valor">${fmtMoney(valor)}${parc > 1 ? ` <span style="font-size:13px;font-weight:400">em ${parc}×</span>` : ''}</div>
+      <a href="${escapeHtml(pedido.checkout_url)}" target="_blank" rel="noopener"
+         class="btn btn-block" style="background:var(--purple);color:#fff;text-decoration:none;padding:12px;margin-top:10px">
+        🔒 Abrir pagamento seguro
+      </a>
+      <div class="pay-box-nota">Você vai para a página segura do Asaas pra digitar os dados do cartão. A Play Up não armazena nada do seu cartão.</div>
+    </div>`;
+}
+
+// Chama a funcao serverless que cria a cobranca de verdade
+window.escolherPagamento = async function (orderId, metodo, parcelas) {
+  const el = document.getElementById('confirm-payment-methods');
+  const alvo = document.querySelector('.pay-lista')?.closest('div[id]') || el;
+  const erroEl = document.getElementById('pay-erro');
+  const botoes = document.querySelectorAll('.pay-opt');
+  botoes.forEach(b => { b.disabled = true; b.style.opacity = '.55'; });
+  if (erroEl) erroEl.style.display = 'none';
+
+  try {
+    const r = await fetch('/api/criar-cobranca', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order_id: orderId, method: metodo, installments: parcelas }),
+    });
+    const dados = await r.json();
+    if (!r.ok || !dados.ok) throw new Error(dados.erro || 'Não foi possível gerar a cobrança.');
+
+    const container = (alvo && alvo.id ? document.getElementById(alvo.id) : null) || el;
+    container.innerHTML = blocoCobranca({
+      total_amount: dados.valor_base,
+      amount_charged: dados.valor_cobrado,
+      installments: dados.parcelas,
+      pix_payload: dados.pix_payload,
+      pix_qr_image: dados.pix_qr_image,
+      checkout_url: dados.checkout_url,
+    });
+    if (dados.checkout_url && metodo !== 'pix') window.open(dados.checkout_url, '_blank', 'noopener');
+  } catch (err) {
+    botoes.forEach(b => { b.disabled = false; b.style.opacity = ''; });
+    if (erroEl) {
+      erroEl.textContent = err.message;
+      erroEl.style.display = 'block';
+    } else {
+      toast(err.message, 'warn');
+    }
+  }
+};
+
+// Fluxo antigo: chave PIX manual + link externo
+function renderPagamentoManual(total, el) {
   const blocks = [];
 
   const canPixManual = escola?.payment_pix_manual && PIX_KEY;
@@ -1854,7 +2076,8 @@ async function loadMinhaConta() {
   const { data: pedidos, error: pErr } = await supabase
     .from('orders')
     .select(`
-      id, order_number, status, total_amount, created_at, kit_type,
+      id, order_number, payment_status, total_amount, created_at, kit_type,
+      amount_charged, installments, pix_payload, pix_qr_image, checkout_url,
       order_kits(quantity, kit:school_kits(name, kit_type)),
       order_items(quantity, product:products(name))
     `)
@@ -1866,9 +2089,14 @@ async function loadMinhaConta() {
   if (pErr || !pedidos || pedidos.length === 0) {
     pedidosEl.innerHTML = '<div class="mc-empty">Nenhum pedido encontrado.</div>';
   } else {
-    const statusMap = { pendente: ['mc-status-pend','⏳ Aguardando pagamento'], pago: ['mc-status-pago','✓ Pago'], cancelado: ['mc-status-cancel','✕ Cancelado'] };
+    const statusMap = {
+      pending:   ['mc-status-pend',  '⏳ Aguardando pagamento'],
+      paid:      ['mc-status-pago',  '✓ Pago'],
+      cancelled: ['mc-status-cancel','✕ Cancelado'],
+      refunded:  ['mc-status-cancel','↩ Estornado'],
+    };
     pedidosEl.innerHTML = pedidos.map(p => {
-      const [statusCls, statusLabel] = statusMap[p.status] || ['mc-status-pend', p.status];
+      const [statusCls, statusLabel] = statusMap[p.payment_status] || ['mc-status-pend', p.payment_status];
       const data = new Date(p.created_at).toLocaleDateString('pt-BR');
 
       // Monta descrição dos kits
@@ -1885,7 +2113,9 @@ async function loadMinhaConta() {
 
       const detalhe = [kitsDesc, avulsosDesc].filter(Boolean).join(' + ');
 
-      const barCls = p.status === 'pago' ? 'mc-order-bar-pago' : p.status === 'cancelado' ? 'mc-order-bar-cancel' : 'mc-order-bar-pend';
+      const barCls = p.payment_status === 'paid' ? 'mc-order-bar-pago'
+                   : (p.payment_status === 'cancelled' || p.payment_status === 'refunded') ? 'mc-order-bar-cancel'
+                   : 'mc-order-bar-pend';
       return `
       <div class="mc-order-card">
         <div class="mc-order-bar ${barCls}"></div>
@@ -1897,15 +2127,15 @@ async function loadMinhaConta() {
           <div class="mc-order-kit">${detalhe || '—'}</div>
           <div class="mc-order-detail">Pedido em ${data}</div>
           <div class="mc-order-total">${fmtMoney(p.total_amount || 0)}</div>
-          ${p.status === 'pendente' ? `<div id="mc-pay-${p.order_number}" style="margin-top:10px"></div>` : ''}
+          ${p.payment_status === 'pending' ? `<div id="mc-pay-${p.order_number}" style="margin-top:10px"></div>` : ''}
         </div>
       </div>`;
     }).join('');
 
     // Instrução de pagamento para pedidos pendentes
-    pedidos.filter(p => p.status === 'pendente').forEach(p => {
+    pedidos.filter(p => p.payment_status === 'pending').forEach(p => {
       const el = document.getElementById(`mc-pay-${p.order_number}`);
-      if (el) renderPaymentMethods(p.total_amount || 0, p.order_number, el);
+      if (el) renderPaymentMethods(p, el);
     });
   }
 
@@ -2579,7 +2809,7 @@ document.getElementById('btn-finalizar').addEventListener('click', async () => {
     document.getElementById('confirm-num').textContent = order.order_number;
     document.getElementById('confirm-total').textContent = fmtMoney(total);
 
-    renderPaymentMethods(total, order.order_number);
+    renderPaymentMethods({ ...order, total_amount: total });
 
     document.getElementById('link-wpp').href = `https://wa.me/${WPP_NUMERO}?text=${encodeURIComponent(
       `Olá! Sou responsável de ${student.name}. Acabei de fazer o pedido ${order.order_number} de ${escola.name} no valor de ${fmtMoney(total)}.`
