@@ -188,7 +188,7 @@ button,input,select,textarea{font-family:var(--font)}
 .pay-ok-icon{width:56px;height:56px;border-radius:50%;background:var(--green);color:#fff;font-size:30px;display:flex;align-items:center;justify-content:center;margin:0 auto 11px}
 .pay-ok-titulo{font-size:17px;font-weight:800;color:#14532d}
 .pay-ok-valor{font-size:22px;font-weight:800;color:var(--gray-900);margin:5px 0 3px}
-.pay-ok-logo{height:50px;width:auto;margin:0 auto 12px;display:block;object-fit:contain}
+.pay-ok-logo{height:80px;width:auto;margin:0 auto 12px;display:block;object-fit:contain}
 .pay-duvida{display:flex;align-items:center;justify-content:center;gap:7px;margin-top:12px;padding:9px 12px;border:1px solid #25D366;border-radius:9px;background:#F0FFF4;color:#166534;font-size:12.5px;font-weight:600;text-decoration:none}
 .pay-duvida:hover{background:#DCFCE7}
 
@@ -1414,7 +1414,7 @@ function vigiarPagamento(orderId, container) {
       const valor = Number(data.amount_charged ?? data.total_amount) || 0;
       container.innerHTML = `
         <div class="pay-ok">
-          <img src="assets/logo.png" alt="Play Up" class="pay-ok-logo" onerror="this.style.display='none'">
+          <img src="assets/logo-playup.png" alt="Play Up Fotografia" class="pay-ok-logo" onerror="this.style.display='none'">
           <div class="pay-ok-icon">✓</div>
           <div class="pay-ok-titulo">Pagamento confirmado!</div>
           <div class="pay-ok-valor">${fmtMoney(valor)}</div>
