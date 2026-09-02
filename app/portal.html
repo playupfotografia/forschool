@@ -1288,6 +1288,14 @@ function blocoEscolhaPagamento(pedido, total) {
   const antec1 = PAY_CFG.antecipa ? (Number(PAY_CFG.antecAvista) || 0) : 0;
   const antec2 = PAY_CFG.antecipa ? (Number(PAY_CFG.antecParc) || 0) : 0;
 
+  // O pai decide comparando com o PIX, entao o rotulo mostra a diferenca, nao
+  // a composicao da taxa. Sem PIX habilitado a comparacao nao faz sentido.
+  const subAcrescimo = (v) => {
+    if (v <= total) return 'À vista';
+    const dif = fmtMoney(v - total);
+    return PAY_CFG.pix ? `${dif} a mais que no PIX` : `Inclui ${dif} de taxa do cartão`;
+  };
+
   if (PAY_CFG.credito) {
     const c1 = PAY_CFG.repassa ? valorComTaxa(total, (Number(PAY_CFG.feeCredito) || 0) + antec1, PAY_CFG.feeCreditoFixa) : total;
     economia = c1 - total;
@@ -1295,7 +1303,7 @@ function blocoEscolhaPagamento(pedido, total) {
       <button type="button" class="pay-opt" onclick="escolherPagamento('${oid}','credito',1)">
         <div class="pay-opt-head"><span class="pay-opt-nome">💳 Cartão de crédito</span></div>
         <div class="pay-opt-valor">${fmtMoney(c1)}</div>
-        <div class="pay-opt-sub">${c1 > total ? `Inclui ${fmtMoney(c1 - total)} de taxa da operadora` : 'À vista'}</div>
+        <div class="pay-opt-sub">${subAcrescimo(c1)}</div>
       </button>`);
 
     if (MAX_INSTALLMENTS >= 2) {
@@ -1306,7 +1314,7 @@ function blocoEscolhaPagamento(pedido, total) {
           <button type="button" class="pay-opt" onclick="escolherPagamento('${oid}','credito',2)">
             <div class="pay-opt-head"><span class="pay-opt-nome">💳 Crédito em 2×</span></div>
             <div class="pay-opt-valor">2× de ${fmtMoney(parcela)}</div>
-            <div class="pay-opt-sub">Total ${fmtMoney(c2)}${c2 > total ? ` · inclui ${fmtMoney(c2 - total)} de taxa` : ''}</div>
+            <div class="pay-opt-sub">Total ${fmtMoney(c2)}${c2 > total ? ` · ${subAcrescimo(c2)}` : ''}</div>
           </button>`);
       }
     }
@@ -1318,7 +1326,7 @@ function blocoEscolhaPagamento(pedido, total) {
       <button type="button" class="pay-opt" onclick="escolherPagamento('${oid}','debito',1)">
         <div class="pay-opt-head"><span class="pay-opt-nome">💳 Cartão de débito</span></div>
         <div class="pay-opt-valor">${fmtMoney(d1)}</div>
-        <div class="pay-opt-sub">${d1 > total ? `Inclui ${fmtMoney(d1 - total)} de taxa` : 'À vista'}</div>
+        <div class="pay-opt-sub">${subAcrescimo(d1)}</div>
       </button>`);
   }
 
