@@ -61,6 +61,33 @@ async function sb(caminho, opts = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Quem esta chamando?
+// As funcoes falam com o banco usando service_role, que ignora RLS. Sem isso
+// aqui, qualquer um que adivinhasse o id de um pedido poderia gerar cobranca
+// ou cancelar o pedido de outra pessoa. Devolve o id do usuario logado, ou
+// null se o token nao valer.
+// ---------------------------------------------------------------------------
+async function usuarioDoToken(req) {
+  const bruto = req.headers?.authorization || '';
+  const token = bruto.replace(/^Bearer\s+/i, '').trim();
+  if (!token) return null;
+  try {
+    const base = env('SUPABASE_URL').replace(/\/$/, '');
+    const r = await fetch(base + '/auth/v1/user', {
+      headers: {
+        apikey: env('SUPABASE_SERVICE_ROLE_KEY'),
+        Authorization: 'Bearer ' + token,
+      },
+    });
+    if (!r.ok) return null;
+    const u = await r.json();
+    return u?.id || null;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Acrescimo do cartao (gross-up).
 // A taxa incide sobre o valor JA acrescido, entao somar a taxa por cima
 // deixaria a empresa recebendo a menos. Embutindo:
@@ -87,4 +114,4 @@ function emDias(n) {
   return d.toISOString().slice(0, 10);
 }
 
-module.exports = { env, asaas, sb, valorComTaxa, apenasDigitos, emDias };
+module.exports = { env, asaas, sb, usuarioDoToken, valorComTaxa, apenasDigitos, emDias };

@@ -11,7 +11,7 @@
 // Body: { order_id, method: 'pix'|'credito'|'debito', installments?: 1|2 }
 // ============================================================================
 
-const { asaas, sb, valorComTaxa, apenasDigitos, emDias } = require('./_lib.js');
+const { asaas, sb, usuarioDoToken, valorComTaxa, apenasDigitos, emDias } = require('./_lib.js');
 
 const BILLING = { pix: 'PIX', credito: 'CREDIT_CARD', debito: 'DEBIT_CARD' };
 const METODO_ORDERS = { pix: 'pix', credito: 'cartao_1x', debito: 'cartao_debito' };
@@ -23,6 +23,11 @@ module.exports = async (req, res) => {
   }
 
   try {
+    // Falamos com o banco por service_role, que ignora RLS — sem esta checagem
+    // qualquer um que adivinhasse um id geraria cobranca pro pedido alheio.
+    const uid = await usuarioDoToken(req);
+    if (!uid) return res.status(401).json({ erro: 'Sessao expirada. Faca login novamente.' });
+
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
     const orderId = body.order_id;
     const metodo = String(body.method || '').toLowerCase();
@@ -39,6 +44,9 @@ module.exports = async (req, res) => {
     );
     const pedido = pedidos?.[0];
     if (!pedido) return res.status(404).json({ erro: 'Pedido nao encontrado.' });
+    if (pedido.user_id && pedido.user_id !== uid) {
+      return res.status(403).json({ erro: 'Esse pedido nao e seu.' });
+    }
     if (pedido.payment_status === 'paid') {
       return res.status(409).json({ erro: 'Esse pedido ja esta pago.' });
     }

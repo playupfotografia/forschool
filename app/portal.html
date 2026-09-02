@@ -716,6 +716,8 @@ button,input,select,textarea{font-family:var(--font)}
       <div id="cat-prazo" style="font-size:12px;font-weight:600;background:var(--blue-light);color:var(--blue-dark);padding:6px 12px;border-radius:20px"></div>
     </div>
 
+    <div id="aviso-pedido-aberto" style="display:none;background:#FFFBEB;border:1px solid #FCD34D;border-radius:10px;padding:11px 13px;font-size:12.5px;color:#92400e;line-height:1.5;margin-bottom:16px"></div>
+
     <div class="cat-layout">
       <div>
         <div class="sec-title">Escolha seu kit</div>
@@ -993,6 +995,9 @@ let years = [], classes = []; // estrutura acadêmica
 let kits = [];                // school_kits com items expandidos
 let avulsosDisp = [];         // produtos avulsos disponíveis nessa escola
 let student = null;           // aluno do pai logado
+// Pedido pendente que o responsavel esta editando. Enquanto existe, o
+// carrinho E' esse pedido: finalizar reescreve ele em vez de criar outro.
+let pedidoAberto = null;       // { id, order_number }
 let kitsCarrinho  = {};        // { basico: 1, inter: 2 } — qty por kit_type
 let avulsosCarrinho = {};     // { product_id: quantity }
 let currentTerm = null;       // termo de autorização do projeto (ou default)
@@ -1249,6 +1254,16 @@ function setWpp(msg) {
 // Quando nenhum metodo online esta habilitado, cai no fluxo manual antigo
 // (chave PIX + link externo), pra nao quebrar quem ainda usa assim.
 // ---------------------------------------------------------------------------
+// As funcoes em /api falam com o banco por service_role (ignora RLS), entao
+// elas exigem o token da sessao pra saber quem esta chamando.
+async function authHeaders() {
+  const { data } = await supabase.auth.getSession();
+  const token = data?.session?.access_token;
+  return token
+    ? { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }
+    : { 'Content-Type': 'application/json' };
+}
+
 function renderPaymentMethods(pedido, el) {
   if (!el) el = document.getElementById('confirm-payment-methods');
   if (!el) return;
@@ -1388,7 +1403,7 @@ window.escolherPagamento = async function (orderId, metodo, parcelas) {
   try {
     const r = await fetch('/api/criar-cobranca', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await authHeaders(),
       body: JSON.stringify({ order_id: orderId, method: metodo, installments: parcelas }),
     });
     const dados = await r.json();
@@ -2402,14 +2417,59 @@ document.getElementById('btn-denied-sair').addEventListener('click', async () =>
 // CATÁLOGO
 // ====================================================================
 
+// Modelo de carrinho de e-commerce: se o aluno tem pedido nao pago, ele volta
+// pro carrinho pra ser editado (adicionar, remover, trocar). Sem isso o pai
+// ficava preso — ou criava pedido duplicado, ou nao conseguia mudar nada.
+async function carregarPedidoAberto() {
+  pedidoAberto = null;
+  try {
+    let q = supabase
+      .from('orders')
+      .select('id, order_number, order_kits(quantity, kit:school_kits(kit_type)), order_items(quantity, product_id)')
+      .eq('student_id', student.id)
+      .eq('payment_status', 'pending');
+    if (projeto?.id) q = q.eq('project_id', projeto.id);
+    const { data, error } = await q.order('created_at', { ascending: false }).limit(1);
+    if (error) throw error;
+    const ped = data?.[0];
+    if (!ped) return;
+
+    pedidoAberto = { id: ped.id, order_number: ped.order_number };
+    kitsCarrinho = {};
+    avulsosCarrinho = {};
+    (ped.order_kits || []).forEach(ok => {
+      const t = ok.kit?.kit_type;
+      if (t) kitsCarrinho[t] = (kitsCarrinho[t] || 0) + (ok.quantity || 1);
+    });
+    (ped.order_items || []).forEach(oi => {
+      if (oi.product_id) avulsosCarrinho[oi.product_id] = (avulsosCarrinho[oi.product_id] || 0) + (oi.quantity || 1);
+    });
+  } catch (err) {
+    console.warn('[carregarPedidoAberto]', err);
+    pedidoAberto = null;
+  }
+}
+
+function renderAvisoPedidoAberto() {
+  const el = document.getElementById('aviso-pedido-aberto');
+  if (!el) return;
+  if (!pedidoAberto) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.innerHTML = `🛒 Você tem o pedido <b>${escapeHtml(pedidoAberto.order_number)}</b> aguardando pagamento.
+    Os itens dele já estão no seu carrinho — pode adicionar, tirar ou trocar à vontade e finalizar de novo.`;
+}
+
 async function loadCatalogo(user) {
   show('screen-catalogo');
+  await carregarPedidoAberto();
+  renderAvisoPedidoAberto();
 
   // Welcome card
   const turma = student.school_classes;
   const anoNome = turma?.year?.name || '';
   const turmaNome = turma?.name || '';
   document.getElementById('cat-ola').textContent = `Olá! ${student.name}`;
+  renderAvisoPedidoAberto();
   document.getElementById('cat-info').textContent = `${escola.name} · ${anoNome}${turmaNome ? ' / Turma ' + turmaNome : ''}`;
   const prazo = escola.order_deadline ? new Date(escola.order_deadline + 'T00:00:00').toLocaleDateString('pt-BR') : '';
   document.getElementById('cat-prazo').textContent = prazo ? `⏰ Pedidos até ${prazo}` : '';
@@ -2774,109 +2834,65 @@ document.getElementById('btn-finalizar').addEventListener('click', async () => {
     if (!confirm('Você está comprando apenas avulsos, sem kit. Deseja continuar?')) return;
   }
 
+  const btn = document.getElementById('btn-finalizar');
+  const txt = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Salvando…';
+
   try {
     const user = await getCurrentUser();
     if (!user) throw new Error('Sessão expirada. Faça login novamente.');
 
-    // Impede pedido duplicado. O caminho que gera isso: o responsavel finaliza,
-    // volta pro catalogo, monta a cesta de novo e finaliza outra vez — ficava
-    // com dois pedidos abertos do mesmo aluno. Se ja existe um pendente,
-    // levamos ele pro pedido que ja existe em vez de criar mais um.
-    // Pedido pago nao bloqueia: comprar de novo depois e' legitimo.
-    let qPend = supabase
-      .from('orders')
-      .select('id, order_number, total_amount')
-      .eq('student_id', student.id)
-      .eq('payment_status', 'pending');
-    if (projeto?.id) qPend = qPend.eq('project_id', projeto.id);
-    const { data: pendentes, error: pendErr } = await qPend.limit(1);
-    if (pendErr) throw pendErr;
-    if (pendentes && pendentes.length) {
-      const ant = pendentes[0];
-      closeCartDrawer();
-      toast(`Você já tem o pedido ${ant.order_number} aguardando pagamento.`, 'warn');
-      alert(
-        `Você já tem um pedido em aberto:
-
-` +
-        `Pedido ${ant.order_number} — ${fmtMoney(ant.total_amount)}
-
-` +
-        `Vamos te levar até ele para você concluir o pagamento. ` +
-        `Se quiser mudar o que foi pedido, fale com a Play Up pelo WhatsApp.`
-      );
-      await loadMinhaConta();
-      return;
-    }
-
-    // Kit principal = kit de maior valor no carrinho (para campo legado orders.kit_type)
-    const kitRank = { promo: 3, inter: 2, basico: 1 };
-    const kitEntries = Object.entries(kitsCarrinho).filter(([,q]) => q > 0);
-    const primaryKitType = kitEntries.sort((a,b) => (kitRank[b[0]]||0)-(kitRank[a[0]]||0))[0]?.[0] || null;
-
-    // Cria o pedido
-    const { data: order, error: orderErr } = await supabase
-      .from('orders')
-      .insert({
+    // O pedido e' gravado pelo servidor, nao aqui. Mandamos so' O QUE e
+    // QUANTOS; quem calcula preco e total e' /api/salvar-pedido, lendo os
+    // kits e precos do banco. Se o total viesse daqui, bastaria mexer no JS
+    // do proprio celular pra fechar um pedido de R$ 139,90 por R$ 1,00.
+    //
+    // Se ja existe pedido pendente deste aluno, a funcao reescreve ELE —
+    // mantendo o mesmo numero. O pedido em aberto e' o carrinho.
+    const r = await fetch('/api/salvar-pedido', {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: JSON.stringify({
         student_id: student.id,
-        user_id: user.id,
-        school_id: escola.id,
         project_id: projeto?.id || null,
-        kit_type: primaryKitType,
-        total_amount: total,
-        payment_method: 'pix',
-        payment_status: 'pending',
-        source: 'parent',
-      })
-      .select('id, order_number')
-      .single();
-    if (orderErr) throw orderErr;
-
-    // order_kits: um registro por kit (suporta múltiplos kits e quantidades)
-    const isPromo = (kitsCarrinho['promo'] || 0) > 0;
-    const orderKitsToInsert = [];
-    kitEntries.forEach(([kitType, qty]) => {
-      const kit = kits.find(k => k.kit_type === kitType);
-      if (!kit || qty <= 0) return;
-      orderKitsToInsert.push({ order_id: order.id, kit_id: kit.id, quantity: qty, unit_price: Number(kit.price) });
+        kits: kitsCarrinho,
+        avulsos: avulsosCarrinho,
+      }),
     });
-    if (orderKitsToInsert.length > 0) {
-      const { error: okErr } = await supabase.from('order_kits').insert(orderKitsToInsert);
-      if (okErr) throw okErr;
+    const dados = await r.json().catch(() => ({}));
+    if (!r.ok || !dados.ok) throw new Error(dados.erro || 'Não foi possível salvar o pedido.');
+
+    pedidoAberto = { id: dados.order_id, order_number: dados.order_number };
+    const totalReal = Number(dados.total_amount) || 0;
+
+    // O servidor pode ter chegado a um total diferente — produto que saiu de
+    // linha, preco atualizado no admin enquanto o pai montava o carrinho.
+    // Vale o do servidor, mas o pai precisa ser avisado.
+    if (Math.abs(totalReal - total) > 0.009) {
+      toast(`O total foi ajustado para ${fmtMoney(totalReal)} conforme os preços atuais.`, 'warn');
     }
 
-    // order_items: avulsos
-    const itemsToInsert = [];
-    Object.entries(avulsosCarrinho).forEach(([id, qty]) => {
-      const av = avulsosDisp.find(x => x.id === id);
-      if (!av || qty <= 0) return;
-      const unit = isPromo ? av.price_with_promo : av.price_without_promo;
-      itemsToInsert.push({
-        order_id: order.id,
-        product_id: id,
-        quantity: qty,
-        unit_price: unit,
-        discount_applied: isPromo,
-      });
+    closeCartDrawer();
+    document.getElementById('confirm-num').textContent = dados.order_number;
+    document.getElementById('confirm-total').textContent = fmtMoney(totalReal);
+    document.getElementById('confirm-payment-methods').innerHTML = '';
+
+    renderPaymentMethods({
+      id: dados.order_id,
+      order_number: dados.order_number,
+      total_amount: totalReal,
     });
-
-    if (itemsToInsert.length > 0) {
-      const { error: itErr } = await supabase.from('order_items').insert(itemsToInsert);
-      if (itErr) throw itErr;
-    }
-
-    // Tela de confirmação — atualiza com valores dinâmicos
-    document.getElementById('confirm-num').textContent = order.order_number;
-    document.getElementById('confirm-total').textContent = fmtMoney(total);
-
-    renderPaymentMethods({ ...order, total_amount: total });
 
     document.getElementById('link-wpp').href = `https://wa.me/${WPP_NUMERO}?text=${encodeURIComponent(
-      `Olá! Sou responsável de ${student.name}. Acabei de fazer o pedido ${order.order_number} de ${escola.name} no valor de ${fmtMoney(total)}.`
+      `Olá! Sou responsável de ${student.name}. Acabei de fazer o pedido ${dados.order_number} de ${escola.name} no valor de ${fmtMoney(totalReal)}.`
     )}`;
     show('screen-confirm');
   } catch (err) {
     handleError(err, 'finalizar');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = txt;
   }
 });
 
