@@ -93,10 +93,14 @@ button,input,select,textarea{font-family:var(--font)}
 .pp-card-desc{font-size:11px;color:var(--gray-500);line-height:1.4;margin-bottom:8px;min-height:30px}
 .pp-card-price{font-size:16px;font-weight:700}
 .pp-card-price-old{font-size:11px;color:var(--gray-300);text-decoration:line-through;font-weight:500;margin-left:6px}
-.pp-card-qty{display:flex;align-items:center;gap:6px;margin-top:7px}
+.pp-card-qty{display:flex;align-items:center;gap:6px;margin-top:7px;flex-wrap:wrap}
 .pp-card-qty button{width:28px;height:28px;border-radius:6px;border:1px solid var(--gray-200);background:white;cursor:pointer;font-size:15px;font-weight:600}
 .pp-card-qty button:hover{background:var(--gray-50);border-color:var(--blue)}
 .pp-card-qty .qty-num{font-size:14px;font-weight:600;min-width:18px;text-align:center}
+.pp-add{width:100%;margin-top:8px;background:linear-gradient(135deg,#27AE60,#0D9488);color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px}
+.pp-add:hover{filter:brightness(1.08)}
+.pp-add:active{transform:scale(.98)}
+.pp-incart{font-size:11px;color:var(--green);font-weight:700;white-space:nowrap;background:var(--green-light);padding:2px 7px;border-radius:20px}
 
 /* KIT BADGES */
 .tag-bas{background:var(--c-bas-bg);color:var(--c-bas)}
@@ -737,7 +741,7 @@ button,input,select,textarea{font-family:var(--font)}
 
 <!-- CARRINHO FLUTUANTE -->
 <button class="cart-fab" id="cart-fab" style="display:none">
-  🛒 Meu pedido
+  🛒 Ver carrinho
   <span class="cart-fab-badge" id="cart-fab-badge">0</span>
   <span class="cart-fab-total" id="cart-fab-total"></span>
 </button>
@@ -747,7 +751,7 @@ button,input,select,textarea{font-family:var(--font)}
 <div class="cart-drawer" id="cart-drawer">
   <div class="cart-drawer-handle"></div>
   <div class="cart-drawer-header">
-    <span class="cart-drawer-title">🛒 Meu pedido</span>
+    <span class="cart-drawer-title">🛒 Carrinho</span>
     <button class="cart-drawer-close" id="cart-drawer-close">×</button>
   </div>
   <div class="cart-drawer-body">
@@ -759,7 +763,8 @@ button,input,select,textarea{font-family:var(--font)}
       <span id="cart-total">R$ 0,00</span>
     </div>
     <button class="btn btn-success btn-block" style="padding:13px;font-size:15px" id="btn-finalizar">Finalizar pedido</button>
-    <div class="hint" style="text-align:center;margin-top:7px">Pagamento via PIX (chave da Play Up).</div>
+    <button class="btn btn-secondary btn-block" style="padding:11px;margin-top:8px" id="btn-continuar-comprando">← Continuar comprando</button>
+    <div class="hint" style="text-align:center;margin-top:7px">Você escolhe a forma de pagamento no próximo passo.</div>
   </div>
 </div>
 
@@ -2471,36 +2476,37 @@ function renderKits() {
           <div class="pp-card-desc">${compTxt}</div>
           <div class="pp-card-price ${colorClass}">${fmtMoney(k.price)}</div>
           ${k.kit_type === 'promo' ? '<div style="font-size:11px;color:var(--green);font-weight:600;margin-top:3px">★ Desconto nos avulsos</div>' : ''}
+          ${qty > 0 ? `
           <div class="pp-card-qty">
             <button data-kit-dec="${k.kit_type}">−</button>
             <span class="qty-num" id="kit-qty-${k.kit_type}">${qty}</span>
             <button data-kit-inc="${k.kit_type}">+</button>
-          </div>
+            <span class="pp-incart">✓ no carrinho</span>
+          </div>` : `
+          <button class="pp-add" data-kit-add="${k.kit_type}">🛒 Adicionar ao carrinho</button>`}
         </div>
       </div>
     `;
   }).join('');
 
-  el.querySelectorAll('[data-kit-inc]').forEach(b => b.addEventListener('click', e => {
-    e.stopPropagation();
-    const tipo = b.dataset.kitInc;
-    kitsCarrinho[tipo] = (kitsCarrinho[tipo] || 0) + 1;
-    document.getElementById('kit-qty-' + tipo).textContent = kitsCarrinho[tipo];
-    b.closest('.pp-card').classList.add('selected');
+  // Re-renderiza a lista inteira: e' o que troca o botao "Adicionar" pelo
+  // controle de quantidade (e vice-versa) sem logica extra de DOM.
+  const mudaKit = (tipo, delta, avisar) => {
+    kitsCarrinho[tipo] = Math.max(0, (kitsCarrinho[tipo] || 0) + delta);
+    if (kitsCarrinho[tipo] === 0) delete kitsCarrinho[tipo];
+    renderKits();
     renderAvulsos();
     renderCart();
+    if (avisar) toast('Adicionado ao carrinho!', 'ok');
+  };
+  el.querySelectorAll('[data-kit-add]').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation(); mudaKit(b.dataset.kitAdd, 1, true);
+  }));
+  el.querySelectorAll('[data-kit-inc]').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation(); mudaKit(b.dataset.kitInc, 1, false);
   }));
   el.querySelectorAll('[data-kit-dec]').forEach(b => b.addEventListener('click', e => {
-    e.stopPropagation();
-    const tipo = b.dataset.kitDec;
-    kitsCarrinho[tipo] = Math.max(0, (kitsCarrinho[tipo] || 0) - 1);
-    document.getElementById('kit-qty-' + tipo).textContent = kitsCarrinho[tipo];
-    if (kitsCarrinho[tipo] === 0) {
-      delete kitsCarrinho[tipo];
-      b.closest('.pp-card').classList.remove('selected');
-    }
-    renderAvulsos();
-    renderCart();
+    e.stopPropagation(); mudaKit(b.dataset.kitDec, -1, false);
   }));
 }
 
@@ -2533,28 +2539,34 @@ function renderAvulsos() {
             <span class="pp-card-price ${isPromo ? 'color-bas' : 'color-av'}">${fmtMoney(price)}</span>
             ${oldPrice ? `<span class="pp-card-price-old">${fmtMoney(oldPrice)}</span>` : ''}
           </div>
+          ${qty > 0 ? `
           <div class="pp-card-qty">
             <button data-av-dec="${a.id}">−</button>
             <span class="qty-num" id="qty-${a.id}">${qty}</span>
             <button data-av-inc="${a.id}">+</button>
-          </div>
+            <span class="pp-incart">✓ no carrinho</span>
+          </div>` : `
+          <button class="pp-add" data-av-add="${a.id}">🛒 Adicionar ao carrinho</button>`}
         </div>
       </div>
     `;
   }).join('');
 
-  el.querySelectorAll('[data-av-inc]').forEach(b => b.addEventListener('click', () => {
-    const id = b.dataset.avInc;
-    avulsosCarrinho[id] = (avulsosCarrinho[id] || 0) + 1;
-    document.getElementById('qty-' + id).textContent = avulsosCarrinho[id];
-    renderCart();
-  }));
-  el.querySelectorAll('[data-av-dec]').forEach(b => b.addEventListener('click', () => {
-    const id = b.dataset.avDec;
-    avulsosCarrinho[id] = Math.max(0, (avulsosCarrinho[id] || 0) - 1);
-    document.getElementById('qty-' + id).textContent = avulsosCarrinho[id];
+  const mudaAvulso = (id, delta, avisar) => {
+    avulsosCarrinho[id] = Math.max(0, (avulsosCarrinho[id] || 0) + delta);
     if (avulsosCarrinho[id] === 0) delete avulsosCarrinho[id];
+    renderAvulsos();
     renderCart();
+    if (avisar) toast('Adicionado ao carrinho!', 'ok');
+  };
+  el.querySelectorAll('[data-av-add]').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation(); mudaAvulso(b.dataset.avAdd, 1, true);
+  }));
+  el.querySelectorAll('[data-av-inc]').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation(); mudaAvulso(b.dataset.avInc, 1, false);
+  }));
+  el.querySelectorAll('[data-av-dec]').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation(); mudaAvulso(b.dataset.avDec, -1, false);
   }));
   el.querySelectorAll('[data-av-detail]').forEach(b => b.addEventListener('click', () => {
     const av = avulsosDisp.find(x => x.id === b.dataset.avDetail);
@@ -2732,6 +2744,7 @@ function closeCartDrawer() {
 document.getElementById('cart-fab').addEventListener('click', openCartDrawer);
 document.getElementById('cart-overlay').addEventListener('click', closeCartDrawer);
 document.getElementById('cart-drawer-close').addEventListener('click', closeCartDrawer);
+document.getElementById('btn-continuar-comprando').addEventListener('click', closeCartDrawer);
 
 // ====================================================================
 // FINALIZAR PEDIDO
