@@ -806,8 +806,8 @@ tr:hover td{background:var(--gray-50)}
                 </div>
               </div>
             </div>
-            <div style="padding:8px 16px;font-size:11px;color:var(--gray-400);text-align:center">
-              Clique na foto para selecionar • Arraste para mover • Handles nos cantos para redimensionar e girar
+            <div style="padding:8px 16px;font-size:11px;color:var(--gray-400);text-align:center" id="mont-instrucao">
+              Clique na foto para selecionar · Arraste para mover · Handles nos cantos para redimensionar e girar
             </div>
           </div>
         </div>
@@ -1482,6 +1482,25 @@ tr:hover td{background:var(--gray-50)}
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+        <div style="border-top:1px solid var(--gray-100);padding-top:12px;margin-top:4px">
+          <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">
+            Slots de foto <span style="font-weight:400;color:var(--gray-400);text-transform:none">(onde a foto do aluno encaixa na moldura)</span>
+          </div>
+          <div id="pr-slots-no-frame" style="font-size:11px;color:var(--gray-400);padding:8px 0">
+            Cadastre a moldura acima para poder definir os slots.
+          </div>
+          <div id="pr-slots-editor" style="display:none">
+            <div style="font-size:11px;color:var(--gray-500);margin-bottom:8px">
+              Clique e arraste sobre a moldura para marcar cada área de foto. Cada retângulo = um slot onde a foto do aluno será encaixada automaticamente.
+            </div>
+            <div style="position:relative;display:inline-block;max-width:100%;border:1px solid var(--gray-200);border-radius:8px;overflow:hidden;cursor:crosshair" id="pr-slots-img-wrap">
+              <img id="pr-slots-img" style="display:block;max-width:320px;width:100%;user-select:none;pointer-events:none" draggable="false">
+              <canvas id="pr-slots-canvas" style="position:absolute;inset:0;width:100%;height:100%"></canvas>
+            </div>
+            <div id="pr-slots-list" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:5px"></div>
+            <button type="button" class="btn btn-sm btn-danger" onclick="limparTodosSlots()" style="margin-top:6px;font-size:11px" id="pr-slots-clear" hidden>Remover todos os slots</button>
           </div>
         </div>
       </div>
@@ -3434,6 +3453,9 @@ async function editarProduto(id) {
     document.getElementById('pr-frame-nome').textContent = data.frame_url ? '✓ Moldura cadastrada' : '';
     const fprev = document.getElementById('pr-frame-preview');
     fprev.innerHTML = data.frame_url ? `<img src="${data.frame_url}" style="width:100%;height:100%;object-fit:contain">` : '🖼';
+    // Slots
+    prSlots = Array.isArray(data.slots) ? data.slots : [];
+    prSlotsAtualizarFrame(data.frame_url || null);
     document.getElementById('mod-prod').classList.add('open');
   } catch (err) {
     handleError(err, 'editarProduto');
@@ -3455,6 +3477,135 @@ async function excluirProduto(id) {
 let prFrameUrl   = null;
 let prFrameFile  = null;
 let prExtraFiles = [null, null, null]; // índices 0=img2, 1=img3, 2=img4
+let prSlots      = []; // [{x,y,w,h}] em fração (0–1) das dimensões da moldura
+
+// ── Editor de slots ──────────────────────────────────────────────────────────
+(function() {
+  let drawing = false, sx = 0, sy = 0, cx = 0, cy = 0;
+
+  function slotCanvas() { return document.getElementById('pr-slots-canvas'); }
+  function slotImg()    { return document.getElementById('pr-slots-img'); }
+
+  function syncCanvas() {
+    const img = slotImg();
+    const cv  = slotCanvas();
+    if (!img || !cv) return;
+    cv.width  = img.offsetWidth  || img.naturalWidth;
+    cv.height = img.offsetHeight || img.naturalHeight;
+  }
+
+  function renderSlots() {
+    const cv = slotCanvas();
+    if (!cv) return;
+    syncCanvas();
+    const ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, cv.width, cv.height);
+
+    prSlots.forEach((s, i) => {
+      const x = s.x * cv.width, y = s.y * cv.height;
+      const w = s.w * cv.width, h = s.h * cv.height;
+      ctx.fillStyle   = 'rgba(59,130,246,0.18)';
+      ctx.strokeStyle = '#3b82f6';
+      ctx.lineWidth   = 2;
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeRect(x, y, w, h);
+      ctx.fillStyle = '#3b82f6';
+      ctx.font = `bold ${Math.max(12, Math.min(22, w * .25))}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(i + 1, x + w / 2, y + h / 2);
+    });
+
+    // desenho em andamento
+    if (drawing) {
+      const rx = Math.min(sx, cx), ry = Math.min(sy, cy);
+      const rw = Math.abs(cx - sx),  rh = Math.abs(cy - sy);
+      ctx.fillStyle   = 'rgba(16,185,129,0.15)';
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth   = 2;
+      ctx.setLineDash([5, 3]);
+      ctx.fillRect(rx, ry, rw, rh);
+      ctx.strokeRect(rx, ry, rw, rh);
+      ctx.setLineDash([]);
+    }
+
+    // atualiza lista e botão
+    const list = document.getElementById('pr-slots-list');
+    const clrBtn = document.getElementById('pr-slots-clear');
+    if (list) {
+      list.innerHTML = prSlots.map((s, i) => `
+        <span style="display:inline-flex;align-items:center;gap:4px;background:var(--blue-light);color:var(--blue);
+          font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px">
+          Slot ${i + 1}
+          <button type="button" onclick="removerSlot(${i})" style="background:none;border:none;cursor:pointer;
+            color:var(--blue);font-size:13px;line-height:1;padding:0 0 0 2px">×</button>
+        </span>`).join('');
+    }
+    if (clrBtn) clrBtn.hidden = prSlots.length === 0;
+  }
+
+  function posRelativa(e, cv) {
+    const r = cv.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+
+  document.addEventListener('mousedown', e => {
+    const cv = slotCanvas();
+    if (!cv || !cv.contains(e.target)) return;
+    e.preventDefault();
+    const p = posRelativa(e, cv);
+    sx = p.x; sy = p.y; cx = p.x; cy = p.y;
+    drawing = true;
+  });
+  document.addEventListener('mousemove', e => {
+    if (!drawing) return;
+    const cv = slotCanvas();
+    if (!cv) return;
+    const p = posRelativa(e, cv);
+    cx = p.x; cy = p.y;
+    renderSlots();
+  });
+  document.addEventListener('mouseup', e => {
+    if (!drawing) return;
+    drawing = false;
+    const cv = slotCanvas();
+    if (!cv) return;
+    const p = posRelativa(e, cv);
+    cx = p.x; cy = p.y;
+    const rx = Math.min(sx, cx), ry = Math.min(sy, cy);
+    const rw = Math.abs(cx - sx),  rh = Math.abs(cy - sy);
+    if (rw > 10 && rh > 10) {
+      prSlots.push({ x: rx / cv.width, y: ry / cv.height, w: rw / cv.width, h: rh / cv.height });
+    }
+    renderSlots();
+  });
+
+  // expõe funções globais
+  window.renderSlots = renderSlots;
+  window.removerSlot = i => { prSlots.splice(i, 1); renderSlots(); };
+  window.limparTodosSlots = () => { prSlots = []; renderSlots(); };
+
+  // re-sincroniza canvas se a imagem redimensionar
+  window.addEventListener('resize', () => { if (prFrameUrl) renderSlots(); });
+})();
+
+function prSlotsAtualizarFrame(url) {
+  const editor   = document.getElementById('pr-slots-editor');
+  const noFrame  = document.getElementById('pr-slots-no-frame');
+  const img      = document.getElementById('pr-slots-img');
+  if (!url) {
+    if (editor)  editor.style.display  = 'none';
+    if (noFrame) noFrame.style.display = 'block';
+    return;
+  }
+  if (editor)  editor.style.display  = 'block';
+  if (noFrame) noFrame.style.display = 'none';
+  if (img) {
+    img.src = url;
+    img.onload = () => { window.renderSlots && renderSlots(); };
+  }
+}
+window.prSlotsAtualizarFrame = prSlotsAtualizarFrame;
 
 function updateExtraPreview(n, val) {
   const el = document.getElementById('pr-preview-' + n);
@@ -3497,13 +3648,14 @@ function onPrFrameFile(input) {
   reader.onload = e => {
     document.getElementById('pr-frame-preview').innerHTML =
       `<img src="${e.target.result}" style="width:100%;height:100%;object-fit:contain">`;
+    prSlotsAtualizarFrame(e.target.result);
   };
   reader.readAsDataURL(file);
 }
 window.onPrFrameFile = onPrFrameFile;
 
 document.getElementById('btn-novo-produto').addEventListener('click', () => {
-  // reset frame + extras state when opening "new product"
+  // reset frame + extras + slots state when opening "new product"
   prFrameUrl  = null;
   prFrameFile = null;
   document.getElementById('pr-frame-preview').innerHTML = '🖼';
@@ -3512,6 +3664,8 @@ document.getElementById('btn-novo-produto').addEventListener('click', () => {
   document.getElementById('pr-frame-h').value = '';
   document.getElementById('pr-frame-file').value = '';
   prExtraFiles = [null, null, null];
+  prSlots = [];
+  prSlotsAtualizarFrame(null);
 });
 
 document.getElementById('btn-salvar-produto').addEventListener('click', async () => {
@@ -3560,6 +3714,7 @@ document.getElementById('btn-salvar-produto').addEventListener('click', async ()
       frame_url:        prFrameUrl || null,
       frame_width_mm:   parseInt(document.getElementById('pr-frame-w').value)  || null,
       frame_height_mm:  parseInt(document.getElementById('pr-frame-h').value)  || null,
+      slots:            prSlots.length ? prSlots : null,
     };
 
     let resp;
@@ -7764,9 +7919,9 @@ async function carregarMontagem() {
     .from('students')
     .select(`id, name, photo_url,
       orders:orders(id, payment_status,
-        items:order_items(product:products(id, name, frame_url, frame_width_mm, frame_height_mm)),
+        items:order_items(product:products(id, name, frame_url, frame_width_mm, frame_height_mm, slots)),
         kits:order_kits(kit:school_kits(name,
-          items:school_kit_items(product:products(id, name, frame_url, frame_width_mm, frame_height_mm))
+          items:school_kit_items(product:products(id, name, frame_url, frame_width_mm, frame_height_mm, slots))
         ))
       )`)
     .eq('class_id', turId)
@@ -7840,9 +7995,20 @@ async function montAbrirEditor(alunoId, prodId) {
   // Botão "usar do carômetro" só aparece se o aluno tem foto
   document.getElementById('mont-btn-car').style.display = aluno.photo_url ? 'inline-flex' : 'none';
 
+  // Instrução adaptada
+  const slots = Array.isArray(prod.slots) ? prod.slots : [];
+  const instr = document.getElementById('mont-instrucao');
+  if (instr) {
+    instr.textContent = slots.length > 0
+      ? `${slots.length} slot${slots.length > 1 ? 's' : ''} — a foto é encaixada automaticamente em cada área · Arraste para ajustar dentro do slot`
+      : 'Clique na foto para selecionar · Arraste para mover · Handles nos cantos para redimensionar e girar';
+  }
+
   // Monta o canvas
   montIniciarCanvas(prod);
 }
+
+let montSlotObjs = []; // fabric objects das fotos por slot
 
 function montIniciarCanvas(prod) {
   const W = MONT_DISPLAY_W;
@@ -7851,16 +8017,15 @@ function montIniciarCanvas(prod) {
     : 1.414; // fallback A4
   const H = Math.round(W * ratio);
 
-  // Destrói canvas anterior
   if (montCanvas) { montCanvas.dispose(); montCanvas = null; }
-  montPhotoObj = null;
-  montFrameObj = null;
+  montPhotoObj  = null;
+  montFrameObj  = null;
+  montSlotObjs  = [];
 
   const wrap = document.getElementById('mont-canvas-wrap');
   wrap.style.width  = W + 'px';
   wrap.style.height = H + 'px';
 
-  // Recria o elemento canvas (fabric exige isso após dispose)
   wrap.innerHTML = `<canvas id="mont-canvas" width="${W}" height="${H}"></canvas>
     <div id="mont-canvas-hint" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;color:rgba(0,0,0,.3);font-size:14px;text-align:center;padding:20px">
       Carregue uma foto para começar
@@ -7871,6 +8036,33 @@ function montIniciarCanvas(prod) {
     preserveObjectStacking: true,
     selection: false,
   });
+
+  const slots = Array.isArray(prod.slots) ? prod.slots : [];
+
+  // Desenha placeholders dos slots (contorno azul numerado)
+  if (slots.length > 0) {
+    slots.forEach((s, i) => {
+      const sx = s.x * W, sy = s.y * H, sw = s.w * W, sh = s.h * H;
+      const rect = new fabric.Rect({
+        left: sx, top: sy, width: sw, height: sh,
+        fill: 'rgba(59,130,246,0.08)', stroke: '#3b82f6',
+        strokeWidth: 2, strokeDashArray: [6, 3],
+        selectable: false, evented: false,
+      });
+      const label = new fabric.Text(String(i + 1), {
+        left: sx + sw / 2, top: sy + sh / 2,
+        originX: 'center', originY: 'center',
+        fontSize: Math.max(14, Math.min(36, sw * 0.25)),
+        fill: '#3b82f6', fontWeight: 'bold',
+        selectable: false, evented: false,
+      });
+      montCanvas.add(rect, label);
+      montSlotObjs.push(null); // reserva posição para a foto
+    });
+    document.getElementById('mont-canvas-hint').style.display = 'flex';
+    document.getElementById('mont-canvas-hint').textContent =
+      `${slots.length} slot${slots.length > 1 ? 's' : ''} definido${slots.length > 1 ? 's' : ''}. Carregue a foto do aluno.`;
+  }
 
   // Carrega moldura PNG no topo (locked)
   if (prod.frame_url) {
@@ -7884,29 +8076,65 @@ function montIniciarCanvas(prod) {
   }
 }
 
+function montColocarFotoEmSlot(src, slotIdx, slot, cW, cH) {
+  const sx = slot.x * cW, sy = slot.y * cH;
+  const sw = slot.w * cW, sh = slot.h * cH;
+
+  fabric.Image.fromURL(src, img => {
+    // Escala object-fit:cover para o slot
+    const scale = Math.max(sw / img.width, sh / img.height);
+    const clipRect = new fabric.Rect({
+      left:  sx,      top:  sy,
+      width: sw,      height: sh,
+      absolutePositioned: true,
+    });
+    img.set({
+      left:    sx + sw / 2,
+      top:     sy + sh / 2,
+      originX: 'center',
+      originY: 'center',
+      scaleX:  scale,
+      scaleY:  scale,
+      clipPath: clipRect,
+    });
+
+    // Remove foto anterior deste slot
+    if (montSlotObjs[slotIdx]) montCanvas.remove(montSlotObjs[slotIdx]);
+
+    // Insere abaixo da moldura e dos labels de slot
+    const slots = Array.isArray(montCurProd?.slots) ? montCurProd.slots : [];
+    // posição: abaixo de todos os placeholders (2 objs por slot) mas acima de nada
+    montCanvas.insertAt(img, 0);
+    montSlotObjs[slotIdx] = img;
+    montCanvas.setActiveObject(img);
+    montCanvas.renderAll();
+  }, { crossOrigin: 'anonymous' });
+}
+
 function montColocarFoto(src) {
   if (!montCanvas) return;
   document.getElementById('mont-canvas-hint').style.display = 'none';
 
+  const slots = Array.isArray(montCurProd?.slots) ? montCurProd.slots : [];
+  const cW = montCanvas.width, cH = montCanvas.height;
+
+  if (slots.length > 0) {
+    // Modo com slots: encaixa a mesma foto em cada slot automaticamente
+    slots.forEach((s, i) => montColocarFotoEmSlot(src, i, s, cW, cH));
+    montPhotoObj = montSlotObjs[0]; // referência para compatibilidade
+    return;
+  }
+
+  // Modo livre (sem slots): comportamento original
   fabric.Image.fromURL(src, img => {
-    const cW = montCanvas.width;
-    const cH = montCanvas.height;
-    // Escala para cobrir o canvas inteiro (como object-fit: cover)
     const scale = Math.max(cW / img.width, cH / img.height);
     img.set({
       left: cW / 2, top: cH / 2,
       originX: 'center', originY: 'center',
       scaleX: scale, scaleY: scale,
     });
-
     if (montPhotoObj) montCanvas.remove(montPhotoObj);
-
-    // Insere abaixo da moldura
-    if (montFrameObj) {
-      montCanvas.insertAt(img, 0);
-    } else {
-      montCanvas.add(img);
-    }
+    if (montFrameObj) { montCanvas.insertAt(img, 0); } else { montCanvas.add(img); }
     montPhotoObj = img;
     montCanvas.setActiveObject(img);
     montCanvas.renderAll();
