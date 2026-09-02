@@ -152,6 +152,36 @@ button,input,select,textarea{font-family:var(--font)}
 .pix-block{background:var(--gray-50);border:2px dashed var(--gray-200);border-radius:var(--radius);padding:13px;margin:16px 0;text-align:left;font-size:13px}
 .pix-key{font-family:monospace;background:var(--white);padding:7px 9px;border-radius:6px;border:1px solid var(--gray-200);margin-top:5px;word-break:break-all;font-size:12px}
 
+/* MODAL DETALHE PRODUTO */
+.pd-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;pointer-events:none;transition:opacity .2s}
+.pd-overlay.open{opacity:1;pointer-events:all}
+.pd-modal{background:var(--white);border-radius:16px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;display:flex;flex-direction:column}
+.pd-gallery{position:relative;background:var(--gray-50)}
+.pd-main-img{width:100%;height:260px;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:zoom-in}
+.pd-main-img img{width:100%;height:100%;object-fit:contain}
+.pd-main-img span{font-size:64px}
+.pd-thumbs{display:flex;gap:6px;padding:8px 12px;overflow-x:auto}
+.pd-thumb{width:54px;height:54px;border:2px solid var(--gray-200);border-radius:8px;overflow:hidden;flex-shrink:0;cursor:pointer;display:flex;align-items:center;justify-content:center;background:var(--gray-50);transition:border-color .15s}
+.pd-thumb.active{border-color:var(--blue)}
+.pd-thumb img{width:100%;height:100%;object-fit:cover}
+.pd-thumb span{font-size:20px}
+.pd-body{padding:16px 18px}
+.pd-tag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;display:inline-block;padding:2px 8px;border-radius:4px;margin-bottom:6px}
+.pd-name{font-size:18px;font-weight:700;color:var(--gray-900);margin-bottom:5px}
+.pd-desc{font-size:13px;color:var(--gray-600);line-height:1.5;margin-bottom:12px}
+.pd-price-row{display:flex;align-items:baseline;gap:8px;margin-bottom:14px}
+.pd-price{font-size:22px;font-weight:700}
+.pd-price-old{font-size:14px;color:var(--gray-300);text-decoration:line-through;font-weight:500}
+.pd-qty-row{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.pd-qty-row button{width:36px;height:36px;border-radius:8px;border:1px solid var(--gray-200);background:white;cursor:pointer;font-size:18px;font-weight:600}
+.pd-qty-row button:hover{background:var(--gray-50);border-color:var(--blue)}
+.pd-qty-num{font-size:18px;font-weight:700;min-width:24px;text-align:center}
+.pd-close{position:absolute;top:10px;right:10px;width:32px;height:32px;border-radius:50%;background:rgba(0,0,0,.35);color:white;border:none;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;z-index:10}
+/* LIGHTBOX */
+.lb-overlay{position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:900;display:flex;align-items:center;justify-content:center;cursor:zoom-out;opacity:0;pointer-events:none;transition:opacity .2s}
+.lb-overlay.open{opacity:1;pointer-events:all}
+.lb-overlay img{max-width:95vw;max-height:90vh;object-fit:contain;border-radius:4px}
+
 /* WPP FLOAT */
 .wpp-btn{position:fixed;bottom:18px;right:18px;background:#25D366;color:white;border:none;border-radius:50%;width:54px;height:54px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 14px rgba(37,211,102,.4);z-index:100;font-size:22px;text-decoration:none;transition:transform .2s}
 .wpp-btn:hover{transform:scale(1.08)}
@@ -829,6 +859,34 @@ button,input,select,textarea{font-family:var(--font)}
 
   </div>
 </div>
+
+<!-- MODAL DETALHE PRODUTO -->
+<div class="pd-overlay" id="pd-overlay">
+  <div class="pd-modal" id="pd-modal">
+    <div class="pd-gallery">
+      <button class="pd-close" id="pd-close-btn" aria-label="Fechar">&times;</button>
+      <div class="pd-main-img" id="pd-main-img"></div>
+      <div class="pd-thumbs" id="pd-thumbs"></div>
+    </div>
+    <div class="pd-body">
+      <span class="pd-tag tag-av" id="pd-tag">Avulso</span>
+      <div class="pd-name" id="pd-name"></div>
+      <div class="pd-desc" id="pd-desc"></div>
+      <div class="pd-price-row">
+        <span class="pd-price" id="pd-price"></span>
+        <span class="pd-price-old" id="pd-price-old" hidden></span>
+      </div>
+      <div class="pd-qty-row">
+        <button id="pd-dec">−</button>
+        <span class="pd-qty-num" id="pd-qty-num">0</span>
+        <button id="pd-inc">＋</button>
+      </div>
+      <button class="btn btn-secondary" id="pd-close-btn2" style="width:100%">Fechar</button>
+    </div>
+  </div>
+</div>
+<!-- LIGHTBOX -->
+<div class="lb-overlay" id="lb-overlay"><img id="lb-img" src="" alt=""></div>
 
 <a class="wpp-btn" id="wpp-float" href="#" target="_blank" title="Fale com a Play Up no WhatsApp">💬</a>
 <div id="toast"></div>
@@ -2236,11 +2294,11 @@ function renderAvulsos() {
     const qty = avulsosCarrinho[a.id] || 0;
     return `
       <div class="pp-card">
-        <div class="pp-card-img" style="background:var(--c-av-bg)">${img}</div>
+        <div class="pp-card-img" style="background:var(--c-av-bg);cursor:pointer" data-av-detail="${a.id}">${img}</div>
         <div class="pp-card-body">
-          <span class="pp-card-tag tag-av">Avulso</span>
-          <div class="pp-card-name">${escapeHtml(a.name)}</div>
-          <div class="pp-card-desc">${escapeHtml(a.description || '')}</div>
+          <span class="pp-card-tag tag-av" style="cursor:pointer" data-av-detail="${a.id}">Avulso</span>
+          <div class="pp-card-name" style="cursor:pointer" data-av-detail="${a.id}">${escapeHtml(a.name)}</div>
+          <div class="pp-card-desc" style="cursor:pointer" data-av-detail="${a.id}">${escapeHtml(a.description || '')}</div>
           <div>
             <span class="pp-card-price ${isPromo ? 'color-bas' : 'color-av'}">${fmtMoney(price)}</span>
             ${oldPrice ? `<span class="pp-card-price-old">${fmtMoney(oldPrice)}</span>` : ''}
@@ -2268,7 +2326,103 @@ function renderAvulsos() {
     if (avulsosCarrinho[id] === 0) delete avulsosCarrinho[id];
     renderCart();
   }));
+  el.querySelectorAll('[data-av-detail]').forEach(b => b.addEventListener('click', () => {
+    const av = avulsosDisp.find(x => x.id === b.dataset.avDetail);
+    if (av) abrirDetalhe(av);
+  }));
 }
+
+// MODAL DE DETALHE DO PRODUTO
+let pdAvId = null;
+
+function abrirDetalhe(av) {
+  pdAvId = av.id;
+  const isPromo = (kitsCarrinho['promo'] || 0) > 0;
+  const price = isPromo ? av.price_with_promo : av.price_without_promo;
+  const oldPrice = (isPromo && av.price_without_promo > av.price_with_promo) ? av.price_without_promo : null;
+
+  document.getElementById('pd-name').textContent = av.name;
+  document.getElementById('pd-desc').textContent = av.description || '';
+  document.getElementById('pd-price').textContent = fmtMoney(price);
+  document.getElementById('pd-price').className = 'pd-price ' + (isPromo ? 'color-bas' : 'color-av');
+  const oldEl = document.getElementById('pd-price-old');
+  if (oldPrice) { oldEl.textContent = fmtMoney(oldPrice); oldEl.hidden = false; }
+  else { oldEl.hidden = true; }
+  document.getElementById('pd-qty-num').textContent = avulsosCarrinho[av.id] || 0;
+
+  // Galeria: imagem principal + extras
+  const imgs = [av.image_url, av.image_url_2, av.image_url_3, av.image_url_4]
+    .filter(u => u && u.startsWith('http'));
+  if (!imgs.length && av.image_url) imgs.push(av.image_url); // fallback emoji
+  pdRenderGallery(imgs, av.image_url);
+
+  document.getElementById('pd-overlay').classList.add('open');
+}
+
+let pdCurrentImgs = [];
+function pdRenderGallery(imgs, main) {
+  pdCurrentImgs = imgs;
+  const mainEl = document.getElementById('pd-main-img');
+  const thumbsEl = document.getElementById('pd-thumbs');
+  if (!imgs.length) {
+    mainEl.innerHTML = `<span>${main || '📦'}</span>`;
+    thumbsEl.innerHTML = '';
+    return;
+  }
+  const showImg = (url, idx) => {
+    mainEl.innerHTML = `<img src="${escapeHtml(url)}" alt="">`;
+    thumbsEl.querySelectorAll('.pd-thumb').forEach((t, i) => t.classList.toggle('active', i === idx));
+  };
+  showImg(imgs[0], 0);
+  if (imgs.length > 1) {
+    thumbsEl.innerHTML = imgs.map((u, i) =>
+      `<div class="pd-thumb${i===0?' active':''}" data-pd-thumb="${i}"><img src="${escapeHtml(u)}" alt=""></div>`
+    ).join('');
+    thumbsEl.querySelectorAll('[data-pd-thumb]').forEach(t => t.addEventListener('click', () => {
+      const i = +t.dataset.pdThumb;
+      showImg(pdCurrentImgs[i], i);
+    }));
+  } else {
+    thumbsEl.innerHTML = '';
+  }
+  mainEl.onclick = () => abrirLightbox(mainEl.querySelector('img')?.src);
+}
+
+function abrirLightbox(src) {
+  if (!src) return;
+  document.getElementById('lb-img').src = src;
+  document.getElementById('lb-overlay').classList.add('open');
+}
+
+document.getElementById('lb-overlay').addEventListener('click', () => {
+  document.getElementById('lb-overlay').classList.remove('open');
+});
+
+function fecharDetalhe() {
+  document.getElementById('pd-overlay').classList.remove('open');
+  pdAvId = null;
+}
+document.getElementById('pd-close-btn').addEventListener('click', fecharDetalhe);
+document.getElementById('pd-close-btn2').addEventListener('click', fecharDetalhe);
+document.getElementById('pd-overlay').addEventListener('click', e => { if (e.target === document.getElementById('pd-overlay')) fecharDetalhe(); });
+
+document.getElementById('pd-inc').addEventListener('click', () => {
+  if (!pdAvId) return;
+  avulsosCarrinho[pdAvId] = (avulsosCarrinho[pdAvId] || 0) + 1;
+  document.getElementById('pd-qty-num').textContent = avulsosCarrinho[pdAvId];
+  const q = document.getElementById('qty-' + pdAvId);
+  if (q) q.textContent = avulsosCarrinho[pdAvId];
+  renderCart();
+});
+document.getElementById('pd-dec').addEventListener('click', () => {
+  if (!pdAvId) return;
+  avulsosCarrinho[pdAvId] = Math.max(0, (avulsosCarrinho[pdAvId] || 0) - 1);
+  if (avulsosCarrinho[pdAvId] === 0) delete avulsosCarrinho[pdAvId];
+  document.getElementById('pd-qty-num').textContent = avulsosCarrinho[pdAvId] || 0;
+  const q = document.getElementById('qty-' + pdAvId);
+  if (q) q.textContent = avulsosCarrinho[pdAvId] || 0;
+  renderCart();
+});
 
 function calcCart() {
   const items = [];

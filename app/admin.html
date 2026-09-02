@@ -1395,7 +1395,7 @@ tr:hover td{background:var(--gray-50)}
           <textarea class="form-input" rows="2" id="pr-desc" placeholder="Detalhes do produto, tamanho, material…"></textarea>
         </div>
         <div class="form-group">
-          <label class="form-label">Imagem</label>
+          <label class="form-label">Imagem principal</label>
           <div class="img-upload">
             <div class="img-preview" id="pr-preview">📷</div>
             <div class="img-upload-actions">
@@ -1403,6 +1403,38 @@ tr:hover td{background:var(--gray-50)}
               <label class="btn btn-primary" for="pr-file">Selecionar foto do PC</label>
               <input class="form-input" id="pr-img" placeholder="Ou cole URL/emoji">
               <div class="img-hint">JPG, PNG ou WEBP até 10 MB. Foto vai pro Supabase Storage automaticamente.</div>
+            </div>
+          </div>
+        </div>
+        <div style="border-top:1px solid var(--gray-100);padding-top:10px;margin-top:2px">
+          <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Fotos extras do produto <span style="font-weight:400;color:var(--gray-400)">(opcionais — exibidas no portal)</span></div>
+          <div style="display:flex;flex-direction:column;gap:8px" id="pr-extras-wrap">
+            <div class="img-upload" id="pr-extra-1-wrap">
+              <div class="img-preview" id="pr-preview-2" style="width:60px;height:60px;font-size:18px">＋</div>
+              <div class="img-upload-actions">
+                <input type="file" id="pr-file-2" accept="image/*">
+                <label class="btn btn-secondary" for="pr-file-2" style="font-size:12px">Foto extra 1</label>
+                <input class="form-input" id="pr-img-2" placeholder="URL ou vazio">
+                <button type="button" class="btn btn-sm btn-danger" onclick="limparExtraImg(2)" style="font-size:11px;padding:2px 8px">Remover</button>
+              </div>
+            </div>
+            <div class="img-upload" id="pr-extra-2-wrap">
+              <div class="img-preview" id="pr-preview-3" style="width:60px;height:60px;font-size:18px">＋</div>
+              <div class="img-upload-actions">
+                <input type="file" id="pr-file-3" accept="image/*">
+                <label class="btn btn-secondary" for="pr-file-3" style="font-size:12px">Foto extra 2</label>
+                <input class="form-input" id="pr-img-3" placeholder="URL ou vazio">
+                <button type="button" class="btn btn-sm btn-danger" onclick="limparExtraImg(3)" style="font-size:11px;padding:2px 8px">Remover</button>
+              </div>
+            </div>
+            <div class="img-upload" id="pr-extra-3-wrap">
+              <div class="img-preview" id="pr-preview-4" style="width:60px;height:60px;font-size:18px">＋</div>
+              <div class="img-upload-actions">
+                <input type="file" id="pr-file-4" accept="image/*">
+                <label class="btn btn-secondary" for="pr-file-4" style="font-size:12px">Foto extra 3</label>
+                <input class="form-input" id="pr-img-4" placeholder="URL ou vazio">
+                <button type="button" class="btn btn-sm btn-danger" onclick="limparExtraImg(4)" style="font-size:11px;padding:2px 8px">Remover</button>
+              </div>
             </div>
           </div>
         </div>
@@ -3328,6 +3360,7 @@ document.getElementById('btn-novo-produto').addEventListener('click', () => {
   document.getElementById('mod-prod-title').textContent = 'Novo produto';
   ['pr-nome','pr-desc','pr-img','pr-pcom','pr-psem','pr-cost'].forEach(id => document.getElementById(id).value = '');
   updateProdPreview('');
+  [2,3,4].forEach(n => { document.getElementById('pr-img-'+n).value = ''; updateExtraPreview(n, ''); });
   document.getElementById('mod-prod').classList.add('open');
 });
 
@@ -3344,6 +3377,11 @@ async function editarProduto(id) {
     document.getElementById('pr-psem').value = data.base_price_without_promo || '';
     document.getElementById('pr-cost').value = data.production_cost || '';
     updateProdPreview(data.image_url || '');
+    [2,3,4].forEach(n => {
+      const v = data['image_url_' + n] || '';
+      document.getElementById('pr-img-'+n).value = v;
+      updateExtraPreview(n, v);
+    });
     // Moldura
     prFrameUrl = data.frame_url || null;
     document.getElementById('pr-frame-w').value = data.frame_width_mm || '';
@@ -3369,8 +3407,41 @@ async function excluirProduto(id) {
   }
 }
 
-let prFrameUrl  = null;
-let prFrameFile = null;
+let prFrameUrl   = null;
+let prFrameFile  = null;
+let prExtraFiles = [null, null, null]; // índices 0=img2, 1=img3, 2=img4
+
+function updateExtraPreview(n, val) {
+  const el = document.getElementById('pr-preview-' + n);
+  if (!el) return;
+  if (val && val.startsWith('http')) {
+    el.innerHTML = `<img src="${escapeHtml(val)}" style="width:100%;height:100%;object-fit:cover;border-radius:4px">`;
+  } else {
+    el.textContent = val || '＋';
+  }
+}
+window.updateExtraPreview = updateExtraPreview;
+
+function limparExtraImg(n) {
+  document.getElementById('pr-img-'+n).value = '';
+  updateExtraPreview(n, '');
+  prExtraFiles[n-2] = null;
+}
+window.limparExtraImg = limparExtraImg;
+
+// Upload extras ao selecionar arquivo
+[2,3,4].forEach(n => {
+  document.getElementById('pr-file-' + n).addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    prExtraFiles[n-2] = file;
+    const reader = new FileReader();
+    reader.onload = ev => updateExtraPreview(n, ev.target.result);
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  });
+  document.getElementById('pr-img-'+n).addEventListener('input', e => updateExtraPreview(n, e.target.value));
+});
 
 function onPrFrameFile(input) {
   const file = input.files[0];
@@ -3387,7 +3458,7 @@ function onPrFrameFile(input) {
 window.onPrFrameFile = onPrFrameFile;
 
 document.getElementById('btn-novo-produto').addEventListener('click', () => {
-  // reset frame state when opening "new product"
+  // reset frame + extras state when opening "new product"
   prFrameUrl  = null;
   prFrameFile = null;
   document.getElementById('pr-frame-preview').innerHTML = '🖼';
@@ -3395,6 +3466,7 @@ document.getElementById('btn-novo-produto').addEventListener('click', () => {
   document.getElementById('pr-frame-w').value = '';
   document.getElementById('pr-frame-h').value = '';
   document.getElementById('pr-frame-file').value = '';
+  prExtraFiles = [null, null, null];
 });
 
 document.getElementById('btn-salvar-produto').addEventListener('click', async () => {
@@ -3415,11 +3487,28 @@ document.getElementById('btn-salvar-produto').addEventListener('click', async ()
       prFrameFile = null;
     }
 
+    // Upload imagens extras se houver arquivo selecionado
+    for (let n = 0; n < 3; n++) {
+      if (prExtraFiles[n]) {
+        const f = prExtraFiles[n];
+        const ext = f.name.split('.').pop().toLowerCase();
+        const path = `products/${Date.now()}-extra${n+2}-${Math.random().toString(36).slice(2,6)}.${ext}`;
+        const { error: upErr } = await supabase.storage.from('media').upload(path, f, { upsert: false });
+        if (upErr) throw upErr;
+        const extraUrl = supabase.storage.from('media').getPublicUrl(path).data.publicUrl;
+        document.getElementById('pr-img-' + (n+2)).value = extraUrl;
+        prExtraFiles[n] = null;
+      }
+    }
+
     const payload = {
       name: nome,
       type: 'avulso',
       description: document.getElementById('pr-desc').value.trim(),
       image_url: document.getElementById('pr-img').value.trim() || '📷',
+      image_url_2: document.getElementById('pr-img-2').value.trim() || null,
+      image_url_3: document.getElementById('pr-img-3').value.trim() || null,
+      image_url_4: document.getElementById('pr-img-4').value.trim() || null,
       base_price_with_promo:    parseFloat(document.getElementById('pr-pcom').value) || 0,
       base_price_without_promo: parseFloat(document.getElementById('pr-psem').value) || 0,
       production_cost:          parseFloat(document.getElementById('pr-cost').value) || 0,
