@@ -160,8 +160,9 @@ tr:hover td{background:var(--gray-50)}
 .mt-12{margin-top:12px}.mb-12{margin-bottom:12px}
 
 /* PRODUTO CARD */
-.prod-card{background:var(--white);border:1px solid var(--gray-200);border-radius:var(--radius-lg);overflow:hidden;transition:border .15s}
+.prod-card{background:var(--white);border:1px solid var(--gray-200);border-radius:var(--radius-lg);overflow:hidden;transition:border .15s,transform .15s,box-shadow .15s}
 .prod-card:hover{border-color:var(--blue)}
+.prod-card.drag-over{border:2px dashed var(--blue);transform:scale(1.02);box-shadow:0 4px 16px rgba(59,130,246,.18)}
 .prod-card-img{height:110px;display:flex;align-items:center;justify-content:center;overflow:hidden}
 .prod-card-img img{width:100%;height:100%;object-fit:cover}
 .prod-card-body{padding:10px 12px}
@@ -3291,6 +3292,8 @@ async function loadProdutos() {
   }
 }
 
+let prodDragIdx = null;
+
 function renderProdCards() {
   const grid = document.getElementById('prods-grid');
   grid.innerHTML = produtosOrdem.map((p, idx) => {
@@ -3298,13 +3301,10 @@ function renderProdCards() {
     const img = isUrl
       ? `<img src="${p.image_url}" alt="">`
       : `<span style="font-size:34px">${p.image_url || '📷'}</span>`;
-    return `<div class="prod-card">
+    return `<div class="prod-card" draggable="true" data-idx="${idx}" style="cursor:grab">
       <div class="prod-card-img" style="background:var(--c-av-bg)">${img}</div>
       <div class="prod-card-body">
-        <div style="display:flex;justify-content:flex-end;gap:3px;margin-bottom:5px">
-          <button class="btn btn-sm btn-secondary" data-mv-up="${idx}" title="Mover para cima" style="padding:1px 7px;font-size:14px" ${idx===0?'disabled':''}>↑</button>
-          <button class="btn btn-sm btn-secondary" data-mv-dn="${idx}" title="Mover para baixo" style="padding:1px 7px;font-size:14px" ${idx===produtosOrdem.length-1?'disabled':''}>↓</button>
-        </div>
+        <div style="font-size:10px;color:var(--gray-400);margin-bottom:5px;text-align:center;letter-spacing:.3px">⠿ arraste para reordenar</div>
         <div class="prod-card-tag" style="color:var(--c-av)">Avulso</div>
         <div class="prod-card-nome">${escapeHtml(p.name)}</div>
         <div class="prod-card-desc">${escapeHtml(p.description || '')}</div>
@@ -3323,23 +3323,41 @@ function renderProdCards() {
 
   grid.querySelectorAll('[data-edit]').forEach(btn => btn.addEventListener('click', () => editarProduto(btn.dataset.edit)));
   grid.querySelectorAll('[data-del]').forEach(btn => btn.addEventListener('click', () => excluirProduto(btn.dataset.del)));
-  grid.querySelectorAll('[data-mv-up]').forEach(btn => btn.addEventListener('click', () => moverProduto(+btn.dataset.mvUp, -1)));
-  grid.querySelectorAll('[data-mv-dn]').forEach(btn => btn.addEventListener('click', () => moverProduto(+btn.dataset.mvDn, +1)));
-}
 
-async function moverProduto(idx, dir) {
-  const outro = idx + dir;
-  if (outro < 0 || outro >= produtosOrdem.length) return;
-  // Troca na lista local
-  [produtosOrdem[idx], produtosOrdem[outro]] = [produtosOrdem[outro], produtosOrdem[idx]];
-  renderProdCards();
-  // Persiste nova ordem no banco
-  try {
-    const updates = produtosOrdem.map((p, i) => supabase.from('products').update({ sort_order: (i + 1) * 10 }).eq('id', p.id));
-    await Promise.all(updates);
-  } catch (err) {
-    handleError(err, 'moverProduto');
-  }
+  // Drag and drop
+  grid.querySelectorAll('.prod-card').forEach(card => {
+    card.addEventListener('dragstart', e => {
+      prodDragIdx = +card.dataset.idx;
+      card.style.opacity = '0.4';
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    card.addEventListener('dragend', () => {
+      card.style.opacity = '';
+      grid.querySelectorAll('.prod-card').forEach(c => c.classList.remove('drag-over'));
+    });
+    card.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      grid.querySelectorAll('.prod-card').forEach(c => c.classList.remove('drag-over'));
+      card.classList.add('drag-over');
+    });
+    card.addEventListener('drop', async e => {
+      e.preventDefault();
+      const targetIdx = +card.dataset.idx;
+      if (prodDragIdx === null || prodDragIdx === targetIdx) return;
+      // Reordena array local
+      const item = produtosOrdem.splice(prodDragIdx, 1)[0];
+      produtosOrdem.splice(targetIdx, 0, item);
+      renderProdCards();
+      // Salva no banco
+      try {
+        await Promise.all(produtosOrdem.map((p, i) =>
+          supabase.from('products').update({ sort_order: (i + 1) * 10 }).eq('id', p.id)
+        ));
+      } catch (err) { handleError(err, 'salvarOrdemProdutos'); }
+      prodDragIdx = null;
+    });
+  });
 }
 
 function updateProdPreview(val) {
