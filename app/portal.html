@@ -2749,6 +2749,37 @@ document.getElementById('btn-finalizar').addEventListener('click', async () => {
     const user = await getCurrentUser();
     if (!user) throw new Error('Sessão expirada. Faça login novamente.');
 
+    // Impede pedido duplicado. O caminho que gera isso: o responsavel finaliza,
+    // volta pro catalogo, monta a cesta de novo e finaliza outra vez — ficava
+    // com dois pedidos abertos do mesmo aluno. Se ja existe um pendente,
+    // levamos ele pro pedido que ja existe em vez de criar mais um.
+    // Pedido pago nao bloqueia: comprar de novo depois e' legitimo.
+    let qPend = supabase
+      .from('orders')
+      .select('id, order_number, total_amount')
+      .eq('student_id', student.id)
+      .eq('payment_status', 'pending');
+    if (projeto?.id) qPend = qPend.eq('project_id', projeto.id);
+    const { data: pendentes, error: pendErr } = await qPend.limit(1);
+    if (pendErr) throw pendErr;
+    if (pendentes && pendentes.length) {
+      const ant = pendentes[0];
+      closeCartDrawer();
+      toast(`Você já tem o pedido ${ant.order_number} aguardando pagamento.`, 'warn');
+      alert(
+        `Você já tem um pedido em aberto:
+
+` +
+        `Pedido ${ant.order_number} — ${fmtMoney(ant.total_amount)}
+
+` +
+        `Vamos te levar até ele para você concluir o pagamento. ` +
+        `Se quiser mudar o que foi pedido, fale com a Play Up pelo WhatsApp.`
+      );
+      await loadMinhaConta();
+      return;
+    }
+
     // Kit principal = kit de maior valor no carrinho (para campo legado orders.kit_type)
     const kitRank = { promo: 3, inter: 2, basico: 1 };
     const kitEntries = Object.entries(kitsCarrinho).filter(([,q]) => q > 0);
