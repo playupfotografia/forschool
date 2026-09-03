@@ -114,4 +114,99 @@ function emDias(n) {
   return d.toISOString().slice(0, 10);
 }
 
-module.exports = { env, asaas, sb, usuarioDoToken, valorComTaxa, apenasDigitos, emDias };
+// ---------------------------------------------------------------------------
+// Aviso de venda (e-mail e/ou Telegram).
+//
+// Os dois canais sao opcionais e independentes: cada um so' dispara se as
+// variaveis dele existirem na Vercel. Da' pra comecar com um e somar o outro
+// depois, sem mexer em codigo.
+//   E-mail   -> RESEND_API_KEY, ALERTA_EMAIL  (opcional: ALERTA_EMAIL_FROM)
+//   Telegram -> TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+//
+// NUNCA derruba o webhook: avisar e' secundario, confirmar o pedido e' o que
+// importa. Toda falha aqui vira log, nao erro.
+// ---------------------------------------------------------------------------
+function moeda(v) {
+  return 'R$ ' + (Number(v) || 0).toFixed(2).replace('.', ',');
+}
+
+const METODO_LABEL = {
+  pix: 'PIX',
+  cartao_1x: 'Cartão de crédito',
+  cartao_2x: 'Cartão de crédito 2x',
+  cartao_debito: 'Cartão de débito',
+  dinheiro: 'Dinheiro',
+  outro: 'Outro',
+};
+
+function linhasDaVenda(pedido) {
+  const l = [
+    ['Pedido', pedido.order_number || '—'],
+    ['Aluno', pedido.student?.name || '—'],
+    ['Escola', pedido.school?.name || '—'],
+    ['Responsável', pedido.user?.name || '—'],
+    ['Pagamento', METODO_LABEL[pedido.payment_method] || pedido.payment_method || '—'],
+    ['Valor pago', moeda(pedido.amount_charged ?? pedido.total_amount)],
+  ];
+  if (pedido.net_amount != null) {
+    l.push(['Tarifa do Asaas', moeda(pedido.gateway_fee ?? 0)]);
+    l.push(['Caiu na conta', moeda(pedido.net_amount)]);
+  }
+  if (pedido.user?.phone) l.push(['WhatsApp do responsável', pedido.user.phone]);
+  return l;
+}
+
+async function avisarTelegram(pedido) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chat = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chat) return { canal: 'telegram', enviado: false, motivo: 'nao configurado' };
+
+  const corpo = linhasDaVenda(pedido).map(([k, v]) => `<b>${k}:</b> ${v}`).join('\n');
+  const texto = `💰 <b>Venda confirmada</b>\n\n${corpo}`;
+  const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chat, text: texto, parse_mode: 'HTML' }),
+  });
+  if (!r.ok) throw new Error('Telegram HTTP ' + r.status + ': ' + (await r.text()).slice(0, 200));
+  return { canal: 'telegram', enviado: true };
+}
+
+async function avisarEmail(pedido) {
+  const key = process.env.RESEND_API_KEY;
+  const para = process.env.ALERTA_EMAIL;
+  if (!key || !para) return { canal: 'email', enviado: false, motivo: 'nao configurado' };
+
+  const de = process.env.ALERTA_EMAIL_FROM || 'For School <onboarding@resend.dev>';
+  const linhas = linhasDaVenda(pedido)
+    .map(([k, v]) => `<tr><td style="padding:6px 12px 6px 0;color:#666">${k}</td><td style="padding:6px 0;font-weight:600">${v}</td></tr>`)
+    .join('');
+  const html = `<div style="font-family:system-ui,Arial,sans-serif;max-width:480px">
+    <h2 style="color:#27AE60;margin:0 0 4px">💰 Venda confirmada</h2>
+    <p style="color:#666;margin:0 0 16px;font-size:14px">O pagamento caiu e o pedido já está marcado como pago.</p>
+    <table style="border-collapse:collapse;font-size:14px">${linhas}</table>
+  </div>`;
+
+  const r = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: de,
+      to: para.split(',').map((e) => e.trim()).filter(Boolean),
+      subject: `💰 Venda ${pedido.order_number || ''} — ${moeda(pedido.amount_charged ?? pedido.total_amount)}`,
+      html,
+    }),
+  });
+  if (!r.ok) throw new Error('Resend HTTP ' + r.status + ': ' + (await r.text()).slice(0, 200));
+  return { canal: 'email', enviado: true };
+}
+
+async function avisarVenda(pedido) {
+  const res = await Promise.allSettled([avisarTelegram(pedido), avisarEmail(pedido)]);
+  res.forEach((r) => {
+    if (r.status === 'rejected') console.error('aviso de venda falhou:', r.reason?.message || r.reason);
+    else if (!r.value.enviado) console.log(`aviso ${r.value.canal}: ${r.value.motivo}`);
+  });
+}
+
+module.exports = { env, asaas, sb, usuarioDoToken, valorComTaxa, apenasDigitos, emDias, avisarVenda };

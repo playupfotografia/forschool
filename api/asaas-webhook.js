@@ -13,7 +13,7 @@
 // O admin continua podendo marcar como pago na mao; o webhook so' automatiza.
 // ============================================================================
 
-const { sb, env } = require('./_lib.js');
+const { sb, env, avisarVenda } = require('./_lib.js');
 
 // Eventos que significam "o dinheiro entrou"
 const PAGOS = new Set(['PAYMENT_CONFIRMED', 'PAYMENT_RECEIVED']);
@@ -54,7 +54,10 @@ module.exports = async (req, res) => {
       ? `id=eq.${encodeURIComponent(orderId)}`
       : `gateway_id=eq.${encodeURIComponent(cobrancaId)}`;
 
-    const pedidos = await sb(`/orders?${filtro}&select=id,payment_status,amount_charged,total_amount`);
+    const pedidos = await sb(
+      `/orders?${filtro}&select=id,order_number,payment_status,payment_method,installments,` +
+      'total_amount,amount_charged,student:students(name),school:schools(name),user:users(name,phone)'
+    );
     const pedido = pedidos?.[0];
     if (!pedido) {
       // Responde 200 pra o Asaas nao ficar reenviando um evento que nao e' nosso
@@ -93,6 +96,17 @@ module.exports = async (req, res) => {
       headers: { Prefer: 'return=minimal' },
       body: JSON.stringify(patch),
     });
+
+    // Aviso de venda. Depois de gravar, e sem await no resultado das falhas:
+    // se o e-mail ou o Telegram cairem, o pedido ja esta confirmado do mesmo
+    // jeito — o aviso e' conveniencia, nao pode derrubar o pagamento.
+    if (PAGOS.has(evento)) {
+      try {
+        await avisarVenda({ ...pedido, ...patch });
+      } catch (e) {
+        console.error('avisarVenda', e.message);
+      }
+    }
 
     return res.status(200).json({ ok: true, evento, pedido: pedido.id });
   } catch (err) {
