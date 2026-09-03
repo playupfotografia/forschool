@@ -193,7 +193,14 @@ async function avisarEmail(pedido) {
     body: JSON.stringify({
       from: de,
       to: para.split(',').map((e) => e.trim()).filter(Boolean),
-      subject: `💰 Venda ${pedido.order_number || ''} — ${moeda(pedido.amount_charged ?? pedido.total_amount)}`,
+      // A escola vai no assunto de proposito: e' o que permite criar um filtro
+      // por colegio no Gmail sem precisar de um endereco diferente pra cada um.
+      subject: [
+        '💰 Venda',
+        pedido.school?.name,
+        moeda(pedido.amount_charged ?? pedido.total_amount),
+        pedido.order_number ? `(${pedido.order_number})` : null,
+      ].filter(Boolean).join(' — '),
       html,
     }),
   });
