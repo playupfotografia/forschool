@@ -925,6 +925,7 @@ tr:hover td{background:var(--gray-50)}
       <div class="stat-card green"><div class="stat-label">Pagos</div><div class="stat-value" id="pd-pagos">—</div></div>
       <div class="stat-card orange"><div class="stat-label">Pendentes</div><div class="stat-value" id="pd-pend">—</div></div>
       <div class="stat-card pink"><div class="stat-label">Receita confirmada</div><div class="stat-value" id="pd-rec">—</div></div>
+      <div class="stat-card green"><div class="stat-label">Caiu na conta (líquido)</div><div class="stat-value" id="pd-liq">—</div><div class="stat-label" style="font-weight:400;text-transform:none;letter-spacing:0;margin-top:2px" id="pd-liq-sub"></div></div>
     </div>
     <div class="card">
       <div class="card-header" style="gap:8px;flex-wrap:wrap">
@@ -2702,6 +2703,7 @@ async function loadPedidos() {
         id, order_number, kit_type, total_amount, payment_method, payment_status,
         payment_proof_url, paid_at, created_at, source, notes,
         gateway, gateway_status, installments, amount_charged, surcharge_amount,
+        net_amount, gateway_fee,
         student:students(id, name),
         school:schools(id, name, slug)
       `)
@@ -2737,6 +2739,23 @@ function filtrarPedidos() {
   // Nada de Math.round aqui: e' um card de receita, tem que bater centavo a
   // centavo com a soma dos pedidos pagos (R$ 28,90 aparecia como R$ 29).
   document.getElementById('pd-rec').textContent   = fmtMoney(receita);
+
+  // Liquido: o que o Asaas realmente creditou, ja' sem a tarifa dele. So'
+  // existe em pedido pago pelo gateway — pagamento manual nao tem tarifa.
+  const comLiquido = pagos.filter(p => p.net_amount != null);
+  const liquido = comLiquido.reduce((s, p) => s + Number(p.net_amount || 0), 0);
+  const tarifas = comLiquido.reduce((s, p) => s + Number(p.gateway_fee || 0), 0);
+  const elLiq = document.getElementById('pd-liq');
+  const elLiqSub = document.getElementById('pd-liq-sub');
+  if (elLiq) {
+    if (comLiquido.length) {
+      elLiq.textContent = fmtMoney(liquido);
+      if (elLiqSub) elLiqSub.textContent = `${fmtMoney(tarifas)} de tarifas em ${comLiquido.length} pedido${comLiquido.length === 1 ? '' : 's'}`;
+    } else {
+      elLiq.textContent = '—';
+      if (elLiqSub) elLiqSub.textContent = 'nenhum pedido pago pelo gateway ainda';
+    }
+  }
   document.getElementById('pd-count').textContent = lista.length + ' pedido' + (lista.length === 1 ? '' : 's');
 
   // Tabela
@@ -2998,7 +3017,11 @@ async function abrirDetalhesPedido(id) {
                   <div>Cobrado do responsável: <b>${fmtMoney(ped.amount_charged ?? ped.total_amount)}</b></div>
                   ${Number(ped.surcharge_amount) > 0
                     ? `<div style="margin-top:2px">Taxa repassada: ${fmtMoney(ped.surcharge_amount)}</div>` : ''}
-                  <div style="margin-top:2px">Recebido pela Play Up: <b>${fmtMoney(ped.total_amount)}</b></div>
+                  <div style="margin-top:2px">Receita (preço de tabela): <b>${fmtMoney(ped.total_amount)}</b></div>
+                  ${ped.net_amount != null ? `
+                    <div style="margin-top:2px">Tarifa do Asaas: ${fmtMoney(ped.gateway_fee ?? 0)}</div>
+                    <div style="margin-top:2px;color:var(--green);font-weight:600">Caiu na conta: ${fmtMoney(ped.net_amount)}</div>
+                  ` : ''}
                   ${Number(ped.installments) > 1 ? `<div style="margin-top:2px">Parcelas: ${ped.installments}×</div>` : ''}
                   ${ped.gateway_status ? `<div style="margin-top:2px;color:var(--gray-400)">Status no Asaas: ${escapeHtml(ped.gateway_status)}</div>` : ''}
                   ${ped.gateway_id ? `<div style="margin-top:2px;color:var(--gray-400);font-family:monospace;font-size:11px">${escapeHtml(ped.gateway_id)}</div>` : ''}

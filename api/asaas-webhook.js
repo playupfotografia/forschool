@@ -54,7 +54,7 @@ module.exports = async (req, res) => {
       ? `id=eq.${encodeURIComponent(orderId)}`
       : `gateway_id=eq.${encodeURIComponent(cobrancaId)}`;
 
-    const pedidos = await sb(`/orders?${filtro}&select=id,payment_status`);
+    const pedidos = await sb(`/orders?${filtro}&select=id,payment_status,amount_charged,total_amount`);
     const pedido = pedidos?.[0];
     if (!pedido) {
       // Responde 200 pra o Asaas nao ficar reenviando um evento que nao e' nosso
@@ -70,10 +70,22 @@ module.exports = async (req, res) => {
     if (PAGOS.has(evento)) {
       patch.payment_status = 'paid';
       patch.paid_at = pag.confirmedDate || pag.paymentDate || new Date().toISOString();
+
+      // O Asaas informa o liquido ja' sem a tarifa dele. Guardar isso e' o que
+      // permite bater com o extrato e saber o lucro real — e serve de
+      // conferencia: se a taxa configurada estiver errada, a diferenca aparece.
+      const liquido = Number(pag.netValue);
+      if (!Number.isNaN(liquido) && liquido > 0) {
+        const cobrado = Number(pedido.amount_charged ?? pedido.total_amount) || 0;
+        patch.net_amount = liquido;
+        if (cobrado > 0) patch.gateway_fee = Math.round((cobrado - liquido) * 100) / 100;
+      }
     } else if (DESFEITOS.has(evento)) {
       // Chargeback/estorno volta pra pendente pra o admin olhar, nao apaga nada
       patch.payment_status = evento === 'PAYMENT_REFUNDED' ? 'refunded' : 'pending';
       patch.paid_at = null;
+      patch.net_amount = null;
+      patch.gateway_fee = null;
     }
 
     await sb(`/orders?id=eq.${encodeURIComponent(pedido.id)}`, {
