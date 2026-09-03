@@ -2734,7 +2734,9 @@ function filtrarPedidos() {
   document.getElementById('pd-pagos').textContent = pagos.length;
   document.getElementById('pd-pend').textContent  = lista.filter(p => p.payment_status === 'pending').length;
   const receita = pagos.reduce((s, p) => s + Number(p.total_amount || 0), 0);
-  document.getElementById('pd-rec').textContent   = 'R$' + Math.round(receita);
+  // Nada de Math.round aqui: e' um card de receita, tem que bater centavo a
+  // centavo com a soma dos pedidos pagos (R$ 28,90 aparecia como R$ 29).
+  document.getElementById('pd-rec').textContent   = fmtMoney(receita);
   document.getElementById('pd-count').textContent = lista.length + ' pedido' + (lista.length === 1 ? '' : 's');
 
   // Tabela
