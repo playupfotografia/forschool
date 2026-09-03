@@ -2,6 +2,11 @@
 app/config/supabase.local.env
 *.env
 *.env.local
+# Anotacoes com chaves (o repo e publico — um "git add ." vazaria tudo)
+For School Asaas.txt
+*Asaas*.txt
+*credenciais*
+*chaves*
 
 # Dependências
 node_modules/
