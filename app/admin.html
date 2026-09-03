@@ -119,6 +119,14 @@ tr:hover td{background:var(--gray-50)}
 .badge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:20px;font-size:11px;font-weight:600}
 .badge-green{background:var(--green-light);color:#1A6B3C}
 .badge-yellow{background:#FEF9C3;color:#854D0E}
+/* Estado do projeto na cor da linha inteira. Borda na 1a celula em vez de
+   box-shadow no <tr>: com border-collapse a sombra nao pinta em todo browser. */
+tr.pj-demo{background:#FFFBEB}
+tr.pj-demo td:first-child{border-left:4px solid #D97706}
+tr.pj-ativo{background:#F0FDF4}
+tr.pj-ativo td:first-child{border-left:4px solid var(--green)}
+tr.pj-inativo{background:#FEF2F2}
+tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
 .badge-red{background:var(--red-light);color:#9B1C1C}
 .badge-gray{background:var(--gray-100);color:var(--gray-600)}
 .badge-blue{background:var(--blue-light);color:var(--blue-dark)}
@@ -1981,6 +1989,11 @@ tr:hover td{background:var(--gray-50)}
               <input type="checkbox" id="pj-ativo" checked>
               <span>Projeto ativo (visível no portal)</span>
             </label>
+            <label class="chk-inline" style="margin-top:6px">
+              <input type="checkbox" id="pj-demo">
+              <span>🔎 Projeto de demonstração</span>
+            </label>
+            <div class="slug-hint">Pra escola conhecer o portal antes de fechar: navega tudo e vê os preços, mas nenhum pedido é gravado e nenhuma cobrança é gerada.</div>
           </div>
         </div>
       </div>
@@ -5492,7 +5505,7 @@ async function loadProjetos() {
   tbody.innerHTML = '<tr><td colspan="7" class="loading"><span class="spinner"></span>Carregando…</td></tr>';
   try {
     const [projResp, escResp] = await Promise.all([
-      supabase.from('projects').select('id, name, slug, year, project_type, active, school:schools(id, name)').order('name'),
+      supabase.from('projects').select('id, name, slug, year, project_type, active, demo_mode, school:schools(id, name)').order('name'),
       supabase.from('schools').select('id, name').eq('active', true).order('name'),
     ]);
     if (projResp.error) throw projResp.error;
@@ -5542,10 +5555,17 @@ function renderTabelaProjetos() {
   tbody.innerHTML = lista.map(p => {
     const tipo = tipoLabel[p.project_type] || p.project_type;
     const cor  = tipoColor[p.project_type] || 'var(--gray-600)';
-    const status = p.active
-      ? '<span class="badge badge-green">Ativo</span>'
-      : '<span class="badge badge-gray">Inativo</span>';
-    return `<tr style="cursor:pointer" title="Clique para abrir o Bilhete deste projeto" data-proj-bil="${p.id}">
+    // Cor da linha inteira pra bater o olho: amarelo = demonstracao (nao
+    // vende), verde = ativo, vermelho = desativado. A demonstracao vem antes
+    // do ativo de proposito — um projeto pode ser os dois, e o que importa
+    // saber e' que ele nao cobra.
+    const status = p.demo_mode
+      ? '<span class="badge badge-yellow">🔎 Demonstração</span>'
+      : p.active
+        ? '<span class="badge badge-green">Ativo</span>'
+        : '<span class="badge badge-gray">Inativo</span>';
+    const linhaCls = p.demo_mode ? 'pj-demo' : p.active ? 'pj-ativo' : 'pj-inativo';
+    return `<tr class="${linhaCls}" style="cursor:pointer" title="Clique para abrir o Bilhete deste projeto" data-proj-bil="${p.id}">
       <td style="font-weight:500">${escapeHtml(p.name)}</td>
       <td>${escapeHtml(p.school?.name || '—')}</td>
       <td><span style="color:${cor};font-weight:600;font-size:12px">${tipo}</span></td>
@@ -5690,6 +5710,7 @@ async function editarProjeto(id) {
     document.getElementById('pj-escola').value  = p.school_id || '';
     document.getElementById('pj-tipo').value    = p.project_type || 'regular';
     document.getElementById('pj-ativo').checked = p.active !== false;
+    document.getElementById('pj-demo').checked  = p.demo_mode === true;
     document.getElementById('pj-bilhete').value = p.bilhete_template_id || '';
     document.getElementById('pj-termo').value   = p.authorization_term_id || '';
     document.getElementById('pj-entrega').value = p.delivery_date || '';
@@ -5839,6 +5860,7 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
     school_id: escola,
     project_type: document.getElementById('pj-tipo').value,
     active: document.getElementById('pj-ativo').checked,
+    demo_mode: document.getElementById('pj-demo').checked,
     bilhete_template_id: document.getElementById('pj-bilhete').value || null,
     authorization_term_id: document.getElementById('pj-termo').value || null,
     delivery_date: document.getElementById('pj-entrega').value || null,

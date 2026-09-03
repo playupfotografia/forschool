@@ -191,6 +191,15 @@ button,input,select,textarea{font-family:var(--font)}
 .pay-ok-logo{height:80px;width:auto;margin:0 auto 12px;display:block;object-fit:contain}
 .pay-duvida{display:flex;align-items:center;justify-content:center;gap:7px;margin-top:12px;padding:9px 12px;border:1px solid #25D366;border-radius:9px;background:#F0FFF4;color:#166534;font-size:12.5px;font-weight:600;text-decoration:none}
 .pay-duvida:hover{background:#DCFCE7}
+.demo-bar{background:#7C3AED;color:#fff;text-align:center;padding:9px 14px;font-size:12.5px;font-weight:700;letter-spacing:.2px;line-height:1.4}
+/* Em demonstracao o portal inteiro troca de cor: o azul da marca vira roxo.
+   E' pra ninguem confundir a sala de visitas com o portal que cobra. */
+body.modo-demo{--blue:#7C3AED;--blue-dark:#5B21B6;--blue-light:#EDE9FE}
+body.modo-demo::after{content:'';position:fixed;inset:0;border:4px solid #7C3AED;pointer-events:none;z-index:9999}
+.demo-aviso{border:2px dashed var(--purple);background:var(--purple-light);border-radius:12px;padding:20px 16px;margin-top:14px;text-align:center}
+.demo-aviso-icon{font-size:34px;margin-bottom:8px}
+.demo-aviso-titulo{font-size:15px;font-weight:800;color:var(--purple);margin-bottom:6px}
+.demo-aviso-txt{font-size:13px;color:var(--gray-600);line-height:1.55}
 
 /* MODAL DETALHE PRODUTO */
 .pd-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;pointer-events:none;transition:opacity .2s}
@@ -354,6 +363,10 @@ button,input,select,textarea{font-family:var(--font)}
 </style>
 </head>
 <body>
+
+<div class="demo-bar" id="demo-bar" style="display:none">
+  🔎 MODO DEMONSTRAÇÃO — você pode navegar à vontade. Nenhuma compra é registrada e nada é cobrado.
+</div>
 
 <!-- ============ TOPBAR ============ -->
 <header class="p-topbar">
@@ -1470,6 +1483,23 @@ function blocoCobranca(pedido) {
 // Chama a funcao serverless que cria a cobranca de verdade
 window.escolherPagamento = async function (orderId, metodo, parcelas) {
   const el = document.getElementById('confirm-payment-methods');
+
+  if (projeto?.demo_mode || !orderId) {
+    const nomes = { pix: 'PIX', credito: parcelas > 1 ? 'cartão em 2×' : 'cartão de crédito', debito: 'cartão de débito' };
+    el.innerHTML = `
+      <div class="demo-aviso">
+        <div class="demo-aviso-icon">🔎</div>
+        <div class="demo-aviso-titulo">Modo demonstração</div>
+        <div class="demo-aviso-txt">
+          Aqui o responsável veria ${metodo === 'pix' ? 'o <b>QR Code do PIX</b> e o código copia-e-cola' : 'a <b>página segura de pagamento</b>'}
+          para pagar com <b>${nomes[metodo] || metodo}</b>.<br><br>
+          Assim que o pagamento cair, o pedido é confirmado <b>automaticamente</b> —
+          sem precisar enviar comprovante.
+        </div>
+      </div>`;
+    return;
+  }
+
   const alvo = document.querySelector('.pay-lista')?.closest('div[id]') || el;
   const erroEl = document.getElementById('pay-erro');
   const botoes = document.querySelectorAll('.pay-opt');
@@ -1616,6 +1646,11 @@ async function loadEscola() {
     }
 
     projeto = data;
+    if (projeto?.demo_mode) {
+      const barra = document.getElementById('demo-bar');
+      if (barra) barra.style.display = 'block';
+      document.body.classList.add('modo-demo');
+    }
     // Monta objeto escola com campos que o resto do portal já usa
     escola = {
       id:                   data.school.id,
@@ -2909,6 +2944,20 @@ document.getElementById('btn-finalizar').addEventListener('click', async () => {
   const hasKit = Object.values(kitsCarrinho).some(q => q > 0);
   if (!hasKit && items.every(i => i.tipo === 'avulso')) {
     if (!confirm('Você está comprando apenas avulsos, sem kit. Deseja continuar?')) return;
+  }
+
+  // Demonstracao: mostra a tela de pagamento com os valores reais, mas nao
+  // grava pedido nem cria cobranca. E' o que a escola ve antes de fechar.
+  if (projeto?.demo_mode) {
+    closeCartDrawer();
+    document.getElementById('confirm-num').textContent = 'DEMONSTRAÇÃO';
+    document.getElementById('confirm-total').textContent = fmtMoney(total);
+    renderPaymentMethods({ id: null, order_number: null, total_amount: total });
+    document.getElementById('link-wpp').href = `https://wa.me/${WPP_NUMERO}?text=${encodeURIComponent(
+      'Olá! Estou vendo a demonstração do portal For School e tenho uma dúvida.'
+    )}`;
+    show('screen-confirm');
+    return;
   }
 
   const btn = document.getElementById('btn-finalizar');
