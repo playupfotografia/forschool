@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "for-school",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "3456", "--directory", "app"],
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["--yes", "serve", "app", "-l", "3456"],
       "port": 3456
     }
   ]
