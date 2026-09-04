@@ -37,6 +37,8 @@ module.exports = async (req, res) => {
     const projectId = body.project_id || null;
     const kitsPed = body.kits && typeof body.kits === 'object' ? body.kits : {};
     const avPed = body.avulsos && typeof body.avulsos === 'object' ? body.avulsos : {};
+    const entregaPedida = String(body.delivery_method || '').toLowerCase();
+    const enderecoPedido = String(body.delivery_address || '').trim();
 
     if (!studentId) return res.status(400).json({ erro: 'student_id e obrigatorio.' });
 
@@ -48,10 +50,13 @@ module.exports = async (req, res) => {
 
     // ---- 2. O projeto e' da mesma escola? ---------------------------------
     // Sem isso daria pra passar o projeto de outra escola e pegar preco de la.
+    let projeto = null;
     if (projectId) {
-      const projs = await sb(`/projects?id=eq.${q(projectId)}&select=id,school_id`);
-      const proj = projs?.[0];
-      if (!proj || proj.school_id !== aluno.school_id) {
+      const projs = await sb(
+        `/projects?id=eq.${q(projectId)}&select=id,school_id,delivery_date,delivery_fee,delivery_cutoff_days,pickup_enabled`
+      );
+      projeto = projs?.[0];
+      if (!projeto || projeto.school_id !== aluno.school_id) {
         return res.status(400).json({ erro: 'Projeto invalido para esse aluno.' });
       }
     }
@@ -125,7 +130,42 @@ module.exports = async (req, res) => {
     if (!kitsFinal.length && !itensFinal.length) {
       return res.status(400).json({ erro: 'Carrinho vazio.' });
     }
-    total = Math.round(total * 100) / 100;
+
+    // ---- Entrega ----------------------------------------------------------
+    // Passado o corte (N dias ANTES da data de entrega), o pedido nao entra
+    // mais no lote que vai pra escola: precisa de motoboy ou retirada.
+    // A data e a taxa saem do banco — o navegador so diz qual opcao o pai
+    // escolheu, nunca quanto custa.
+    let metodoEntrega = 'escola';
+    let taxaEntrega = 0;
+    let endereco = null;
+
+    if (projeto?.delivery_date) {
+      const corte = new Date(projeto.delivery_date + 'T00:00:00');
+      corte.setDate(corte.getDate() - (parseInt(projeto.delivery_cutoff_days, 10) || 0));
+      const hoje = new Date();
+      hoje.setHours(0, 0, 0, 0);
+
+      if (hoje >= corte) {
+        const permiteRetirada = projeto.pickup_enabled !== false;
+        if (entregaPedida === 'retirada' && permiteRetirada) {
+          metodoEntrega = 'retirada';
+        } else if (entregaPedida === 'motoboy') {
+          if (!enderecoPedido || enderecoPedido.length < 10) {
+            return res.status(400).json({ erro: 'Informe o endereco completo para a entrega.' });
+          }
+          metodoEntrega = 'motoboy';
+          taxaEntrega = Number(projeto.delivery_fee) || 0;
+          endereco = enderecoPedido.slice(0, 500);
+        } else {
+          return res.status(400).json({
+            erro: 'Escolha como quer receber: retirada no estudio ou entrega por motoboy.',
+          });
+        }
+      }
+    }
+
+    total = Math.round((total + taxaEntrega) * 100) / 100;
 
     // ---- 5. Reaproveita o pedido pendente (mantem o numero) ---------------
     let filtro = `/orders?student_id=eq.${q(studentId)}&payment_status=eq.pending`;
@@ -161,6 +201,9 @@ module.exports = async (req, res) => {
         body: JSON.stringify({
           kit_type: kitPrincipal,
           total_amount: total,
+          delivery_method: metodoEntrega,
+          delivery_fee: taxaEntrega,
+          delivery_address: endereco,
           gateway: null, gateway_id: null, gateway_status: null,
           amount_charged: null, surcharge_amount: 0, installments: 1,
           pix_payload: null, pix_qr_image: null, checkout_url: null,
@@ -177,6 +220,9 @@ module.exports = async (req, res) => {
           project_id: projectId,
           kit_type: kitPrincipal,
           total_amount: total,
+          delivery_method: metodoEntrega,
+          delivery_fee: taxaEntrega,
+          delivery_address: endereco,
           payment_status: 'pending',
           source: 'parent',
         }),
@@ -207,6 +253,8 @@ module.exports = async (req, res) => {
       order_id: orderId,
       order_number: orderNumber,
       total_amount: total,
+      delivery_method: metodoEntrega,
+      delivery_fee: taxaEntrega,
       atualizado: !!existente,
     });
   } catch (err) {

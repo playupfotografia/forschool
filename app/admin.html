@@ -2056,6 +2056,28 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
             <input class="form-input" type="date" id="pj-entrega">
             <div class="slug-hint">Única para todo o projeto. O prazo de pedido de cada sessão fica na aba "Sessões de foto".</div>
           </div>
+
+          <div class="alert alert-info" style="font-size:12px">
+            <b>Pedido de última hora.</b> Perto da data de entrega o pedido já não entra no lote que vai pra escola —
+            precisa de entrega individual. A partir do corte abaixo, o portal pede o endereço do responsável e cobra a taxa.
+          </div>
+          <div class="form-grid fg2" style="gap:8px">
+            <div class="form-group">
+              <label class="form-label">Taxa de entrega (R$)</label>
+              <input class="form-input" id="pj-entrega-taxa" type="number" step="0.01" placeholder="35,00">
+              <div class="slug-hint">Motoboy até o endereço do responsável. Escola mais longe, taxa maior.</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Corte (dias antes da entrega)</label>
+              <input class="form-input" id="pj-entrega-corte" type="number" min="0" max="60" placeholder="5">
+              <div class="slug-hint">Quantos dias antes o pedido deixa de alcançar o lote da escola.</div>
+            </div>
+          </div>
+          <label class="chk-inline" style="margin-bottom:4px">
+            <input type="checkbox" id="pj-entrega-retirada" checked>
+            <span>Oferecer retirada no estúdio como alternativa gratuita</span>
+          </label>
+
           <hr class="sep">
           <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px">Métodos de pagamento</div>
           <div style="display:flex;flex-direction:column;gap:7px;background:var(--gray-50);padding:11px;border-radius:8px">
@@ -2716,7 +2738,7 @@ async function loadPedidos() {
         id, order_number, kit_type, total_amount, payment_method, payment_status,
         payment_proof_url, paid_at, created_at, source, notes,
         gateway, gateway_status, installments, amount_charged, surcharge_amount,
-        net_amount, gateway_fee,
+        net_amount, gateway_fee, delivery_method, delivery_fee, delivery_address,
         student:students(id, name),
         school:schools(id, name, slug)
       `)
@@ -2814,7 +2836,12 @@ function filtrarPedidos() {
       <td class="td-name">${escapeHtml(p.student?.name || '—')}</td>
       <td>${escapeHtml(p.school?.name || '—')}</td>
       <td>${kitBadge}</td>
-      <td style="font-weight:600">${fmtMoney(p.total_amount)}${extra}</td>
+      <td style="font-weight:600">${fmtMoney(p.total_amount)}${extra}${
+        p.delivery_method === 'motoboy'
+          ? '<div style="font-size:11px;color:var(--orange);font-weight:600">📦 motoboy</div>'
+          : p.delivery_method === 'retirada'
+            ? '<div style="font-size:11px;color:var(--gray-500);font-weight:400">retirada</div>'
+            : ''}</td>
       <td>${metBadge}</td>
       <td style="font-size:12px;color:var(--gray-500)">${data}</td>
       <td>${stBadge}</td>
@@ -3048,6 +3075,18 @@ async function abrirDetalhesPedido(id) {
               ` : '<div style="font-size:11px;color:var(--gray-400);margin-top:6px">Sem comprovante anexado (upload virá em breve)</div>'}
             </div>
           </div>
+          ${ped.delivery_method && ped.delivery_method !== 'escola' ? `
+          <div class="card" style="border-color:var(--orange)">
+            <div class="card-header" style="padding:9px 13px"><div class="card-title" style="font-size:12px;color:var(--orange)">📦 Entrega individual</div></div>
+            <div class="card-body" style="padding:11px 13px;font-size:13px">
+              <div>Forma: <b>${ped.delivery_method === 'motoboy' ? 'Motoboy' : 'Retirada no estúdio'}</b></div>
+              ${Number(ped.delivery_fee) > 0 ? `<div style="margin-top:4px">Taxa cobrada: <b>${fmtMoney(ped.delivery_fee)}</b></div>` : ''}
+              ${ped.delivery_address ? `
+                <div style="margin-top:7px;font-size:12px;color:var(--gray-600);white-space:pre-wrap">${escapeHtml(ped.delivery_address)}</div>
+                <button class="btn btn-sm btn-secondary" style="margin-top:7px" onclick="navigator.clipboard.writeText(${JSON.stringify(ped.delivery_address)});toast('Endereço copiado!','ok')">📋 Copiar endereço</button>
+              ` : ''}
+            </div>
+          </div>` : ''}
           <div class="card" style="border-color:var(--gray-100)">
             <div class="card-header" style="padding:9px 13px"><div class="card-title" style="font-size:12px">Origem & datas</div></div>
             <div class="card-body" style="padding:11px 13px;font-size:13px">
@@ -5714,6 +5753,9 @@ async function editarProjeto(id) {
     document.getElementById('pj-bilhete').value = p.bilhete_template_id || '';
     document.getElementById('pj-termo').value   = p.authorization_term_id || '';
     document.getElementById('pj-entrega').value = p.delivery_date || '';
+    document.getElementById('pj-entrega-taxa').value     = p.delivery_fee ?? 35;
+    document.getElementById('pj-entrega-corte').value    = p.delivery_cutoff_days ?? 5;
+    document.getElementById('pj-entrega-retirada').checked = p.pickup_enabled !== false;
     document.getElementById('pj-pix-manual').checked = p.payment_pix_manual !== false;
     document.getElementById('pj-external').checked   = !!p.payment_external_link;
     document.getElementById('pj-rep-tipo').value  = p.repayment_type || 'nenhum';
@@ -5861,6 +5903,9 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
     project_type: document.getElementById('pj-tipo').value,
     active: document.getElementById('pj-ativo').checked,
     demo_mode: document.getElementById('pj-demo').checked,
+    delivery_fee:         parseFloat(document.getElementById('pj-entrega-taxa').value) || 0,
+    delivery_cutoff_days: parseInt(document.getElementById('pj-entrega-corte').value, 10) || 0,
+    pickup_enabled:       document.getElementById('pj-entrega-retirada').checked,
     bilhete_template_id: document.getElementById('pj-bilhete').value || null,
     authorization_term_id: document.getElementById('pj-termo').value || null,
     delivery_date: document.getElementById('pj-entrega').value || null,

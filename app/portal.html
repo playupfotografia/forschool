@@ -191,6 +191,15 @@ button,input,select,textarea{font-family:var(--font)}
 .pay-ok-logo{height:80px;width:auto;margin:0 auto 12px;display:block;object-fit:contain}
 .pay-duvida{display:flex;align-items:center;justify-content:center;gap:7px;margin-top:12px;padding:9px 12px;border:1px solid #25D366;border-radius:9px;background:#F0FFF4;color:#166534;font-size:12.5px;font-weight:600;text-decoration:none}
 .pay-duvida:hover{background:#DCFCE7}
+.ent-box{border:1px solid var(--gray-200);border-radius:10px;padding:11px;margin-bottom:12px;background:var(--gray-50)}
+.ent-tit{font-size:13px;font-weight:700;color:var(--gray-800);margin-bottom:3px}
+.ent-sub{font-size:11.5px;color:var(--gray-500);line-height:1.5;margin-bottom:9px}
+.ent-opt{display:flex;align-items:flex-start;gap:9px;background:#fff;border:2px solid var(--gray-200);border-radius:9px;padding:10px;margin-bottom:7px;cursor:pointer}
+.ent-opt.sel{border-color:var(--green);background:#F0FDF4}
+.ent-opt input{margin-top:2px}
+.ent-opt-nome{font-size:13px;font-weight:700;color:var(--gray-800)}
+.ent-opt-sub{font-size:11.5px;color:var(--gray-500);margin-top:1px}
+.ent-opt-preco{margin-left:auto;font-size:13px;font-weight:800;white-space:nowrap}
 .demo-bar{background:#7C3AED;color:#fff;text-align:center;padding:9px 14px;font-size:12.5px;font-weight:700;letter-spacing:.2px;line-height:1.4}
 /* Em demonstracao o portal inteiro troca de cor: o azul da marca vira roxo.
    E' pra ninguem confundir a sala de visitas com o portal que cobra. */
@@ -782,6 +791,7 @@ body.modo-demo::after{content:'';position:fixed;inset:0;border:4px solid #7C3AED
     <div id="cart-items"><div class="cart-empty">Nenhum item ainda. Escolha um kit pra começar.</div></div>
   </div>
   <div class="cart-drawer-footer">
+    <div id="cart-entrega"></div>
     <div class="cart-total-row">
       <span>Total</span>
       <span id="cart-total">R$ 0,00</span>
@@ -1020,6 +1030,10 @@ let student = null;           // aluno do pai logado
 // Pedido pendente que o responsavel esta editando. Enquanto existe, o
 // carrinho E' esse pedido: finalizar reescreve ele em vez de criar outro.
 let pedidoAberto = null;       // { id, order_number }
+// Entrega individual: so' entra em cena quando o pedido e' de ultima hora e
+// nao alcanca mais o lote que vai pra escola.
+let entregaMetodo = null;      // 'retirada' | 'motoboy'
+let entregaEndereco = '';
 let kitsCarrinho  = {};        // { basico: 1, inter: 2 } — qty por kit_type
 let avulsosCarrinho = {};     // { product_id: quantity }
 let currentTerm = null;       // termo de autorização do projeto (ou default)
@@ -2877,6 +2891,65 @@ function calcCart() {
   return { items, total };
 }
 
+// Passado o corte (N dias ANTES da entrega), o pedido nao entra mais no lote
+// da escola. O servidor recalcula isso por conta propria — aqui e' so' pra
+// tela mostrar a escolha e o total certo.
+function precisaEscolherEntrega() {
+  if (!projeto?.delivery_date) return false;
+  const corte = new Date(projeto.delivery_date + 'T00:00:00');
+  corte.setDate(corte.getDate() - (parseInt(projeto.delivery_cutoff_days, 10) || 0));
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  return hoje >= corte;
+}
+
+function taxaEntregaAtual() {
+  return entregaMetodo === 'motoboy' ? (Number(projeto?.delivery_fee) || 0) : 0;
+}
+
+window.escolherEntrega = function (metodo) {
+  entregaMetodo = metodo;
+  renderCart();
+  if (metodo === 'motoboy') setTimeout(() => document.getElementById('ent-end')?.focus(), 60);
+};
+
+function renderBlocoEntrega() {
+  const el = document.getElementById('cart-entrega');
+  if (!el) return;
+  if (!precisaEscolherEntrega()) { el.innerHTML = ''; return; }
+
+  const taxa = Number(projeto?.delivery_fee) || 0;
+  const permiteRetirada = projeto?.pickup_enabled !== false;
+  const entrega = new Date(projeto.delivery_date + 'T00:00:00').toLocaleDateString('pt-BR');
+
+  const opcao = (id, nome, sub, preco) => `
+    <label class="ent-opt ${entregaMetodo === id ? 'sel' : ''}" onclick="window.escolherEntrega('${id}')">
+      <input type="radio" name="ent" ${entregaMetodo === id ? 'checked' : ''}>
+      <span style="flex:1">
+        <span class="ent-opt-nome">${nome}</span>
+        <div class="ent-opt-sub">${sub}</div>
+      </span>
+      <span class="ent-opt-preco" style="color:${preco ? 'var(--gray-800)' : 'var(--green)'}">${preco ? fmtMoney(preco) : 'Grátis'}</span>
+    </label>`;
+
+  el.innerHTML = `
+    <div class="ent-box">
+      <div class="ent-tit">📦 Como você quer receber?</div>
+      <div class="ent-sub">
+        A entrega na escola é dia <b>${entrega}</b>, e este pedido já não entra nesse lote.
+        Por isso precisa de uma entrega separada.
+      </div>
+      ${permiteRetirada ? opcao('retirada', 'Retirar no estúdio', 'Sem custo. Combinamos o horário pelo WhatsApp.', 0) : ''}
+      ${opcao('motoboy', 'Entrega por motoboy', 'Direto no seu endereço.', taxa)}
+      ${entregaMetodo === 'motoboy' ? `
+        <textarea id="ent-end" class="form-input" rows="2" placeholder="Rua, número, complemento, bairro e cidade"
+          style="font-size:13px;margin-top:4px" oninput="window.entregaEnderecoInput(this.value)">${escapeHtml(entregaEndereco)}</textarea>
+      ` : ''}
+    </div>`;
+}
+
+window.entregaEnderecoInput = function (v) { entregaEndereco = v; };
+
 function renderCart() {
   const { items, total } = calcCart();
   const el = document.getElementById('cart-items');
@@ -2906,7 +2979,9 @@ function renderCart() {
       renderCart();
     }));
   }
-  document.getElementById('cart-total').textContent = fmtMoney(total);
+  renderBlocoEntrega();
+  const taxaEnt = taxaEntregaAtual();
+  document.getElementById('cart-total').textContent = fmtMoney(total + taxaEnt);
 
   // Atualiza botão flutuante
   const fab = document.getElementById('cart-fab');
@@ -2944,6 +3019,16 @@ document.getElementById('btn-finalizar').addEventListener('click', async () => {
   const hasKit = Object.values(kitsCarrinho).some(q => q > 0);
   if (!hasKit && items.every(i => i.tipo === 'avulso')) {
     if (!confirm('Você está comprando apenas avulsos, sem kit. Deseja continuar?')) return;
+  }
+
+  if (precisaEscolherEntrega()) {
+    if (!entregaMetodo) { toast('Escolha como quer receber o pedido.', 'warn'); openCartDrawer(); return; }
+    if (entregaMetodo === 'motoboy' && entregaEndereco.trim().length < 10) {
+      toast('Informe o endereço completo para a entrega.', 'warn');
+      openCartDrawer();
+      document.getElementById('ent-end')?.focus();
+      return;
+    }
   }
 
   // Demonstracao: mostra a tela de pagamento com os valores reais, mas nao
@@ -2984,6 +3069,8 @@ document.getElementById('btn-finalizar').addEventListener('click', async () => {
         project_id: projeto?.id || null,
         kits: kitsCarrinho,
         avulsos: avulsosCarrinho,
+        delivery_method: entregaMetodo,
+        delivery_address: entregaEndereco,
       }),
     });
     const dados = await r.json().catch(() => ({}));
