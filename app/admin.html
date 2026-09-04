@@ -5616,6 +5616,7 @@ function renderTabelaProjetos() {
           <button class="btn btn-sm btn-primary" onclick="event.stopPropagation();abrirDrillProjeto('${p.id}')" title="Ver alunos e pedidos">Alunos/Pedidos</button>
           <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();editarProjeto('${p.id}')">Editar</button>
           <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();duplicarProjeto('${p.id}')" title="Copia dados do projeto, nome e slug em branco">Duplicar</button>
+          ${p.demo_mode ? `<button class="btn btn-sm" style="background:#7C3AED;color:#fff;border:none" onclick="event.stopPropagation();resetarDemonstracao('${p.id}')" title="Zera a autorizacao do login de demonstracao desta escola, pra proxima pessoa ver o fluxo completo do zero">🔄 Resetar demo</button>` : ''}
           <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();excluirProjeto('${p.id}')">✕</button>
         </div>
       </td>
@@ -5838,6 +5839,53 @@ async function editarProjeto(id) {
   }
 }
 window.editarProjeto = editarProjeto;
+
+// Reset de 1 clique pro login de demonstracao. Zera a autorizacao de todo
+// aluno marcado com notes='DEMO-LOGIN' na escola do projeto — assim a proxima
+// pessoa que usar aquele login (coordenadora, diretor...) ve o fluxo completo
+// desde a tela de autorizacao, em vez de cair direto no catalogo porque um
+// outro visitante ja autorizou antes. So aparece nos projetos marcados como
+// demonstracao (ver botao "🔄 Resetar demo" na listagem de Projetos).
+async function resetarDemonstracao(projectId) {
+  try {
+    const { data: proj, error: projErr } = await supabase
+      .from('projects').select('id, name, school_id').eq('id', projectId).single();
+    if (projErr) throw projErr;
+
+    const { data: alunosDemo, error: alErr } = await supabase
+      .from('students')
+      .select('id, name, authorization_log')
+      .eq('school_id', proj.school_id)
+      .ilike('notes', '%DEMO-LOGIN%');
+    if (alErr) throw alErr;
+
+    if (!alunosDemo || alunosDemo.length === 0) {
+      toast('Nenhum login de demonstração encontrado para essa escola. Marque o aluno com a nota "DEMO-LOGIN" pra ele ser resetado por aqui.', 'warn');
+      return;
+    }
+
+    if (!confirm(`Resetar a demonstração de "${proj.name}"?
+
+${alunosDemo.length} conta(s) de demonstração voltam a mostrar a tela de autorização na próxima entrada.`)) return;
+
+    const now = new Date().toISOString();
+    for (const al of alunosDemo) {
+      const currentLog = Array.isArray(al.authorization_log) ? al.authorization_log : [];
+      const { error } = await supabase.from('students').update({
+        authorize_individual: null,
+        authorize_class: null,
+        authorization_date: null,
+        authorization_signed_by: null,
+        authorization_log: [...currentLog, { action: 'reset', date: now, reset_by: 'admin (reset demo 1-clique)' }],
+      }).eq('id', al.id);
+      if (error) throw error;
+    }
+    toast(`Demonstração resetada! (${alunosDemo.length} conta${alunosDemo.length > 1 ? 's' : ''})`, 'ok');
+  } catch (err) {
+    handleError(err, 'resetarDemonstracao');
+  }
+}
+window.resetarDemonstracao = resetarDemonstracao;
 
 async function duplicarProjeto(id) {
   try {
