@@ -6746,9 +6746,9 @@ async function imprimirAutorizacoes() {
       return `<div class="au-card">
         <div class="au-card-head">
           <div class="au-aluno">${escapeHtml(a.name)}</div>
+          <div class="au-resp">Resp.: <b>${escapeHtml(vars.nome_responsavel || '—')}</b>${vars.grau_parentesco ? ' (' + escapeHtml(vars.grau_parentesco) + ')' : ''}</div>
           <div class="au-badge">✅ ${escapeHtml(tipo)}</div>
         </div>
-        <div class="au-resp">Resp.: <b>${escapeHtml(vars.nome_responsavel || '—')}</b>${vars.grau_parentesco ? ' (' + escapeHtml(vars.grau_parentesco) + ')' : ''}</div>
         <div class="au-termo">${termoHtml}</div>
         <div class="au-foot">Autorizado em ${dataAut}</div>
       </div>`;
@@ -6757,7 +6757,7 @@ async function imprimirAutorizacoes() {
     // Agrupa por ano+turma (a lista ja vem ordenada assim) — cada turma
     // comeca sempre numa folha nova, nunca dividindo com outra turma na
     // mesma pagina. Dentro da turma, 4 alunos por folha (2x2).
-    const POR_PAGINA = 4;
+    const POR_PAGINA = 8;  // testado: 8 cartoes em largura total cabem com folga numa A4
     const grupos = [];
     autorizados.forEach(a => {
       const chave = `${a.class?.year?.name || ''}|${a.class?.name || ''}`;
@@ -6812,16 +6812,16 @@ body{font-family:'DM Sans',Arial,sans-serif;background:#fff;color:#111}
 .au-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border-bottom:2px solid #111;padding-bottom:6px;margin-bottom:8px;flex-shrink:0}
 .au-escola{font-size:12px;color:#555}
 .au-turma{font-size:14px;font-weight:700;color:#111}
-.au-grid{flex:1;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:6mm}
-.au-card{border:1px solid #ddd;border-radius:6px;padding:8px 10px;overflow:hidden;break-inside:avoid;display:flex;flex-direction:column}
-.au-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:6px;margin-bottom:3px}
-.au-badge{background:#d1fae5;color:#065f46;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:20px;white-space:nowrap;flex-shrink:0}
-.au-aluno{font-size:14.5px;font-weight:800;color:#111;line-height:1.2}
-.au-resp{font-size:10px;color:#444;margin-bottom:5px}
-.au-termo{font-size:8.7px;line-height:1.42;color:#222;overflow:hidden}
-.au-termo p{margin-bottom:3px}
-.au-sep{border:none;border-top:1px dashed #ccc;margin:5px 0}
-.au-foot{margin-top:auto;padding-top:4px;font-size:8.5px;color:#999;border-top:1px solid #eee}
+.au-grid{flex:1;display:flex;flex-direction:column;gap:3mm}
+.au-card{border:1px solid #ddd;border-radius:5px;padding:5px 9px;break-inside:avoid;display:flex;flex-direction:column}
+.au-card-head{display:flex;align-items:baseline;gap:10px;margin-bottom:2px}
+.au-badge{background:#d1fae5;color:#065f46;font-size:8.5px;font-weight:700;padding:1px 6px;border-radius:20px;white-space:nowrap;flex-shrink:0}
+.au-aluno{font-size:12.5px;font-weight:800;color:#111;white-space:nowrap}
+.au-resp{font-size:9px;color:#444;flex:1;min-width:0}
+.au-termo{font-size:8.3px;line-height:1.32;color:#222;column-count:2;column-gap:8mm}
+.au-termo p{margin-bottom:2px}
+.au-sep{border:none;border-top:1px dashed #ccc;margin:3px 0;column-span:all}
+.au-foot{font-size:7.5px;color:#999;margin-top:2px}
 </style>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;800&display=swap" rel="stylesheet">
 </head><body>
