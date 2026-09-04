@@ -155,6 +155,14 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
 .modal-title{font-size:14px;font-weight:600}
 .modal-close{background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:20px;line-height:1}
 .modal-body{padding:17px}
+/* Contexto do projeto aberto: fica no header, que e' sticky, pra nunca sumir
+   ao rolar. Sem isso da' pra editar preco achando que esta noutro projeto —
+   os catalogos sao parecidos entre projetos. */
+.mod-proj-ctx{display:inline-flex;align-items:center;gap:6px;margin-top:6px;padding:5px 12px;
+  background:var(--blue);color:#fff;border-radius:99px;
+  font-size:13px;font-weight:600;line-height:1.4;max-width:100%}
+.mod-proj-ctx b{font-weight:700}
+.mod-proj-ctx .ctx-esc{font-weight:500;opacity:.9}
 .modal-footer{padding:12px 17px;border-top:1px solid var(--gray-100);display:flex;justify-content:flex-end;gap:7px;position:sticky;bottom:0;background:var(--white)}
 
 /* ALERTS */
@@ -1963,8 +1971,11 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
 <!-- MODAL PROJETO -->
 <div class="modal-overlay" id="mod-proj">
   <div class="modal modal-lg">
-    <div class="modal-header">
-      <div class="modal-title" id="mod-proj-title">Novo projeto</div>
+    <div class="modal-header" style="align-items:flex-start">
+      <div style="min-width:0">
+        <div class="modal-title" id="mod-proj-title">Novo projeto</div>
+        <div class="mod-proj-ctx" id="mod-proj-ctx" hidden></div>
+      </div>
       <button class="modal-close" data-close="mod-proj">&times;</button>
     </div>
     <div class="modal-body">
@@ -2186,7 +2197,8 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
       <!-- TAB 6: KITS & AVULSOS -->
       <div id="tp-kits" class="tab-pane">
         <div class="alert alert-info">
-          Kits e avulsos específicos para <b>este projeto</b>. Serão usados no portal no lugar dos kits da escola.
+          Preços e disponibilidade valem <b>somente para <span id="pj-kits-nome">este projeto</span></b> —
+          não afetam nenhum outro projeto, mesmo que o catálogo pareça igual.
           Deixe todos desmarcados se quiser usar os kits já cadastrados na escola.
         </div>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
@@ -5146,6 +5158,8 @@ document.getElementById('pj-slug').addEventListener('input', () => {
   document.getElementById('pj-slug-prev').textContent = document.getElementById('pj-slug').value || 'slug';
 });
 
+document.getElementById('pj-nome').addEventListener('input', atualizarContextoProjeto);
+
 // Tabs do modal de projeto
 document.querySelectorAll('#mod-proj .tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -5159,6 +5173,7 @@ document.querySelectorAll('#mod-proj .tab-btn').forEach(btn => {
 // Quando escola muda, recarrega as turmas disponíveis para as sessões
 document.getElementById('pj-escola').addEventListener('change', async () => {
   const schoolId = document.getElementById('pj-escola').value;
+  atualizarContextoProjeto();
   await loadPjEscolaClasses(schoolId);
   renderSessoes();
 });
@@ -5724,10 +5739,34 @@ function resetModalProjeto() {
 document.getElementById('btn-novo-projeto').addEventListener('click', async () => {
   projEditId = null;
   document.getElementById('mod-proj-title').textContent = 'Novo projeto';
+  atualizarContextoProjeto();
   await abrirModalProjeto();
   resetModalProjeto();
   document.getElementById('mod-proj').classList.add('open');
 });
+
+// Nome do projeto + escola sempre a' vista. Mora no header do modal, que e'
+// sticky, entao acompanha a rolagem em todas as abas — inclusive na de Kits &
+// Avulsos, onde os catalogos de projetos diferentes sao parecidos e da' pra
+// mexer no preco do projeto errado sem perceber.
+function atualizarContextoProjeto() {
+  const el = document.getElementById('mod-proj-ctx');
+  if (!el) return;
+  const nome = (document.getElementById('pj-nome')?.value || '').trim();
+  const sel = document.getElementById('pj-escola');
+  const escola = sel && sel.selectedIndex > 0
+    ? sel.options[sel.selectedIndex].textContent.trim()
+    : '';
+  // Repete o nome dentro da aba de Kits & Avulsos: e' onde se mexe em preco,
+  // e onde os catalogos de projetos diferentes se parecem.
+  const alvoKits = document.getElementById('pj-kits-nome');
+  if (alvoKits) alvoKits.textContent = nome || 'este projeto';
+
+  if (!nome && !escola) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = `📁 <b>${escapeHtml(nome || 'sem nome')}</b>`
+    + (escola ? ` <span class="ctx-esc">· ${escapeHtml(escola)}</span>` : '');
+}
 
 async function editarProjeto(id) {
   try {
@@ -5771,7 +5810,7 @@ async function editarProjeto(id) {
     }));
 
     // Preencher campos
-    document.getElementById('mod-proj-title').textContent = 'Editar: ' + p.name;
+    document.getElementById('mod-proj-title').textContent = 'Editar projeto';
     document.getElementById('pj-nome').value    = p.name || '';
     document.getElementById('pj-slug').value    = p.slug || '';
     document.getElementById('pj-slug-prev').textContent = p.slug || 'slug';
@@ -5801,6 +5840,7 @@ async function editarProjeto(id) {
     document.getElementById('pj-inf-footer').value   = p.inf_footer_text   || '';
     document.getElementById('pj-inf-badge').style.display = p.inf_edited ? 'block' : 'none';
     window.updatePjRepLabel();
+    atualizarContextoProjeto();
 
     document.querySelectorAll('#mod-proj .tab-btn').forEach((b,i) => b.classList.toggle('active', i===0));
     document.querySelectorAll('#mod-proj .tab-pane').forEach((x,i) => x.classList.toggle('active', i===0));
@@ -5925,6 +5965,7 @@ async function duplicarProjeto(id) {
     // Limpar IDs dos kits copiados
     KIT_TYPES.forEach(t => { if (pjKitsTemp[t]) delete pjKitsTemp[t]._id; });
     document.getElementById('mod-proj-title').textContent = 'Duplicar projeto — preencha o novo nome';
+    atualizarContextoProjeto();
     document.getElementById('pj-nome').value = '';
     document.getElementById('pj-slug').value = '';
     document.getElementById('pj-slug-prev').textContent = 'slug';
