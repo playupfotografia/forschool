@@ -36,6 +36,32 @@ async function asaas(caminho, opts = {}) {
   return corpo;
 }
 
+// --- SumUp (so' o Pix) -----------------------------------------------------
+// Autentica por Bearer token. Ha' uma unica URL: o que separa sandbox de
+// producao e' a propria chave, nao o endereco.
+async function sumup(caminho, opts = {}) {
+  const base = (process.env.SUMUP_API_URL || 'https://api.sumup.com').replace(/\/$/, '');
+  const r = await fetch(base + caminho, {
+    ...opts,
+    headers: {
+      Authorization: 'Bearer ' + env('SUMUP_API_KEY'),
+      'Content-Type': 'application/json',
+      ...(opts.headers || {}),
+    },
+  });
+  const texto = await r.text();
+  let corpo = null;
+  try { corpo = texto ? JSON.parse(texto) : null; } catch { corpo = { raw: texto }; }
+  if (!r.ok) {
+    const msg = corpo?.message || corpo?.detail || corpo?.raw || `HTTP ${r.status}`;
+    const e = new Error('SumUp: ' + msg);
+    e.status = r.status;
+    e.corpo = corpo;
+    throw e;
+  }
+  return corpo;
+}
+
 // --- Supabase (REST, com service_role — ignora RLS de proposito) -----------
 async function sb(caminho, opts = {}) {
   const base = env('SUPABASE_URL').replace(/\/$/, '');
@@ -216,4 +242,4 @@ async function avisarVenda(pedido) {
   });
 }
 
-module.exports = { env, asaas, sb, usuarioDoToken, valorComTaxa, apenasDigitos, emDias, avisarVenda };
+module.exports = { env, asaas, sumup, sb, usuarioDoToken, valorComTaxa, apenasDigitos, emDias, avisarVenda };

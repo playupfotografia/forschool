@@ -11,7 +11,7 @@
 // Body: { order_id, method: 'pix'|'credito'|'debito', installments?: 1|2 }
 // ============================================================================
 
-const { asaas, sb, usuarioDoToken, valorComTaxa, apenasDigitos, emDias } = require('./_lib.js');
+const { asaas, sumup, sb, usuarioDoToken, valorComTaxa, apenasDigitos, emDias, env } = require('./_lib.js');
 
 const BILLING = { pix: 'PIX', credito: 'CREDIT_CARD', debito: 'DEBIT_CARD' };
 const METODO_ORDERS = { pix: 'pix', credito: 'cartao_1x', debito: 'cartao_debito' };
@@ -117,82 +117,138 @@ module.exports = async (req, res) => {
 
     const acrescimo = Math.round((valorCobrado - valorBase) * 100) / 100;
 
-    // ---- 4. Cliente no Asaas (reaproveita pelo CPF) -------------------------
-    const resp = pedido.users || {};
-    const cpf = apenasDigitos(resp.cpf);
-    if (!cpf) {
-      return res.status(400).json({
-        erro: 'O responsavel esta sem CPF no cadastro, e o Asaas exige o CPF do pagador.',
-      });
-    }
+    // ---- 4. Cobranca no gateway ---------------------------------------------
+    // O Pix pode ir pra SumUp (Pix sem taxa na conta SumUp Bank) em vez do
+    // Asaas. Quem decide e' a variavel PIX_GATEWAY na Vercel: sem ela, tudo
+    // continua no Asaas exatamente como antes. Cartao e debito NUNCA saem do
+    // Asaas — a SumUp cobra 5,99% a vista e 13,99% em 2x.
+    const aluno = pedido.students?.name || '';
+    const descricao = `Pedido ${pedido.order_number}${aluno ? ' - ' + aluno : ''}`;
+    const pixNaSumUp = metodo === 'pix' && process.env.PIX_GATEWAY === 'sumup';
 
-    let clienteId = null;
-    const busca = await asaas(`/customers?cpfCnpj=${cpf}&limit=1`);
-    if (busca?.data?.length) {
-      clienteId = busca.data[0].id;
-    } else {
-      const novo = await asaas('/customers', {
+    let gatewayUsado, gatewayId, gatewayStatus;
+    let pixPayload = null, pixQr = null, checkoutUrl = null, vencimento = null;
+
+    if (pixNaSumUp) {
+      const site = (process.env.SITE_URL || 'https://forschool.playupfotografia.com.br').replace(/\/$/, '');
+
+      const checkout = await sumup('/v0.1/checkouts', {
         method: 'POST',
         body: JSON.stringify({
-          name: resp.name || 'Responsavel',
-          cpfCnpj: cpf,
-          email: resp.email || undefined,
-          mobilePhone: apenasDigitos(resp.phone) || undefined,
-          externalReference: pedido.user_id || undefined,
-          notificationDisabled: true,   // quem avisa o pai e' o portal, nao o Asaas
+          checkout_reference: pedido.id,
+          amount: valorCobrado,
+          currency: 'BRL',
+          merchant_code: env('SUMUP_MERCHANT_CODE'),
+          description: descricao,
+          // E' assim que se assina o webhook na SumUp: nao ha cadastro de URL
+          // no painel, o aviso vai pra ca' por cobranca.
+          return_url: `${site}/api/sumup-webhook`,
         }),
       });
-      clienteId = novo.id;
-    }
 
-    // ---- 5. Cobranca --------------------------------------------------------
-    const aluno = pedido.students?.name || '';
-    const cobranca = {
-      customer: clienteId,
-      billingType: BILLING[metodo],
-      value: valorCobrado,
-      dueDate: emDias(3),
-      description: `Pedido ${pedido.order_number}${aluno ? ' - ' + aluno : ''}`,
-      externalReference: pedido.id,
-    };
-    if (parcelas > 1) {
-      cobranca.installmentCount = parcelas;
-      cobranca.totalValue = valorCobrado;
-      delete cobranca.value;
-    }
+      // Processar como Pix devolve o copia-e-cola e o QR na propria resposta
+      // ("artifacts"), sem redirecionar o pai pra pagina nenhuma.
+      const processado = await sumup(`/v0.1/checkouts/${checkout.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ payment_type: 'pix' }),
+      });
 
-    const cob = await asaas('/payments', { method: 'POST', body: JSON.stringify(cobranca) });
+      const artefatos = processado.artifacts || processado.artefacts || [];
+      pixPayload = artefatos.find((a) => a?.name === 'code')?.content || null;
+      pixQr = artefatos.find((a) => a?.name === 'barcode')?.location || null;
 
-    // ---- 6. PIX: buscar o QR e o copia-e-cola ------------------------------
-    let pixPayload = null, pixQr = null;
-    if (metodo === 'pix') {
-      // O QR as vezes ainda nao esta pronto no instante seguinte a criacao da
-      // cobranca (visto no sandbox: 400 na primeira chamada, 200 na segunda).
-      // Uma tentativa extra resolve; se falhar de novo, o checkout ainda cobre.
-      for (let tentativa = 0; tentativa < 2 && !pixPayload; tentativa++) {
-        try {
-          if (tentativa) await new Promise(r => setTimeout(r, 900));
-          const qr = await asaas(`/payments/${cob.id}/pixQrCode`);
-          pixPayload = qr?.payload || null;
-          pixQr = qr?.encodedImage ? 'data:image/png;base64,' + qr.encodedImage : null;
-        } catch (e) {
-          console.error('pixQrCode tentativa ' + (tentativa + 1), e.message);
+      if (!pixPayload) {
+        // A sandbox da SumUp nao processa Pix ("ExtDev accounts"), entao este
+        // formato so' pode ser conferido em producao. Se vier diferente do
+        // esperado, o log abaixo mostra o que realmente veio.
+        console.error('sumup pix sem copia-e-cola:', JSON.stringify(processado).slice(0, 1000));
+        throw new Error('A SumUp nao devolveu o codigo do Pix.');
+      }
+
+      gatewayUsado = 'sumup';
+      gatewayId = checkout.id;
+      gatewayStatus = processado.status || checkout.status || null;
+      vencimento = processado.valid_until || checkout.valid_until || null;
+    } else {
+      // Cliente no Asaas (reaproveita pelo CPF)
+      const resp = pedido.users || {};
+      const cpf = apenasDigitos(resp.cpf);
+      if (!cpf) {
+        return res.status(400).json({
+          erro: 'O responsavel esta sem CPF no cadastro, e o Asaas exige o CPF do pagador.',
+        });
+      }
+
+      let clienteId = null;
+      const busca = await asaas(`/customers?cpfCnpj=${cpf}&limit=1`);
+      if (busca?.data?.length) {
+        clienteId = busca.data[0].id;
+      } else {
+        const novo = await asaas('/customers', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: resp.name || 'Responsavel',
+            cpfCnpj: cpf,
+            email: resp.email || undefined,
+            mobilePhone: apenasDigitos(resp.phone) || undefined,
+            externalReference: pedido.user_id || undefined,
+            notificationDisabled: true,   // quem avisa o pai e' o portal, nao o Asaas
+          }),
+        });
+        clienteId = novo.id;
+      }
+
+      const cobranca = {
+        customer: clienteId,
+        billingType: BILLING[metodo],
+        value: valorCobrado,
+        dueDate: emDias(3),
+        description: descricao,
+        externalReference: pedido.id,
+      };
+      if (parcelas > 1) {
+        cobranca.installmentCount = parcelas;
+        cobranca.totalValue = valorCobrado;
+        delete cobranca.value;
+      }
+
+      const cob = await asaas('/payments', { method: 'POST', body: JSON.stringify(cobranca) });
+
+      if (metodo === 'pix') {
+        // O QR as vezes ainda nao esta pronto no instante seguinte a criacao da
+        // cobranca (visto no sandbox: 400 na primeira chamada, 200 na segunda).
+        // Uma tentativa extra resolve; se falhar de novo, o checkout ainda cobre.
+        for (let tentativa = 0; tentativa < 2 && !pixPayload; tentativa++) {
+          try {
+            if (tentativa) await new Promise(r => setTimeout(r, 900));
+            const qr = await asaas(`/payments/${cob.id}/pixQrCode`);
+            pixPayload = qr?.payload || null;
+            pixQr = qr?.encodedImage ? 'data:image/png;base64,' + qr.encodedImage : null;
+          } catch (e) {
+            console.error('pixQrCode tentativa ' + (tentativa + 1), e.message);
+          }
         }
       }
+
+      gatewayUsado = 'asaas';
+      gatewayId = cob.id;
+      gatewayStatus = cob.status || null;
+      checkoutUrl = cob.invoiceUrl || null;
+      vencimento = cob.dueDate || null;
     }
 
-    // ---- 7. Grava no pedido -------------------------------------------------
+    // ---- 5. Grava no pedido -------------------------------------------------
     const patch = {
-      gateway: 'asaas',
-      gateway_id: cob.id,
-      gateway_status: cob.status || null,
+      gateway: gatewayUsado,
+      gateway_id: gatewayId,
+      gateway_status: gatewayStatus,
       payment_method: parcelas > 1 ? 'cartao_2x' : METODO_ORDERS[metodo],
       installments: parcelas,
       amount_charged: valorCobrado,
       surcharge_amount: acrescimo,
       pix_payload: pixPayload,
       pix_qr_image: pixQr,
-      checkout_url: cob.invoiceUrl || null,
+      checkout_url: checkoutUrl,
     };
     await sb(`/orders?id=eq.${encodeURIComponent(pedido.id)}`, {
       method: 'PATCH',
@@ -210,8 +266,8 @@ module.exports = async (req, res) => {
       valor_parcela: parcelas > 1 ? Math.ceil((valorCobrado / parcelas) * 100) / 100 : valorCobrado,
       pix_payload: pixPayload,
       pix_qr_image: pixQr,
-      checkout_url: cob.invoiceUrl || null,
-      vencimento: cob.dueDate || null,
+      checkout_url: checkoutUrl,
+      vencimento,
     });
   } catch (err) {
     console.error('criar-cobranca', err);
