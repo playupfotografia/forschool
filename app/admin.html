@@ -69,6 +69,10 @@ button,input,select,textarea{font-family:var(--font)}
 /* TOPBAR */
 .topbar{background:var(--white);border-bottom:1px solid var(--gray-200);padding:0 22px;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
 .topbar-title{font-size:15px;font-weight:600;color:var(--gray-900)}
+/* Marca a tela como global: e' de onde saiu um preco alterado sem querer pra
+   todos os projetos, achando que era do projeto aberto. */
+.tb-escopo{margin-left:7px;padding:2px 8px;border-radius:99px;background:#FEF9C3;
+  color:#854D0E;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px}
 .topbar-actions{display:flex;align-items:center;gap:8px}
 
 /* BUTTONS */
@@ -552,14 +556,17 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
   <!-- PRODUTOS -->
   <div id="page-produtos" class="page">
     <div class="topbar">
-      <div class="topbar-title">Produtos (catálogo atômico)</div>
+      <div class="topbar-title">Produtos <span class="tb-escopo">catálogo global</span></div>
       <button class="btn btn-primary" id="btn-novo-produto">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Novo produto
       </button>
     </div>
-    <div class="alert alert-info">
-      Esses são os produtos atômicos (fotos, canecas, calendários…). Os <b>kits</b> de cada escola serão montados na tela de Escolas, combinando esses produtos com preço fechado.
+    <div class="alert alert-warning">
+      ⚠️ <b>Esta lista é global.</b> Mudar um preço aqui muda o preço base em
+      <b>todas as escolas e todos os projetos</b>, inclusive os que já estão no ar.<br>
+      Para mudar o preço de <b>um projeto só</b>: menu <b>Projetos</b> → abrir o projeto →
+      aba <b>Kits &amp; Avulsos</b>. O preço do projeto sempre vence o preço daqui.
     </div>
     <div id="prods-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:13px">
       <div class="loading"><span class="spinner"></span>Carregando produtos…</div>
