@@ -655,6 +655,10 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
           Fichas da sessão
         </button>
+        <button class="btn btn-secondary" onclick="abrirModalAutorizacoes()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="12.5" y2="18"/><polyline points="12.5 18 15 13"/></svg>
+          Imprimir autorizações
+        </button>
         <button class="btn btn-secondary" id="btn-imprimir-fichas" onclick="imprimirFichasSelecionadas()" disabled style="opacity:.45;cursor:not-allowed">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
           Imprimir fichas
@@ -1444,6 +1448,31 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
 </div>
 
 <!-- MODAL: FICHAS DA SESSÃO -->
+<div class="modal-overlay" id="mod-autorizacoes">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <div class="modal-title">Imprimir autorizações</div>
+      <button class="modal-close" data-close="mod-autorizacoes">&times;</button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:16px">
+      <p style="font-size:14px;color:var(--gray-500)">Imprime o termo de autorização já preenchido de cada aluno que autorizou neste projeto, agrupado por ano e turma. Quem não autorizou não entra na lista.</p>
+      <div>
+        <label class="form-label">Projeto</label>
+        <select class="form-select" id="au-projeto">
+          <option value="">Selecione o projeto…</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" data-close="mod-autorizacoes">Cancelar</button>
+      <button class="btn btn-primary" id="btn-gerar-autorizacoes" onclick="imprimirAutorizacoes()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:16px;height:16px"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+        Gerar
+      </button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="mod-fichas-sessao">
   <div class="modal" style="max-width:480px">
     <div class="modal-header">
@@ -6609,6 +6638,169 @@ async function imprimirFichasSelecionadas() {
 window.toggleSelecionarTodosAlunos = toggleSelecionarTodosAlunos;
 window.atualizarBtnImprimirFichas  = atualizarBtnImprimirFichas;
 window.imprimirFichasSelecionadas  = imprimirFichasSelecionadas;
+
+// Mesma substituicao de {{placeholder}} usada no portal ao exibir o termo pro
+// pai assinar (renderTermPlaceholders em portal.html) — mantida identica pra
+// o texto impresso ser igual ao que o responsavel realmente leu e assinou.
+function renderTermoAdmin(text, vars) {
+  if (!text) return '';
+  return String(text).replace(/\{\{\s*(\w+)\s*\}\}/g, (match, key) => {
+    const v = vars[key];
+    if (v === undefined || v === null || v === '') return '_____________';
+    return String(v);
+  });
+}
+
+async function abrirModalAutorizacoes() {
+  const sel = document.getElementById('au-projeto');
+  sel.innerHTML = '<option value="">Carregando…</option>';
+  const { data: projs } = await supabase.from('projects').select('id, name, school:schools(name)').order('name');
+  sel.innerHTML = '<option value="">Selecione o projeto…</option>' +
+    (projs || []).map(p => `<option value="${p.id}">${escapeHtml(p.name)}${p.school ? ' — ' + escapeHtml(p.school.name) : ''}</option>`).join('');
+  document.getElementById('mod-autorizacoes').classList.add('open');
+}
+window.abrirModalAutorizacoes = abrirModalAutorizacoes;
+
+async function imprimirAutorizacoes() {
+  const projId = document.getElementById('au-projeto').value;
+  if (!projId) { toast('Selecione um projeto.', 'error'); return; }
+
+  const btn = document.getElementById('btn-gerar-autorizacoes');
+  const orig = btn.innerHTML;
+  btn.innerHTML = '<span class="spinner"></span> Carregando…';
+  btn.disabled = true;
+
+  try {
+    // 1. Projeto + termo de autorizacao vinculado
+    const { data: proj, error: projErr } = await supabase
+      .from('projects')
+      .select('id, name, school_id, authorization_term_id, school:schools(id, name)')
+      .eq('id', projId).single();
+    if (projErr) throw projErr;
+    if (!proj.authorization_term_id) { toast('Este projeto não tem termo de autorização vinculado.', 'error'); return; }
+
+    const { data: termo, error: termoErr } = await supabase
+      .from('authorization_terms')
+      .select('intro_text, body_html, purpose_text')
+      .eq('id', proj.authorization_term_id).single();
+    if (termoErr) throw termoErr;
+
+    // 2. Turmas do projeto (mesma logica da tela Alunos & Pedidos: turmas das
+    //    sessoes; sem sessao vinculada, cai pra todos os alunos da escola)
+    const { data: sessions } = await supabase.from('project_sessions').select('id').eq('project_id', projId);
+    const sessionIds = (sessions || []).map(s => s.id);
+    let classIds = [];
+    if (sessionIds.length) {
+      const { data: psc } = await supabase.from('project_session_classes').select('school_class_id').in('session_id', sessionIds);
+      classIds = [...new Set((psc || []).map(r => r.school_class_id))];
+    }
+
+    // 3. Alunos autorizados
+    let query = supabase
+      .from('students')
+      .select(`id, name, authorize_individual, authorize_class, authorization_date,
+        class:school_classes(name, year:school_years(name)),
+        user:users(name, cpf, rg, phone, relationship)`)
+      .not('authorization_date', 'is', null);
+    query = classIds.length ? query.in('class_id', classIds) : query.eq('school_id', proj.school_id);
+    const { data: alunos, error: alunosErr } = await query;
+    if (alunosErr) throw alunosErr;
+
+    const autorizados = (alunos || []).filter(a => a.authorize_individual || a.authorize_class);
+    if (!autorizados.length) { toast('Nenhum aluno autorizou neste projeto ainda.', 'error'); return; }
+
+    autorizados.sort((a, b) =>
+      (a.class?.year?.name || '').localeCompare(b.class?.year?.name || '') ||
+      (a.class?.name || '').localeCompare(b.class?.name || '') ||
+      a.name.localeCompare(b.name)
+    );
+
+    const paginasHtml = autorizados.map(a => {
+      const vars = {
+        nome_responsavel: a.user?.name || '',
+        rg: a.user?.rg || '',
+        cpf: a.user?.cpf || '',
+        whatsapp: a.user?.phone || '',
+        grau_parentesco: a.user?.relationship || '',
+        nome_aluno: a.name || '',
+        ano: a.class?.year?.name || '',
+        turma: a.class?.name || '',
+        escola: proj.school?.name || '',
+        empresa: 'Play Up Fotografia',
+        data_hoje: a.authorization_date ? new Date(a.authorization_date).toLocaleDateString('pt-BR') : '',
+      };
+      const intro   = renderTermoAdmin(termo.intro_text, vars);
+      const body    = renderTermoAdmin(termo.body_html, vars);
+      const purpose = renderTermoAdmin(termo.purpose_text, vars);
+      const partes  = [intro, body, purpose ? `Para uso exclusivo de: ${purpose}` : ''].filter(Boolean);
+      const termoHtml = partes
+        .map(txt => txt.split(/\n+/).map(l => `<p>${escapeHtml(l)}</p>`).join(''))
+        .join('<hr class="au-sep">');
+
+      const tipo = a.authorize_individual && a.authorize_class ? 'Individual + Turma'
+                 : a.authorize_individual ? 'Só individual'
+                 : 'Só turma';
+      const dataAut = a.authorization_date ? new Date(a.authorization_date).toLocaleString('pt-BR') : '—';
+
+      return `<div class="au-page">
+        <div class="au-head">
+          <div>
+            <div class="au-escola">${escapeHtml(proj.school?.name || '—')}</div>
+            <div class="au-turma">${escapeHtml(vars.ano)}${vars.turma ? ' — ' + escapeHtml(vars.turma) : ''}</div>
+          </div>
+          <div class="au-badge">✅ Autorizou · ${escapeHtml(tipo)}</div>
+        </div>
+        <div class="au-aluno">${escapeHtml(a.name)}</div>
+        <div class="au-resp">Responsável: <b>${escapeHtml(vars.nome_responsavel || '—')}</b>${vars.grau_parentesco ? ' (' + escapeHtml(vars.grau_parentesco) + ')' : ''}</div>
+        <div class="au-termo">${termoHtml}</div>
+        <div class="au-foot">Autorização registrada em ${dataAut}</div>
+      </div>`;
+    }).join('');
+
+    abrirJanelaAutorizacoes(paginasHtml, autorizados.length);
+    document.getElementById('mod-autorizacoes').classList.remove('open');
+  } catch (err) {
+    toast('Erro ao gerar autorizações: ' + err.message, 'error');
+  } finally {
+    btn.innerHTML = orig;
+    btn.disabled = false;
+  }
+}
+window.imprimirAutorizacoes = imprimirAutorizacoes;
+
+function abrirJanelaAutorizacoes(paginasHtml, total) {
+  const win = window.open('', '_blank', 'width=900,height=700');
+  win.document.write(`<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="UTF-8">
+<title>Autorizações de Imagem — For School</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',Arial,sans-serif;background:#fff;color:#111}
+@page{size:A4 portrait;margin:15mm}
+@media screen{body{padding:16px;max-width:210mm;margin:0 auto}
+  .btn-print{display:block;margin:0 auto 16px;padding:8px 20px;background:#4B6BFB;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-family:inherit}}
+@media print{.btn-print{display:none}}
+.au-page{break-after:page;padding-bottom:8px}
+.au-page:last-child{break-after:auto}
+.au-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:10px}
+.au-escola{font-size:13px;color:#555}
+.au-turma{font-size:15px;font-weight:700;color:#111}
+.au-badge{background:#d1fae5;color:#065f46;font-size:12px;font-weight:700;padding:4px 10px;border-radius:20px;white-space:nowrap}
+.au-aluno{font-size:26px;font-weight:800;margin-bottom:4px}
+.au-resp{font-size:13px;color:#444;margin-bottom:14px}
+.au-termo{font-size:12.5px;line-height:1.6;color:#222}
+.au-termo p{margin-bottom:6px}
+.au-sep{border:none;border-top:1px dashed #ccc;margin:10px 0}
+.au-foot{margin-top:16px;font-size:11px;color:#888;border-top:1px solid #eee;padding-top:8px}
+</style>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;800&display=swap" rel="stylesheet">
+</head><body>
+<button class="btn-print" onclick="window.print()">🖨 Imprimir (${total} autorização${total !== 1 ? 'ões' : ''})</button>
+${paginasHtml}
+</body></html>`);
+  win.document.close();
+}
 
 async function abrirModalFichasSessao() {
   // Popula projetos
