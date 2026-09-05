@@ -274,7 +274,20 @@ async function confirmarCheckoutSumup(checkoutId) {
   if (!pedido) return { status: checkout.status, pedido: null, pago: false };
   if (pedido.payment_status === 'paid') return { status: checkout.status, pedido, pago: true };
 
-  const pago = checkout.status === 'PAID';
+  // O status do checkout nem sempre vira PAID: em alguns metodos a SumUp
+  // mantem o checkout PENDING e registra o pagamento dentro de transactions
+  // (e' assim no boleto). Aceitamos os dois, mas so' transacao concluida —
+  // FAILED/PENDING ali nao confirmam nada.
+  const trans = checkout.transactions || [];
+  const pago = String(checkout.status || '').toUpperCase() === 'PAID'
+    || trans.some((t) => ['SUCCESSFUL', 'PAID'].includes(String(t?.status || '').toUpperCase()));
+
+  if (!pago) {
+    // Se um pagamento real nao for reconhecido aqui, este log mostra o que a
+    // SumUp respondeu de verdade — foi assim que descobrimos o formato do Pix.
+    console.log('sumup checkout ainda nao pago:', JSON.stringify(checkout).slice(0, 800));
+  }
+
   const patch = { gateway_status: checkout.status || null };
 
   if (pago) {
