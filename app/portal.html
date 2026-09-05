@@ -1426,9 +1426,28 @@ function vigiarPagamento(orderId, container) {
   pararVigia(orderId);
   const limite = Date.now() + 20 * 60 * 1000;
 
+  let ciclo = 0;
+
   _vigias[orderId] = setInterval(async () => {
     if (Date.now() > limite) { pararVigia(orderId); return; }
     try {
+      // A SumUp nem sempre manda o aviso de pagamento — no primeiro pagamento
+      // real o dinheiro entrou e o aviso nunca chegou, deixando a tela parada
+      // no QR. Entao a cada 8s perguntamos pra ela direto, em vez de so'
+      // esperar. Pedido do Asaas nem chega a consultar (a funcao sai fora).
+      ciclo++;
+      if (ciclo % 2 === 0) {
+        try {
+          await fetch('/api/checar-pagamento', {
+            method: 'POST',
+            headers: await authHeaders(),
+            body: JSON.stringify({ order_id: orderId }),
+          });
+        } catch (e) {
+          // rede oscilando: o proximo ciclo tenta de novo
+        }
+      }
+
       const { data, error } = await supabase
         .from('orders')
         .select('payment_status, amount_charged, total_amount, order_number')

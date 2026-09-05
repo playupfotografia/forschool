@@ -242,4 +242,72 @@ async function avisarVenda(pedido) {
   });
 }
 
-module.exports = { env, asaas, sumup, sb, usuarioDoToken, valorComTaxa, apenasDigitos, emDias, avisarVenda };
+// ---------------------------------------------------------------------------
+// Confirma um checkout Pix da SumUp e devolve se o pedido virou pago.
+//
+// Dois caminhos chamam isto: o webhook (quando a SumUp avisa) e a consulta
+// ativa do portal (quando ela nao avisa — que foi o que aconteceu no primeiro
+// pagamento real: dinheiro entrou, aviso nunca chegou). A documentacao da
+// SumUp manda reconsultar a API de qualquer forma, entao a verdade vem daqui e
+// nunca do aviso recebido.
+//
+// E' seguro chamar varias vezes: se o pedido ja esta pago, sai sem regravar
+// nem reenviar aviso de venda.
+// ---------------------------------------------------------------------------
+async function confirmarCheckoutSumup(checkoutId) {
+  const checkout = await sumup(`/v0.1/checkouts/${encodeURIComponent(checkoutId)}`);
+
+  // checkout_reference e' "<id do pedido>_<timestamp>" (o sufixo existe porque
+  // a SumUp exige referencia unica por cobranca). Sem a checagem de formato,
+  // uma referencia de outra origem viraria erro de UUID invalido no PostgREST.
+  const ref = String(checkout.checkout_reference || '').split('_')[0];
+  const ehUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref);
+  const filtro = ehUuid
+    ? `id=eq.${ref}`
+    : `gateway_id=eq.${encodeURIComponent(checkoutId)}`;
+
+  const pedidos = await sb(
+    `/orders?${filtro}&select=id,order_number,payment_status,payment_method,installments,` +
+    'total_amount,amount_charged,student:students(name),school:schools(name),user:users(name,phone)'
+  );
+  const pedido = pedidos?.[0];
+  if (!pedido) return { status: checkout.status, pedido: null, pago: false };
+  if (pedido.payment_status === 'paid') return { status: checkout.status, pedido, pago: true };
+
+  const pago = checkout.status === 'PAID';
+  const patch = { gateway_status: checkout.status || null };
+
+  if (pago) {
+    patch.payment_status = 'paid';
+    patch.paid_at = new Date().toISOString();
+    // Quem pagou foi este checkout, entao o pedido tem que refletir isso — vale
+    // pro caso do responsavel ter trocado de metodo e pago o Pix antigo.
+    patch.gateway = 'sumup';
+    patch.gateway_id = checkoutId;
+    patch.payment_method = 'pix';
+    patch.installments = 1;
+    patch.amount_charged = Number(checkout.amount) || pedido.amount_charged || pedido.total_amount;
+    patch.surcharge_amount = 0;
+    // A SumUp nao informa liquido no checkout: net_amount/gateway_fee ficam
+    // vazios. Nao faz falta — Pix na conta SumUp Bank nao tem tarifa.
+  }
+
+  await sb(`/orders?id=eq.${encodeURIComponent(pedido.id)}`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify(patch),
+  });
+
+  // Depois de gravar, nunca antes: se o aviso falhar, o pedido ja esta pago.
+  if (pago) {
+    try {
+      await avisarVenda({ ...pedido, ...patch });
+    } catch (e) {
+      console.error('avisarVenda', e.message);
+    }
+  }
+
+  return { status: checkout.status, pedido, pago };
+}
+
+module.exports = { env, asaas, sumup, sb, usuarioDoToken, valorComTaxa, apenasDigitos, emDias, avisarVenda, confirmarCheckoutSumup };
