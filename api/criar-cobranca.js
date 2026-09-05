@@ -11,7 +11,7 @@
 // Body: { order_id, method: 'pix'|'credito'|'debito', installments?: 1|2 }
 // ============================================================================
 
-const { asaas, sumup, sb, usuarioDoToken, valorComTaxa, apenasDigitos, emDias, env } = require('./_lib.js');
+const { asaas, sumup, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, env } = require('./_lib.js');
 
 const BILLING = { pix: 'PIX', credito: 'CREDIT_CARD', debito: 'DEBIT_CARD' };
 const METODO_ORDERS = { pix: 'pix', credito: 'cartao_1x', debito: 'cartao_debito' };
@@ -223,7 +223,7 @@ module.exports = async (req, res) => {
             name: resp.name || 'Responsavel',
             cpfCnpj: cpf,
             email: resp.email || undefined,
-            mobilePhone: apenasDigitos(resp.phone) || undefined,
+            mobilePhone: telefoneBR(resp.phone),
             externalReference: pedido.user_id || undefined,
             notificationDisabled: true,   // quem avisa o pai e' o portal, nao o Asaas
           }),

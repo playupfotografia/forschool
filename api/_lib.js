@@ -133,6 +133,21 @@ function apenasDigitos(s) {
   return String(s || '').replace(/\D/g, '');
 }
 
+// ---------------------------------------------------------------------------
+// Telefone pro Asaas, ou nada.
+//
+// O Asaas recusa o cadastro inteiro do cliente quando o telefone nao e'
+// valido ("O celular informado e invalido") — e o pai fica sem conseguir
+// pagar por causa de um campo que nem e' obrigatorio pra cobranca. Entao so'
+// mandamos se parecer numero brasileiro de verdade; qualquer coisa estranha
+// vira undefined e a cobranca segue.
+// ---------------------------------------------------------------------------
+function telefoneBR(valor) {
+  let d = apenasDigitos(valor);
+  if (d.length > 11 && d.startsWith('55')) d = d.slice(2);   // veio com +55
+  return (d.length === 10 || d.length === 11) ? d : undefined;
+}
+
 // Data no formato YYYY-MM-DD, N dias a partir de hoje
 function emDias(n) {
   const d = new Date();
@@ -323,4 +338,4 @@ async function confirmarCheckoutSumup(checkoutId) {
   return { status: checkout.status, pedido, pago };
 }
 
-module.exports = { env, asaas, sumup, sb, usuarioDoToken, valorComTaxa, apenasDigitos, emDias, avisarVenda, confirmarCheckoutSumup };
+module.exports = { env, asaas, sumup, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, avisarVenda, confirmarCheckoutSumup };
