@@ -17,7 +17,7 @@
 // Header: Authorization: Bearer <access_token do Supabase>
 // ============================================================================
 
-const { asaas, sumup, sb, usuarioDoToken } = require('./_lib.js');
+const { asaas, sb, usuarioDoToken } = require('./_lib.js');
 
 const KIT_RANK = { promo: 3, inter: 2, basico: 1 };
 const q = (v) => encodeURIComponent(v);
@@ -187,18 +187,6 @@ module.exports = async (req, res) => {
         } catch (e) {
           if (e.status !== 404) {
             console.error('cancelar cobranca', e.message);
-            return res.status(502).json({ erro: 'Nao consegui atualizar a cobranca. Tente de novo.' });
-          }
-        }
-      } else if (existente.gateway === 'sumup' && existente.gateway_id) {
-        // Na SumUp o equivalente e' desativar o checkout, que passa a EXPIRED.
-        // 409 aqui significa "ja foi processado" — nao ha QR velho sobrando,
-        // que e' justamente o que queremos evitar.
-        try {
-          await sumup(`/v0.1/checkouts/${existente.gateway_id}`, { method: 'DELETE' });
-        } catch (e) {
-          if (e.status !== 404 && e.status !== 409) {
-            console.error('cancelar checkout sumup', e.message);
             return res.status(502).json({ erro: 'Nao consegui atualizar a cobranca. Tente de novo.' });
           }
         }
