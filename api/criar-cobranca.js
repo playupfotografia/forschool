@@ -217,17 +217,31 @@ module.exports = async (req, res) => {
       if (busca?.data?.length) {
         clienteId = busca.data[0].id;
       } else {
-        const novo = await asaas('/customers', {
-          method: 'POST',
-          body: JSON.stringify({
-            name: resp.name || 'Responsavel',
-            cpfCnpj: cpf,
-            email: resp.email || undefined,
-            mobilePhone: telefoneBR(resp.phone),
-            externalReference: pedido.user_id || undefined,
-            notificationDisabled: true,   // quem avisa o pai e' o portal, nao o Asaas
-          }),
-        });
+        const dados = {
+          name: resp.name || 'Responsavel',
+          cpfCnpj: cpf,
+          email: resp.email || undefined,
+          mobilePhone: telefoneBR(resp.phone),
+          externalReference: pedido.user_id || undefined,
+          notificationDisabled: true,   // quem avisa o pai e' o portal, nao o Asaas
+        };
+
+        let novo;
+        try {
+          novo = await asaas('/customers', { method: 'POST', body: JSON.stringify(dados) });
+        } catch (e) {
+          // O Asaas recusa o cadastro INTEIRO quando nao gosta do telefone, e
+          // ai o pai nao consegue pagar por um campo que nem e' necessario pra
+          // cobrar. As regras deles (DDD, 9 na frente) nao da' pra reproduzir
+          // aqui sem errar — entao, se reclamarem do telefone, manda sem ele.
+          if (dados.mobilePhone && /celular|telefone|phone/i.test(e.message || '')) {
+            console.warn('asaas recusou o telefone, criando cliente sem ele:', e.message);
+            delete dados.mobilePhone;
+            novo = await asaas('/customers', { method: 'POST', body: JSON.stringify(dados) });
+          } else {
+            throw e;
+          }
+        }
         clienteId = novo.id;
       }
 
