@@ -153,16 +153,44 @@ module.exports = async (req, res) => {
         body: JSON.stringify({ payment_type: 'pix' }),
       });
 
-      const artefatos = processado.artifacts || processado.artefacts || [];
-      pixPayload = artefatos.find((a) => a?.name === 'code')?.content || null;
-      pixQr = artefatos.find((a) => a?.name === 'barcode')?.location || null;
+      // Os artefatos vem aninhados em "pix", e a chave e' "artefacts" (com E).
+      // Confirmado na resposta real de producao: a sandbox recusa Pix, entao
+      // esse formato nao aparecia em teste nenhum.
+      const artefatos = processado.pix?.artefacts || processado.pix?.artifacts
+        || processado.artefacts || processado.artifacts || [];
+
+      // "code" traz o copia-e-cola. O "barcode" repete o mesmo texto no
+      // content dele, entao serve de reserva se o "code" nao vier.
+      pixPayload = artefatos.find((a) => a?.name === 'code')?.content
+        || artefatos.find((a) => String(a?.content || '').startsWith('000201'))?.content
+        || null;
 
       if (!pixPayload) {
-        // A sandbox da SumUp nao processa Pix ("ExtDev accounts"), entao este
-        // formato so' pode ser conferido em producao. Se vier diferente do
-        // esperado, o log abaixo mostra o que realmente veio.
         console.error('sumup pix sem copia-e-cola:', JSON.stringify(processado).slice(0, 1000));
         throw new Error('A SumUp nao devolveu o codigo do Pix.');
+      }
+
+      // A imagem do QR fica numa URL da propria API, que exige o nosso Bearer
+      // token: jogar essa URL no <img> do portal daria 401 no celular do pai.
+      // Baixamos aqui e embutimos em base64, como o Asaas ja entrega pronto.
+      const urlQr = artefatos.find((a) => a?.name === 'barcode')?.location;
+      if (urlQr) {
+        try {
+          const img = await fetch(urlQr, {
+            headers: { Authorization: 'Bearer ' + env('SUMUP_API_KEY') },
+          });
+          if (img.ok) {
+            const tipo = img.headers.get('content-type') || 'image/jpeg';
+            const b64 = Buffer.from(await img.arrayBuffer()).toString('base64');
+            pixQr = `data:${tipo};base64,${b64}`;
+          } else {
+            console.error('sumup qr HTTP ' + img.status);
+          }
+        } catch (e) {
+          // Sem a imagem o pai ainda paga pelo copia-e-cola — nao vale derrubar
+          // a cobranca inteira por causa do QR.
+          console.error('sumup qr', e.message);
+        }
       }
 
       gatewayUsado = 'sumup';
