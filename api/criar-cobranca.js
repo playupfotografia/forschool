@@ -135,7 +135,12 @@ module.exports = async (req, res) => {
       const checkout = await sumup('/v0.1/checkouts', {
         method: 'POST',
         body: JSON.stringify({
-          checkout_reference: pedido.id,
+          // A SumUp exige referencia unica: repetir o id do pedido faz a
+          // segunda tentativa ser recusada com "already exists". Como o pedido
+          // pendente E' o carrinho, ele volta aqui toda vez que o pai mexe no
+          // carrinho ou tenta de novo — por isso o sufixo. O webhook recorta o
+          // id de volta pelo "_".
+          checkout_reference: `${pedido.id}_${Date.now()}`,
           amount: valorCobrado,
           currency: 'BRL',
           merchant_code: env('SUMUP_MERCHANT_CODE'),

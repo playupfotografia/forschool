@@ -34,12 +34,19 @@ module.exports = async (req, res) => {
     // Fonte da verdade: a SumUp. O payload recebido so' serve de indice.
     const checkout = await sumup(`/v0.1/checkouts/${encodeURIComponent(checkoutId)}`);
 
-    // checkout_reference guarda o id do pedido (setado em criar-cobranca). Ele
-    // vem antes do gateway_id de proposito: se o responsavel gerou o Pix e
+    // checkout_reference e' "<id do pedido>_<timestamp>" (o sufixo existe
+    // porque a SumUp exige referencia unica por cobranca). Recortamos o id.
+    //
+    // Ele vem antes do gateway_id de proposito: se o responsavel gerou o Pix e
     // depois trocou pro cartao, o pedido aponta pro Asaas, mas o QR da SumUp
     // continua pagavel — e sem esta busca o dinheiro entraria sem confirmar.
-    const filtro = checkout.checkout_reference
-      ? `id=eq.${encodeURIComponent(checkout.checkout_reference)}`
+    const ref = String(checkout.checkout_reference || '').split('_')[0];
+    const ehUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref);
+
+    // Sem a checagem de formato, uma referencia de outra origem viraria erro de
+    // UUID invalido -> 500 -> a SumUp reenviando o mesmo evento por horas.
+    const filtro = ehUuid
+      ? `id=eq.${ref}`
       : `gateway_id=eq.${encodeURIComponent(checkoutId)}`;
 
     const pedidos = await sb(
