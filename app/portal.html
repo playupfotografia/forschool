@@ -701,6 +701,10 @@ body.modo-demo::after{content:'';position:fixed;inset:0;border:4px solid #7C3AED
         </div>
         <div id="af-erro" style="display:none;color:var(--red);font-size:13px;margin-bottom:10px"></div>
         <button class="btn btn-primary" type="submit" style="width:100%">Continuar →</button>
+        <button type="button" id="af-voltar" onclick="voltarDeAddFilho()"
+                style="display:none;width:100%;margin-top:8px;background:none;border:none;color:#666;font-size:13px;cursor:pointer;padding:8px">
+          ← Voltar
+        </button>
       </form>
     </div>
   </div>
@@ -715,6 +719,8 @@ body.modo-demo::after{content:'';position:fixed;inset:0;border:4px solid #7C3AED
       <div style="font-size:13px;color:#666;margin-top:4px">Selecione para quem você quer ver as fotos</div>
     </div>
     <div id="lista-filhos" style="display:flex;flex-direction:column;gap:12px"></div>
+    <button type="button" class="btn btn-block" style="margin-top:16px;background:#fff;border:2px dashed #4B6BFB;color:#4B6BFB;font-weight:700"
+            onclick="irAdicionarFilho()">+ Adicionar outro filho</button>
   </div>
 </div>
 
@@ -908,6 +914,20 @@ body.modo-demo::after{content:'';position:fixed;inset:0;border:4px solid #7C3AED
         <span id="mc-sessoes-titulo">Dia das Fotos</span>
       </div>
       <div id="mc-sessoes-lista"><div class="mc-empty">Carregando…</div></div>
+    </div>
+
+    <!-- Sem este botao, o pai de dois filhos tentava criar uma conta nova e
+         esbarrava no CPF, que so' pode existir uma vez. -->
+    <div class="mc-section">
+      <div class="mc-section-title">
+        <div class="mc-section-icon" style="background:#E0F2FE">👨‍👧‍👦</div>
+        Tem outro filho na escola?
+      </div>
+      <div style="font-size:13px;color:#666;margin:0 0 12px">
+        Use esta mesma conta — não crie outro cadastro.
+      </div>
+      <button type="button" class="btn btn-block" style="background:#fff;border:2px dashed #4B6BFB;color:#4B6BFB;font-weight:700"
+              onclick="irAdicionarFilho()">+ Adicionar outro filho</button>
     </div>
 
     <div class="mc-section" id="mc-comunicados-section" style="display:none">
@@ -1938,6 +1958,35 @@ document.getElementById('form-cadastro').addEventListener('submit', async e => {
     console.error('[cadastro]', err);
   }
 });
+
+// Leva quem JA' esta logado direto ao formulario de novo filho.
+//
+// Antes, o unico caminho era refazer o cadastro com o mesmo e-mail e senha —
+// o sistema reconhecia e abria esta tela. Ninguem adivinhava isso: o pai
+// tentava criar uma conta nova, com outro e-mail, e batia na trava de CPF
+// (cada CPF so' existe uma vez). Ai ele desistia ou mandava mensagem.
+window.irAdicionarFilho = function () {
+  document.getElementById('form-add-filho').reset();
+  const selAno = document.getElementById('af-ano');
+  selAno.innerHTML = '<option value="">— Selecione —</option>';
+  years.forEach(y => selAno.insertAdjacentHTML('beforeend', `<option value="${y.id}">${escapeHtml(y.name)}</option>`));
+  document.getElementById('af-turma').innerHTML = '<option value="">— Selecione —</option>';
+  const erroEl = document.getElementById('af-erro');
+  if (erroEl) erroEl.style.display = 'none';
+  // So' quem chegou aqui ja' logado tem pra onde voltar. Vindo do cadastro,
+  // o botao continua escondido.
+  document.getElementById('af-voltar').style.display = 'block';
+  show('screen-add-filho');
+};
+
+// Desiste de adicionar: afterLogin devolve pra tela certa sozinho — lista de
+// filhos se tiver mais de um, Minha Area se for so' um.
+window.voltarDeAddFilho = async function () {
+  document.getElementById('af-voltar').style.display = 'none';
+  const user = currentUser || await getCurrentUser();
+  if (user) await afterLogin(user);
+  else show('screen-auth');
+};
 
 // Cascata ano→turma no form de adicionar filho
 document.getElementById('af-ano').addEventListener('change', e => {
