@@ -1356,12 +1356,15 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
             <code>{responsavel}</code> <code>{aluno}</code> <code>{escola}</code>
             <code>{projeto}</code> <code>{ano}</code> <code>{turma}</code>
             <code>{data_foto}</code> <code>{periodo}</code>
-            <code>{pedido}</code> <code>{valor}</code> <code>{chave_pix}</code> <code>{link}</code>
+            <code>{pedido}</code> <code>{valor}</code> <code>{chave_pix}</code>
+            <code>{opcoes_cartao}</code> <code>{link}</code>
             <br><small>
               {responsavel} e {aluno} usam só o primeiro nome ·
               {data_foto} sai por extenso ("15 de outubro"), da sessão da turma do aluno ·
               {chave_pix} é a chave do card "🔑 Chave PIX" aqui em cima ·
-              {pedido} e {valor} só existem em "pagamento pendente"
+              {opcoes_cartao} vira "R$ 146,00 à vista ou 2× de R$ 74,83" — com as taxas
+              desta tela, e sem citar o 2× quando o pedido não alcança ·
+              {pedido}, {valor} e {opcoes_cartao} só existem em "pagamento pendente"
             </small>
           </div>
           <div class="form-group">
@@ -6590,6 +6593,33 @@ function dataPorExtenso(iso) {
 
 let contatoMsgCache = null;   // modelos de mensagem, buscados uma vez
 
+// Monta a frase do cartao pra mensagem de cobranca, com os MESMOS numeros que
+// o pai ve no portal (gross-up + antecipacao). Uma variavel so' em vez de tres
+// porque o 2x nem sempre existe: assim a frase sai correta nos dois casos, sem
+// deixar buraco no texto.
+function frasesCartao(total, cfg) {
+  const t = Number(total) || 0;
+  if (t <= 0) return '';
+  const repassa = (cfg.surcharge_mode || 'pass_on') !== 'absorb';
+  if (!repassa) return `${fmtMoney(t)} no cartão`;
+
+  const antecOn = cfg.anticipation_enabled === true;
+  const a1 = antecOn ? (Number(cfg.anticipation_fee_percent) || 0) : 0;
+  const a2 = antecOn ? (Number(cfg.anticipation_fee_percent_installment) || 0) : 0;
+  const fix = Number(cfg.card_fee_fixed) || 0;
+
+  const c1 = valorComTaxa(t, (Number(cfg.card_fee_percent) || 0) + a1, fix);
+  const c2 = valorComTaxa(t, (Number(cfg.card_fee_percent_installment) || 0) + a2, fix);
+
+  const minParc = Number(cfg.min_installment_value) || 0;
+  const maxParc = Number(cfg.max_installments) || 1;
+  const parcela = Math.ceil((c2 / 2) * 100) / 100;
+
+  return (maxParc >= 2 && parcela >= minParc)
+    ? `${fmtMoney(c1)} à vista ou 2× de ${fmtMoney(parcela)}`
+    : `${fmtMoney(c1)} à vista`;
+}
+
 // Abre a conversa no WhatsApp com a mensagem certa pra situacao e registra
 // o contato. Grava DEPOIS de abrir: se a gravacao falhar, o contato ja
 // aconteceu de qualquer jeito e o pior seria perder o registro, nao a conversa.
@@ -6604,7 +6634,10 @@ window.contatarResponsavel = async function (studentId, tipo) {
     if (!contatoMsgCache) {
       const { data, error } = await supabase
         .from('app_settings')
-        .select('contact_msg_sem_pedido, contact_msg_pendente, pix_key, pix_key_type')
+        .select(`contact_msg_sem_pedido, contact_msg_pendente, pix_key, pix_key_type,
+                 surcharge_mode, card_fee_percent, card_fee_percent_installment, card_fee_fixed,
+                 anticipation_enabled, anticipation_fee_percent, anticipation_fee_percent_installment,
+                 min_installment_value, max_installments`)
         .eq('id', 1).single();
       if (error) throw error;
       contatoMsgCache = data || {};
@@ -6638,16 +6671,18 @@ window.contatarResponsavel = async function (studentId, tipo) {
       // Chave PIX na propria mensagem: no fluxo manual e' o que faz o pai
       // pagar sem ter que voltar ao portal procurar.
       .replaceAll('{chave_pix}', contatoMsgCache.pix_key || '')
+      .replaceAll('{opcoes_cartao}', a.order ? frasesCartao(a.order.total_amount, contatoMsgCache) : '')
       .replaceAll('{link}', link);
 
     // Frase com variavel vazia vira "as fotos sao dia ." — melhor avisar antes
     // de mandar do que o pai receber um buraco no meio do texto.
-    const vazias = ['{data_foto}', '{turma}', '{ano}', '{chave_pix}'].filter(v =>
+    const vazias = ['{data_foto}', '{turma}', '{ano}', '{chave_pix}', '{opcoes_cartao}'].filter(v =>
       modelo.includes(v) && !texto.includes(v) && (
-        (v === '{data_foto}'  && !sessao) ||
-        (v === '{turma}'      && a.class_name === '—') ||
-        (v === '{ano}'        && a.year_name === '—') ||
-        (v === '{chave_pix}'  && !contatoMsgCache.pix_key)
+        (v === '{data_foto}'     && !sessao) ||
+        (v === '{turma}'         && a.class_name === '—') ||
+        (v === '{ano}'           && a.year_name === '—') ||
+        (v === '{chave_pix}'     && !contatoMsgCache.pix_key) ||
+        (v === '{opcoes_cartao}' && !a.order)
       ));
     if (vazias.length && !confirm(
       `Sem dado pra ${vazias.join(', ')} neste aluno — a mensagem vai sair com um espaço vazio aí.\n\nMandar assim mesmo?`
