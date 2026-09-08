@@ -1354,8 +1354,14 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
             A mensagem sai da conta de WhatsApp aberta <b>neste computador</b> — não há número a configurar aqui.<br>
             Estes campos são trocados automaticamente:
             <code>{responsavel}</code> <code>{aluno}</code> <code>{escola}</code>
-            <code>{projeto}</code> <code>{pedido}</code> <code>{valor}</code> <code>{link}</code>
-            <br><small>({responsavel} e {aluno} usam só o primeiro nome.)</small>
+            <code>{projeto}</code> <code>{ano}</code> <code>{turma}</code>
+            <code>{data_foto}</code> <code>{periodo}</code>
+            <code>{pedido}</code> <code>{valor}</code> <code>{link}</code>
+            <br><small>
+              {responsavel} e {aluno} usam só o primeiro nome ·
+              {data_foto} sai por extenso ("15 de outubro"), da sessão da turma do aluno ·
+              {pedido} e {valor} só existem em "pagamento pendente"
+            </small>
           </div>
           <div class="form-group">
             <label class="form-label">Cadastrou mas não fez pedido</label>
@@ -6207,6 +6213,7 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
 
 let drillProjetoId = null;
 let drillProjeto = null;    // projeto aberto — nome, slug e escola pras mensagens
+let sessaoPorTurma = {};    // class_id -> { photo_date, period } da 1a sessao
 let drillAlunosData = [];   // [{id, name, class_name, year_name, user_id, responsible_name, order, sibling}]
 let drillPedidosData = [];  // [{id, order_number, student_name, kit_type, items, total_amount, payment_status, payment_proof_url}]
 
@@ -6285,20 +6292,33 @@ async function abrirDrillProjeto(projectId) {
   document.getElementById('mod-drill-proj').classList.add('open');
 
   try {
-    // 1. Pegar class_ids do projeto
+    // 1. Pegar class_ids do projeto — e, de quebra, a data da sessao de cada
+    //    turma, pra mensagem de WhatsApp poder dizer o dia da foto do aluno.
     const { data: sessions } = await supabase
       .from('project_sessions')
-      .select('id')
-      .eq('project_id', projectId);
+      .select('id, photo_date, period')
+      .eq('project_id', projectId)
+      .order('photo_date');
     const sessionIds = (sessions || []).map(s => s.id);
 
     let classIds = [];
+    sessaoPorTurma = {};
     if (sessionIds.length) {
-      const { data: psc } = await supabase
+      const { data: psc, error: pscErr } = await supabase
         .from('project_session_classes')
-        .select('school_class_id')
+        .select('session_id, school_class_id')
         .in('session_id', sessionIds);
+      if (pscErr) throw pscErr;
       classIds = [...new Set((psc || []).map(r => r.school_class_id))];
+
+      // Turma em mais de uma sessao fica com a primeira data: as sessoes vem
+      // ordenadas, entao basta nao sobrescrever.
+      const porId = Object.fromEntries((sessions || []).map(s => [s.id, s]));
+      (psc || []).forEach(r => {
+        if (!sessaoPorTurma[r.school_class_id] && porId[r.session_id]) {
+          sessaoPorTurma[r.school_class_id] = porId[r.session_id];
+        }
+      });
     }
 
     // 2. Buscar alunos dessas turmas (ou todos da escola se sem turmas)
@@ -6555,6 +6575,18 @@ function primeiroNome(nome) {
   return String(nome || '').trim().split(/\s+/)[0] || '';
 }
 
+// "2026-10-15" -> "15 de outubro". Sem o ano: a campanha e' do ano corrente e
+// "15 de outubro de 2026" numa mensagem de WhatsApp soa a documento.
+// Monta a data na mao pra nao cair no fuso do new Date('2026-10-15'), que
+// interpreta como UTC e volta um dia no Brasil.
+function dataPorExtenso(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  if (!m) return '';
+  const meses = ['janeiro','fevereiro','março','abril','maio','junho',
+                 'julho','agosto','setembro','outubro','novembro','dezembro'];
+  return `${Number(m[3])} de ${meses[Number(m[2]) - 1]}`;
+}
+
 let contatoMsgCache = null;   // modelos de mensagem, buscados uma vez
 
 // Abre a conversa no WhatsApp com a mensagem certa pra situacao e registra
@@ -6589,6 +6621,8 @@ window.contatarResponsavel = async function (studentId, tipo) {
       ? `https://forschool.playupfotografia.com.br/${drillProjeto.slug}`
       : 'https://forschool.playupfotografia.com.br';
 
+    const sessao = sessaoPorTurma[a.class_id] || null;
+
     const texto = modelo
       .replaceAll('{responsavel}', primeiroNome(a.responsible_name))
       .replaceAll('{aluno}', primeiroNome(a.name))
@@ -6596,7 +6630,23 @@ window.contatarResponsavel = async function (studentId, tipo) {
       .replaceAll('{projeto}', drillProjeto?.name || '')
       .replaceAll('{pedido}', a.order?.order_number || '')
       .replaceAll('{valor}', a.order ? fmtMoney(Number(a.order.total_amount || 0)) : '')
+      .replaceAll('{turma}', a.class_name !== '—' ? a.class_name : '')
+      .replaceAll('{ano}', a.year_name !== '—' ? a.year_name : '')
+      .replaceAll('{data_foto}', sessao ? dataPorExtenso(sessao.photo_date) : '')
+      .replaceAll('{periodo}', sessao?.period || '')
       .replaceAll('{link}', link);
+
+    // Frase com variavel vazia vira "as fotos sao dia ." — melhor avisar antes
+    // de mandar do que o pai receber um buraco no meio do texto.
+    const vazias = ['{data_foto}', '{turma}', '{ano}'].filter(v =>
+      modelo.includes(v) && !texto.includes(v) && (
+        (v === '{data_foto}' && !sessao) ||
+        (v === '{turma}' && a.class_name === '—') ||
+        (v === '{ano}'   && a.year_name === '—')
+      ));
+    if (vazias.length && !confirm(
+      `Sem dado pra ${vazias.join(', ')} neste aluno — a mensagem vai sair com um espaço vazio aí.\n\nMandar assim mesmo?`
+    )) return;
 
     window.open(`https://wa.me/${fone}?text=${encodeURIComponent(texto)}`, '_blank');
 
