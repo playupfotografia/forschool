@@ -6386,7 +6386,7 @@ async function abrirDrillProjeto(projectId) {
     if (alunoIds.length) {
       const { data: cts, error: ctErr } = await supabase
         .from('student_contacts')
-        .select('student_id, kind, contacted_at')
+        .select('id, student_id, kind, contacted_at, notes')
         .eq('project_id', projectId)
         .in('student_id', alunoIds)
         .order('contacted_at', { ascending: false });
@@ -6549,8 +6549,18 @@ function celulaContato(a) {
   const pago = a.order?.payment_status === 'paid';
   const tipo = !a.order ? 'sem_pedido' : (a.order.payment_status === 'pending' ? 'pendente' : null);
 
+  // Nota livre sobre a resposta do pai (ex: "disse que compra dia 30") —
+  // so' faz sentido depois que ja existe um contato pra pendurar nele.
+  // Fica visivel na propria linha pra nao depender de abrir o aluno de novo
+  // mais perto da data que ele mesmo deu.
+  const notaBtn = a.contato
+    ? ` <span onclick="anotarContato('${a.id}')" style="cursor:pointer" title="${a.contato.notes ? 'Editar anotação' : 'Anotar o que o responsável respondeu'}">${a.contato.notes ? '📝' : '🖊️'}</span>`
+    : '';
+  const notaTxt = a.contato?.notes
+    ? `<div style="font-size:10px;color:var(--gray-500);margin-top:1px;max-width:140px;white-space:normal" title="${a.contato.notes.replace(/"/g,'&quot;')}">${a.contato.notes}</div>`
+    : '';
   const quando = a.contato
-    ? `<div style="font-size:10px;color:var(--gray-400);margin-top:3px">✓ ${new Date(a.contato.contacted_at).toLocaleDateString('pt-BR')}</div>`
+    ? `<div style="font-size:10px;color:var(--gray-400);margin-top:3px">✓ ${new Date(a.contato.contacted_at).toLocaleDateString('pt-BR')}${notaBtn}</div>${notaTxt}`
     : '';
 
   if (pago || !tipo) return quando || '<span style="color:var(--gray-300)">—</span>';
@@ -6565,6 +6575,29 @@ function celulaContato(a) {
             onclick="contatarResponsavel('${a.id}','${tipo}')"
             title="${jaFoi ? 'Já contatado — clique para falar de novo' : 'Abrir conversa no WhatsApp'}">💬 WhatsApp</button>${quando}`;
 }
+
+// Guarda o que o responsavel respondeu (ex: "disse que compra dia 30"), pra
+// nao depender de memoria depois que a conversa some no meio do WhatsApp.
+// Atualiza o registro de contato mais recente daquele aluno neste projeto —
+// nao cria um novo, so' anota em cima do que ja existe.
+window.anotarContato = async function (studentId) {
+  const a = drillAlunosData.find(x => x.id === studentId);
+  if (!a?.contato?.id) return;
+
+  const nota = prompt('O que o responsável respondeu? (ex: "disse que compra dia 30, quando recebe")', a.contato.notes || '');
+  if (nota === null) return; // cancelou
+
+  try {
+    const { error } = await supabase
+      .from('student_contacts')
+      .update({ notes: nota.trim() || null })
+      .eq('id', a.contato.id);
+    if (error) throw error;
+
+    a.contato.notes = nota.trim() || null;
+    filtrarDrillAlunos();
+  } catch (e) { handleError(e, 'anotarContato'); }
+};
 
 // Numero pro wa.me: so' digitos, com o 55 na frente. Devolve vazio se nao
 // parecer telefone brasileiro — melhor botao apagado que conversa quebrada.
@@ -6691,16 +6724,16 @@ window.contatarResponsavel = async function (studentId, tipo) {
     window.open(`https://wa.me/${fone}?text=${encodeURIComponent(texto)}`, '_blank');
 
     const { data: sess } = await supabase.auth.getUser();
-    const { error: cErr } = await supabase.from('student_contacts').insert({
+    const { data: novoContato, error: cErr } = await supabase.from('student_contacts').insert({
       student_id: studentId,
       project_id: drillProjetoId,
       kind: tipo,
       channel: 'whatsapp',
       contacted_by: sess?.user?.id || null,
-    });
+    }).select('id, contacted_at').single();
     if (cErr) throw cErr;
 
-    a.contato = { kind: tipo, contacted_at: new Date().toISOString() };
+    a.contato = { id: novoContato.id, kind: tipo, contacted_at: novoContato.contacted_at, notes: null };
     filtrarDrillAlunos();
   } catch (e) {
     handleError(e, 'contatarResponsavel');
