@@ -1336,7 +1336,7 @@ function renderPaymentMethods(pedido, el) {
     return;
   }
 
-  renderPagamentoManual(total, el);
+  renderPagamentoManual(total, el, pedido);
 }
 
 function blocoEscolhaPagamento(pedido, total) {
@@ -1571,8 +1571,44 @@ window.escolherPagamento = async function (orderId, metodo, parcelas) {
   }
 };
 
+// Cartao no fluxo manual: nao ha checkout aqui, o link e' gerado a mao e
+// mandado pelo WhatsApp. A mensagem ja vai com aluno, pedido e valor pra a
+// Play Up nao precisar perguntar nada antes de gerar o link.
+function blocoCartaoWpp(total, pedido) {
+  const aluno = student?.name ? ` do(a) ${student.name}` : '';
+  const num   = pedido?.order_number ? ` ${pedido.order_number}` : '';
+  // Sem o nome do responsavel a frase perde o sujeito, entao muda a abertura.
+  const quem  = currentUser?.name
+    ? `Aqui é ${currentUser.name}, responsável${aluno}`
+    : `Sou responsável${aluno}`;
+  const msg   = encodeURIComponent(
+    `Olá! ${quem} e quero pagar o pedido${num} (${fmtMoney(total)}) no cartão. Podem me enviar o link?`
+  );
+
+  // Mesmo criterio do fluxo online: o 2x so' vale se a parcela alcancar o minimo.
+  const minPedido2x = MIN_INSTALLMENT_VALUE * 2;
+  const cabe2x = MAX_INSTALLMENTS >= 2 && total >= minPedido2x;
+  const linhaParcela = cabe2x
+    ? `<div style="font-size:11px;color:var(--green);font-weight:600;margin-top:6px">✓ Em até ${MAX_INSTALLMENTS}× sem juros</div>`
+    : `<div style="font-size:11px;color:var(--gray-400);margin-top:6px">Cartão em 1× (parcelamento a partir de ${fmtMoney(minPedido2x)})</div>`;
+
+  return `
+    <div class="pix-block" style="border-color:var(--purple);background:var(--purple-light)">
+      <div style="font-weight:600;margin-bottom:5px;color:var(--purple)">💳 Prefere pagar no cartão?</div>
+      <div style="font-size:12px;color:var(--gray-600);margin-bottom:9px">
+        Fale com a gente pelo WhatsApp que enviamos um link de pagamento seguro.
+      </div>
+      <a href="https://wa.me/${WPP_NUMERO}?text=${msg}" target="_blank" rel="noopener"
+         class="btn btn-block" style="background:var(--purple);color:white;text-decoration:none;padding:10px">
+        💬 Quero pagar no cartão
+      </a>
+      ${linhaParcela}
+    </div>
+  `;
+}
+
 // Fluxo antigo: chave PIX manual + link externo
-function renderPagamentoManual(total, el) {
+function renderPagamentoManual(total, el, pedido) {
   const blocks = [];
 
   const canPixManual = escola?.payment_pix_manual && PIX_KEY;
@@ -1595,6 +1631,10 @@ function renderPagamentoManual(total, el) {
       </div>
     `);
   }
+
+  // Cartao sob demanda: o link e' gerado a mao e enviado pelo WhatsApp.
+  // Aparece sempre — quem nao alcanca o 2x ainda pode querer pagar a vista.
+  blocks.push(blocoCartaoWpp(total, pedido));
 
   // Inter — placeholder
   if (canInter) {
@@ -1627,15 +1667,8 @@ function renderPagamentoManual(total, el) {
     `);
   }
 
-  // Nada habilitado — fallback
-  if (blocks.length === 0) {
-    blocks.push(`
-      <div class="alert alert-warning">
-        <b>Nenhum método de pagamento configurado pra essa escola.</b><br>
-        Entre em contato com a Play Up pelo WhatsApp pra combinar o pagamento.
-      </div>
-    `);
-  }
+  // Nao ha mais caso de "nenhum metodo": o bloco de cartao pelo WhatsApp
+  // entra sempre, entao o responsavel nunca fica sem saida nessa tela.
 
   el.innerHTML = blocks.join('<div style="text-align:center;font-size:11px;color:var(--gray-400);text-transform:uppercase;letter-spacing:1px;margin:14px 0 10px">ou</div>');
 }

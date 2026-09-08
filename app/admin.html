@@ -1387,14 +1387,14 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
             <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px">Regras de parcelamento no cartão</div>
             <div class="form-grid fg2" style="gap:8px">
               <div class="form-group">
-                <label class="form-label">Pedido mínimo pra parcelar (R$)</label>
-                <input class="form-input" id="cfg-min-installment" type="number" step="0.01" placeholder="40,00">
-                <div class="slug-hint">Abaixo desse valor, só 1× no cartão.</div>
+                <label class="form-label">Parcela mínima (R$)</label>
+                <input class="form-input" id="cfg-min-installment" type="number" step="0.01" placeholder="40,00" oninput="atualizarDicaParcela()">
+                <div class="slug-hint" id="cfg-min-installment-hint">Valor de cada parcela, não do pedido.</div>
               </div>
               <div class="form-group">
                 <label class="form-label">Número máximo de parcelas</label>
-                <input class="form-input" id="cfg-max-installments" type="number" min="1" max="12" placeholder="2">
-                <div class="slug-hint">Ex: 2 = paga em até 2×. Combinado com o mínimo ao lado: 2× só aparece a partir do dobro desse valor.</div>
+                <input class="form-input" id="cfg-max-installments" type="number" min="1" max="12" placeholder="2" oninput="atualizarDicaParcela()">
+                <div class="slug-hint">Ex: 2 = paga em até 2×.</div>
               </div>
             </div>
           </div>
@@ -3355,6 +3355,22 @@ document.getElementById('btn-salvar-comunicado').addEventListener('click', async
 // CONFIGURAÇÕES DA EMPRESA
 // ============================================================================
 
+// O campo guarda a PARCELA minima, nao o pedido minimo — o rotulo antigo dizia
+// "Pedido minimo pra parcelar" e induzia ao erro (digitar 100 pensando em
+// pedidos de R$100 tirava o 2x de tudo abaixo de R$200). A dica mostra ao vivo
+// o valor de pedido que o numero digitado realmente libera.
+window.atualizarDicaParcela = function() {
+  const dica = document.getElementById('cfg-min-installment-hint');
+  if (!dica) return;
+  const min = parseFloat(document.getElementById('cfg-min-installment').value);
+  const max = parseInt(document.getElementById('cfg-max-installments').value, 10);
+  if (!min || !(max >= 2)) {
+    dica.textContent = 'Valor de cada parcela, não do pedido.';
+    return;
+  }
+  dica.innerHTML = `Valor de cada parcela, não do pedido. Com esse número, o <b>2×</b> aparece em pedidos a partir de <b>${fmtMoney(min * 2)}</b>.`;
+};
+
 async function loadConfig() {
   try {
     const { data, error } = await supabase
@@ -3382,6 +3398,7 @@ async function loadConfig() {
     document.getElementById('cfg-paylink-label').value = data.payment_link_label || '';
     document.getElementById('cfg-min-installment').value  = data.min_installment_value ?? 40;
     document.getElementById('cfg-max-installments').value = data.max_installments ?? 2;
+    atualizarDicaParcela();
     document.getElementById('cfg-pay-pix').checked        = data.pay_pix_enabled !== false;
     document.getElementById('cfg-pay-credit').checked     = data.pay_credit_enabled !== false;
     document.getElementById('cfg-pay-debit').checked      = data.pay_debit_enabled === true;
