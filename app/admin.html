@@ -1356,10 +1356,11 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
             <code>{responsavel}</code> <code>{aluno}</code> <code>{escola}</code>
             <code>{projeto}</code> <code>{ano}</code> <code>{turma}</code>
             <code>{data_foto}</code> <code>{periodo}</code>
-            <code>{pedido}</code> <code>{valor}</code> <code>{link}</code>
+            <code>{pedido}</code> <code>{valor}</code> <code>{chave_pix}</code> <code>{link}</code>
             <br><small>
               {responsavel} e {aluno} usam só o primeiro nome ·
               {data_foto} sai por extenso ("15 de outubro"), da sessão da turma do aluno ·
+              {chave_pix} é a chave do card "🔑 Chave PIX" aqui em cima ·
               {pedido} e {valor} só existem em "pagamento pendente"
             </small>
           </div>
@@ -6603,7 +6604,7 @@ window.contatarResponsavel = async function (studentId, tipo) {
     if (!contatoMsgCache) {
       const { data, error } = await supabase
         .from('app_settings')
-        .select('contact_msg_sem_pedido, contact_msg_pendente')
+        .select('contact_msg_sem_pedido, contact_msg_pendente, pix_key, pix_key_type')
         .eq('id', 1).single();
       if (error) throw error;
       contatoMsgCache = data || {};
@@ -6634,15 +6635,19 @@ window.contatarResponsavel = async function (studentId, tipo) {
       .replaceAll('{ano}', a.year_name !== '—' ? a.year_name : '')
       .replaceAll('{data_foto}', sessao ? dataPorExtenso(sessao.photo_date) : '')
       .replaceAll('{periodo}', sessao?.period || '')
+      // Chave PIX na propria mensagem: no fluxo manual e' o que faz o pai
+      // pagar sem ter que voltar ao portal procurar.
+      .replaceAll('{chave_pix}', contatoMsgCache.pix_key || '')
       .replaceAll('{link}', link);
 
     // Frase com variavel vazia vira "as fotos sao dia ." — melhor avisar antes
     // de mandar do que o pai receber um buraco no meio do texto.
-    const vazias = ['{data_foto}', '{turma}', '{ano}'].filter(v =>
+    const vazias = ['{data_foto}', '{turma}', '{ano}', '{chave_pix}'].filter(v =>
       modelo.includes(v) && !texto.includes(v) && (
-        (v === '{data_foto}' && !sessao) ||
-        (v === '{turma}' && a.class_name === '—') ||
-        (v === '{ano}'   && a.year_name === '—')
+        (v === '{data_foto}'  && !sessao) ||
+        (v === '{turma}'      && a.class_name === '—') ||
+        (v === '{ano}'        && a.year_name === '—') ||
+        (v === '{chave_pix}'  && !contatoMsgCache.pix_key)
       ));
     if (vazias.length && !confirm(
       `Sem dado pra ${vazias.join(', ')} neste aluno — a mensagem vai sair com um espaço vazio aí.\n\nMandar assim mesmo?`
