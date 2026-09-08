@@ -463,6 +463,10 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
       Projetos
       <span class="sb-badge" id="sb-proj">—</span>
     </button>
+    <button class="sb-item" id="sb-drill" onclick="abrirDrillRapido()" title="Alunos e pedidos do projeto — cobrança e baixa de pagamento">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+      Alunos/Pedidos
+    </button>
     <button class="sb-item" data-page="bilhete">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
       Bilhete &amp; QR Code
@@ -2277,6 +2281,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
     <!-- Body scrollable -->
     <div style="flex:1;overflow-y:auto;padding:16px 20px">
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        <select class="form-select" style="width:210px;font-weight:600" id="drill-proj-sel" onchange="abrirDrillProjeto(this.value)" title="Trocar de projeto sem sair desta tela"></select>
         <input class="form-input" style="width:190px" placeholder="Buscar por nome…" id="drill-al-busca" oninput="filtrarDrillAlunos()">
         <select class="form-select" style="width:150px" id="drill-al-ftur" onchange="filtrarDrillAlunos()"><option value="">Todas as turmas</option></select>
         <select class="form-select" style="width:140px" id="drill-al-fst" onchange="filtrarDrillAlunos()">
@@ -2741,6 +2746,8 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
 document.querySelectorAll('.sb-item').forEach(btn => {
   btn.addEventListener('click', () => {
     const page = btn.dataset.page;
+    // Item sem data-page e' atalho (abre modal), nao troca de pagina.
+    if (!page) return;
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.sb-item').forEach(b => b.classList.remove('active'));
     document.getElementById('page-' + page).classList.add('active');
@@ -6213,13 +6220,59 @@ document.querySelectorAll('#mod-drill-proj .tab-btn').forEach(btn => {
   });
 });
 
+// Atalho do menu lateral: abre direto o ultimo projeto usado (ou o unico
+// ativo). Vale 1 clique por dia inteiro de campanha — essa e' a tela onde o
+// Daniel cobra e da' baixa. Se houver duvida sobre qual projeto, manda pra
+// lista de Projetos em vez de adivinhar.
+window.abrirDrillRapido = async function () {
+  try {
+    if (!projetosCache.length) {
+      const { data, error } = await supabase
+        .from('projects')
+        .select('id, name, slug, year, project_type, active, demo_mode, school:schools(id, name)')
+        .order('name');
+      if (error) throw error;
+      projetosCache = data || [];
+    }
+
+    const ativos = projetosCache.filter(p => p.active && !p.demo_mode);
+    if (!ativos.length) {
+      toast('Nenhum projeto ativo. Abra pela tela de Projetos.', 'warn');
+      document.querySelector('.sb-item[data-page="projetos"]')?.click();
+      return;
+    }
+
+    const ultimo = localStorage.getItem('drillUltimoProjeto');
+    const alvo = ativos.find(p => p.id === ultimo) || ativos[0];
+    abrirDrillProjeto(alvo.id);
+  } catch (e) {
+    handleError(e, 'abrirDrillRapido');
+  }
+};
+
+// Preenche o seletor de projeto da propria tela, pra trocar sem fechar.
+function popularSeletorDrill(projectId) {
+  const sel = document.getElementById('drill-proj-sel');
+  if (!sel) return;
+  const ativos = projetosCache.filter(p => p.active && !p.demo_mode);
+  // O projeto aberto entra na lista mesmo se for demo/inativo — foi aberto
+  // de proposito pela tela de Projetos, seria estranho ele sumir do seletor.
+  const atual = projetosCache.find(p => p.id === projectId);
+  const lista = atual && !ativos.some(p => p.id === projectId) ? [atual, ...ativos] : ativos;
+  sel.innerHTML = lista.map(p =>
+    `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+  sel.value = projectId;
+}
+
 async function abrirDrillProjeto(projectId) {
   drillProjetoId = projectId;
   drillAlunosData = [];
   drillPedidosData = [];
+  try { localStorage.setItem('drillUltimoProjeto', projectId); } catch {}
 
   // Reset UI
   const proj = projetosCache.find(p => p.id === projectId);
+  popularSeletorDrill(projectId);
   drillProjeto = proj || null;   // usado pelas mensagens de contato
   document.getElementById('drill-proj-title').textContent = proj ? proj.name : 'Alunos & Pedidos';
   document.getElementById('drill-proj-sub').textContent  = proj ? (proj.school?.name || '') : '';
