@@ -88,6 +88,17 @@ module.exports = async (req, res) => {
       '/products?active=is.true&type=eq.avulso&select=id,name,base_price_with_promo,base_price_without_promo'
     );
 
+    // Variacoes (cor/tema): so' busca se algum item do carrinho usa a chave
+    // "productId::variantId" — maioria dos pedidos nao tem nenhuma.
+    const variantIdsPedidos = Object.keys(avPed)
+      .map((k) => k.split('::')[1])
+      .filter(Boolean);
+    const variantesDb = variantIdsPedidos.length
+      ? await sb(
+          `/product_variants?id=in.(${variantIdsPedidos.map(q).join(',')})&active=is.true&select=id,product_id,name,price_with_promo,price_without_promo`
+        )
+      : [];
+
     // ---- 4. Monta o pedido com preco do servidor --------------------------
     const kitsFinal = [];
     let total = 0;
@@ -111,19 +122,42 @@ module.exports = async (req, res) => {
     });
 
     const itensFinal = [];
-    for (const [pid, qtdBruta] of Object.entries(avPed)) {
+    for (const [chave, qtdBruta] of Object.entries(avPed)) {
       const qtd = Math.max(0, parseInt(qtdBruta, 10) || 0);
       if (!qtd) continue;
+
+      // Chave "productId::variantId" (produto com cor/tema) ou so' "productId"
+      // (sem variacao, como sempre foi). Preco NUNCA vem do navegador nos dois
+      // casos: aqui so' aceitamos o id, o valor sai do banco.
+      const [pid, variantId] = chave.split('::');
       const prod = produtos.find((p) => p.id === pid);
       if (!prod) continue;
-      const sp = precoPorProduto[pid];
-      if (sp && sp.available === false) continue;   // indisponivel: ignora
-      const unit = Number(
-        temPromo
-          ? (sp?.price_with_promo ?? prod.base_price_with_promo)
-          : (sp?.price_without_promo ?? prod.base_price_without_promo)
-      ) || 0;
-      itensFinal.push({ product_id: pid, quantity: qtd, unit_price: unit, discount_applied: temPromo });
+
+      let unit, variantName = null, variantIdFinal = null;
+      if (variantId) {
+        const variante = variantesDb.find((v) => v.id === variantId && v.product_id === pid);
+        if (!variante) continue;   // variacao removida/desativada entre o pai montar o carrinho e finalizar: ignora essa linha
+        unit = Number(temPromo ? variante.price_with_promo : variante.price_without_promo) || 0;
+        variantName = variante.name;
+        variantIdFinal = variante.id;
+      } else {
+        const sp = precoPorProduto[pid];
+        if (sp && sp.available === false) continue;   // indisponivel: ignora
+        unit = Number(
+          temPromo
+            ? (sp?.price_with_promo ?? prod.base_price_with_promo)
+            : (sp?.price_without_promo ?? prod.base_price_without_promo)
+        ) || 0;
+      }
+
+      itensFinal.push({
+        product_id: pid,
+        quantity: qtd,
+        unit_price: unit,
+        discount_applied: temPromo,
+        variant_id: variantIdFinal,
+        variant_name: variantName,
+      });
       total += unit * qtd;
     }
 

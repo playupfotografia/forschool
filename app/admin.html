@@ -1635,6 +1635,14 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           Custo de produção = o que você gasta pra produzir 1 unidade (zerado por padrão).
         </div>
         <div style="border-top:1px solid var(--gray-100);padding-top:12px;margin-top:4px">
+          <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">
+            Variações <span style="font-weight:400;color:var(--gray-400);text-transform:none">(opcional — o pai escolhe uma antes de comprar, ex: cores ou temas diferentes)</span>
+          </div>
+          <div style="font-size:11px;color:var(--gray-400);margin-bottom:8px">Sem variação cadastrada, o produto funciona como hoje — botão direto de comprar.</div>
+          <div id="pr-var-wrap" style="display:flex;flex-direction:column;gap:8px"></div>
+          <button type="button" class="btn btn-secondary" onclick="addPrVariante()" style="margin-top:8px;font-size:12px">+ Adicionar variação</button>
+        </div>
+        <div style="border-top:1px solid var(--gray-100);padding-top:12px;margin-top:4px">
           <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Moldura para montagem de fotos</div>
           <div class="form-group">
             <label class="form-label">PNG da moldura <span style="font-weight:400;color:var(--gray-400)">(fundo transparente onde a foto entra)</span></label>
@@ -3040,7 +3048,7 @@ async function abrirDetalhesPedido(id) {
         student:students(id, name, birth_date, school_classes(name, year:school_years(name))),
         school:schools(id, name, slug, phone),
         user:users(id, name, phone, email, cpf),
-        items:order_items(id, quantity, unit_price, discount_applied, from_kit_id, product:products(id, name, image_url))
+        items:order_items(id, quantity, unit_price, discount_applied, from_kit_id, variant_name, product:products(id, name, image_url))
       `)
       .eq('id', id)
       .single();
@@ -3117,7 +3125,7 @@ async function abrirDetalhesPedido(id) {
                   </tr>
                   ${itemsAvulsos.map(it => `
                     <tr>
-                      <td style="padding:7px 13px">${escapeHtml(it.product?.name || '—')} ${it.discount_applied ? '<span style="font-size:10px;color:var(--green);font-weight:600">(c/promo)</span>' : ''}</td>
+                      <td style="padding:7px 13px">${escapeHtml(it.product?.name || '—')}${it.variant_name ? ` <span style="color:var(--purple);font-weight:600">— ${escapeHtml(it.variant_name)}</span>` : ''} ${it.discount_applied ? '<span style="font-size:10px;color:var(--green);font-weight:600">(c/promo)</span>' : ''}</td>
                       <td style="text-align:center">${it.quantity}</td>
                       <td style="text-align:right">${fmtMoney(it.unit_price)}</td>
                       <td style="text-align:right;font-weight:600">${fmtMoney(Number(it.unit_price) * it.quantity)}</td>
@@ -3846,6 +3854,9 @@ document.getElementById('btn-novo-produto').addEventListener('click', () => {
   ['pr-nome','pr-desc','pr-img','pr-pcom','pr-psem','pr-cost'].forEach(id => document.getElementById(id).value = '');
   updateProdPreview('');
   [2,3,4].forEach(n => { document.getElementById('pr-img-'+n).value = ''; updateExtraPreview(n, ''); });
+  prVariantesTemp = [];
+  prVariantesOriginalIds = new Set();
+  renderPrVariantes();
   document.getElementById('mod-prod').classList.add('open');
 });
 
@@ -3854,6 +3865,17 @@ async function editarProduto(id) {
     const { data, error } = await supabase.from('products').select('*').eq('id', id).single();
     if (error) throw error;
     editProdId = id;
+
+    const { data: variantes, error: vErr } = await supabase
+      .from('product_variants').select('*').eq('product_id', id).order('sort_order');
+    if (vErr) console.error('product_variants:', vErr.message);
+    prVariantesTemp = (variantes || []).map(v => ({
+      id: v.id, name: v.name, image_url: v.image_url,
+      price_with_promo: v.price_with_promo, price_without_promo: v.price_without_promo,
+      _file: null,
+    }));
+    prVariantesOriginalIds = new Set(prVariantesTemp.map(v => v.id));
+    renderPrVariantes();
     document.getElementById('mod-prod-title').textContent = 'Editar produto';
     document.getElementById('pr-nome').value = data.name || '';
     document.getElementById('pr-desc').value = data.description || '';
@@ -3894,6 +3916,74 @@ async function excluirProduto(id) {
     handleError(err, 'excluirProduto');
   }
 }
+
+// Variacoes (cor/tema) — cada linha e' {id (uuid existente ou null), name,
+// image_url, price_with_promo, price_without_promo, _file}. Reconciliar no
+// save (update quem tem id, insert quem nao tem, delete so' quem sumiu da
+// lista) em vez de apagar tudo e recriar: order_items.variant_id aponta pra
+// ca, e apagar+recriar trocaria o id sem necessidade (regra 8 do CLAUDE.md).
+let prVariantesTemp = [];
+let prVariantesOriginalIds = new Set();
+
+function renderPrVariantes() {
+  const wrap = document.getElementById('pr-var-wrap');
+  if (!prVariantesTemp.length) {
+    wrap.innerHTML = '<div style="font-size:12px;color:var(--gray-400)">Nenhuma variação cadastrada.</div>';
+    return;
+  }
+  wrap.innerHTML = prVariantesTemp.map((v, i) => `
+    <div style="display:flex;gap:8px;align-items:flex-start;border:1px solid var(--gray-100);border-radius:8px;padding:8px">
+      <div style="width:44px;height:44px;border-radius:6px;overflow:hidden;background:#fafafa;border:1px dashed var(--gray-200);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px" id="pr-var-preview-${i}">
+        ${v.image_url ? `<img src="${escapeHtml(v.image_url)}" style="width:100%;height:100%;object-fit:cover">` : '📷'}
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:5px;min-width:0">
+        <div style="display:flex;gap:6px">
+          <input class="form-input" style="flex:1" placeholder="Nome (ex: Azul)" value="${escapeHtml(v.name || '')}" oninput="prVariantesTemp[${i}].name=this.value">
+          <label class="btn btn-secondary" style="cursor:pointer;white-space:nowrap;font-size:11px;padding:6px 8px">
+            Foto
+            <input type="file" accept="image/*" style="display:none" onchange="onPrVarFile(${i}, this)">
+          </label>
+        </div>
+        <div style="display:flex;gap:6px">
+          <input class="form-input" type="number" step="0.01" style="flex:1" placeholder="Preço c/ Promo" value="${v.price_with_promo ?? ''}" oninput="prVariantesTemp[${i}].price_with_promo=this.value">
+          <input class="form-input" type="number" step="0.01" style="flex:1" placeholder="Preço sem Promo" value="${v.price_without_promo ?? ''}" oninput="prVariantesTemp[${i}].price_without_promo=this.value">
+          <button type="button" class="btn btn-sm btn-danger" onclick="removePrVariante(${i})" style="flex-shrink:0">Remover</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+window.addPrVariante = function () {
+  // Preco parte do preco atual do produto — a maioria das variacoes custa
+  // igual; so' digita diferente quem realmente precisar mudar.
+  prVariantesTemp.push({
+    id: null,
+    name: '',
+    image_url: '',
+    price_with_promo: document.getElementById('pr-pcom').value || 0,
+    price_without_promo: document.getElementById('pr-psem').value || 0,
+    _file: null,
+  });
+  renderPrVariantes();
+};
+
+window.removePrVariante = function (i) {
+  prVariantesTemp.splice(i, 1);
+  renderPrVariantes();
+};
+
+window.onPrVarFile = function (i, input) {
+  const file = input.files[0];
+  if (!file) return;
+  prVariantesTemp[i]._file = file;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    const el = document.getElementById('pr-var-preview-' + i);
+    if (el) el.innerHTML = `<img src="${ev.target.result}" style="width:100%;height:100%;object-fit:cover">`;
+  };
+  reader.readAsDataURL(file);
+};
 
 let prFrameUrl   = null;
 let prFrameFile  = null;
@@ -4142,9 +4232,50 @@ document.getElementById('btn-salvar-produto').addEventListener('click', async ()
     if (editProdId) {
       resp = await supabase.from('products').update(payload).eq('id', editProdId);
     } else {
-      resp = await supabase.from('products').insert(payload);
+      // Precisa do id de volta pra poder gravar as variacoes deste produto.
+      resp = await supabase.from('products').insert(payload).select().single();
     }
     if (resp.error) throw resp.error;
+    const pid = editProdId || resp.data.id;
+
+    // ---- Variacoes: upload das fotos pendentes, depois reconcilia -------
+    for (const v of prVariantesTemp) {
+      if (v._file) {
+        v.image_url = await uploadProductImage(v._file, 'variantes');
+        v._file = null;
+      }
+    }
+
+    // So' apaga quem realmente saiu da lista (existia antes, nao existe mais) —
+    // nunca "apaga tudo e recria", que trocaria o id de toda variacao a cada
+    // save e quebraria o vinculo com pedidos ja feitos (regra 8 do CLAUDE.md).
+    const idsAtuais = new Set(prVariantesTemp.filter(v => v.id).map(v => v.id));
+    const removidos = [...prVariantesOriginalIds].filter(id => !idsAtuais.has(id));
+    if (removidos.length) {
+      const { error: delErr } = await supabase.from('product_variants').delete().in('id', removidos);
+      if (delErr) throw delErr;
+    }
+
+    for (let i = 0; i < prVariantesTemp.length; i++) {
+      const v = prVariantesTemp[i];
+      if (!v.name?.trim()) continue;   // linha em branco: ignora, nao trava o save
+      const payloadV = {
+        product_id: pid,
+        name: v.name.trim(),
+        image_url: v.image_url || null,
+        price_with_promo: parseFloat(v.price_with_promo) || 0,
+        price_without_promo: parseFloat(v.price_without_promo) || 0,
+        sort_order: i,
+      };
+      if (v.id) {
+        const { error } = await supabase.from('product_variants').update(payloadV).eq('id', v.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('product_variants').insert(payloadV);
+        if (error) throw error;
+      }
+    }
+
     document.getElementById('mod-prod').classList.remove('open');
     toast(editProdId ? 'Produto atualizado!' : 'Produto cadastrado!', 'ok');
     loadProdutos();
@@ -6368,7 +6499,7 @@ async function abrirDrillProjeto(projectId) {
         .select(`
           id, order_number, kit_type, total_amount, payment_status, payment_proof_url, paid_at, created_at,
           student_id,
-          items:order_items(id, quantity, unit_price, product:products(id, name))
+          items:order_items(id, quantity, unit_price, variant_name, product:products(id, name))
         `)
         .in('student_id', alunoIds)
         .order('created_at', { ascending: false });
@@ -6506,7 +6637,7 @@ function filtrarDrillAlunos() {
         ? `<span class="badge ${kitClass[o.kit_type] || 'badge-gray'}">${kitMap[o.kit_type] || o.kit_type}</span>`
         : '';
       const avulsos = (o.items || [])
-        .map(i => `${escapeHtml(i.product?.name || '?')}${i.quantity > 1 ? ' ×' + i.quantity : ''}`)
+        .map(i => `${escapeHtml(i.product?.name || '?')}${i.variant_name ? ` (${escapeHtml(i.variant_name)})` : ''}${i.quantity > 1 ? ' ×' + i.quantity : ''}`)
         .join(', ');
       const avulsosSpan = avulsos
         ? `<span style="font-size:11px;color:var(--gray-500)">${avulsos}</span>`

@@ -958,6 +958,10 @@ body.modo-demo::after{content:'';position:fixed;inset:0;border:4px solid #7C3AED
       <span class="pd-tag tag-av" id="pd-tag">Avulso</span>
       <div class="pd-name" id="pd-name"></div>
       <div class="pd-desc" id="pd-desc"></div>
+      <div id="pd-variantes" hidden style="margin:4px 0 10px">
+        <div style="font-size:12px;font-weight:600;color:var(--gray-600);margin-bottom:6px">Escolha uma opção:</div>
+        <div id="pd-variantes-list" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+      </div>
       <div class="pd-price-row">
         <span class="pd-price" id="pd-price"></span>
         <span class="pd-price-old" id="pd-price-old" hidden></span>
@@ -2741,23 +2745,42 @@ async function loadCatalogo(user) {
   // Avulsos disponíveis: produtos atômicos × school_prices (filtro de disponibilidade)
   const priceMap = {};
   (pricesResp.data || []).forEach(p => { priceMap[p.product_id] = p; });
-  avulsosDisp = (prodsResp.data || [])
-    .filter(p => {
-      const sp = priceMap[p.id];
-      // Se não tem linha em school_prices, é disponível por padrão
-      return sp ? sp.available : true;
-    })
-    .map(p => {
-      const sp = priceMap[p.id];
-      return {
-        id: p.id,
-        name: p.name,
-        description: p.description,
-        image_url: p.image_url,
-        price_with_promo:    sp?.price_with_promo    ?? p.base_price_with_promo,
-        price_without_promo: sp?.price_without_promo ?? p.base_price_without_promo,
-      };
+  const prodsAtivos = (prodsResp.data || []).filter(p => {
+    const sp = priceMap[p.id];
+    // Se não tem linha em school_prices, é disponível por padrão
+    return sp ? sp.available : true;
+  });
+
+  // Variações (cor/tema) por produto — o pai escolhe uma antes de comprar.
+  // So' busca se tem produto ativo: evita query vazia em telas sem avulso.
+  let variantesPorProduto = {};
+  if (prodsAtivos.length) {
+    const { data: variantes } = await supabase
+      .from('product_variants')
+      .select('id, product_id, name, image_url, price_with_promo, price_without_promo')
+      .in('product_id', prodsAtivos.map(p => p.id))
+      .eq('active', true)
+      .order('sort_order');
+    (variantes || []).forEach(v => {
+      (variantesPorProduto[v.product_id] ||= []).push(v);
     });
+  }
+
+  avulsosDisp = prodsAtivos.map(p => {
+    const sp = priceMap[p.id];
+    return {
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      image_url: p.image_url,
+      image_url_2: p.image_url_2,
+      image_url_3: p.image_url_3,
+      image_url_4: p.image_url_4,
+      price_with_promo:    sp?.price_with_promo    ?? p.base_price_with_promo,
+      price_without_promo: sp?.price_without_promo ?? p.base_price_without_promo,
+      variants: variantesPorProduto[p.id] || null,
+    };
+  });
 
   renderKits();
   renderAvulsos();
@@ -2839,12 +2862,38 @@ function renderAvulsos() {
   document.getElementById('promo-banner').style.display = isPromo ? 'flex' : 'none';
 
   el.innerHTML = avulsosDisp.map(a => {
+    const temVar = a.variants && a.variants.length > 0;
     const price = isPromo ? a.price_with_promo : a.price_without_promo;
     const oldPrice = (isPromo && a.price_without_promo > a.price_with_promo) ? a.price_without_promo : null;
     const isUrl = a.image_url && a.image_url.startsWith('http');
     const img = isUrl ? `<img src="${escapeHtml(a.image_url)}" alt="">`
                        : `<span style="font-size:34px">${escapeHtml(a.image_url || '📦')}</span>`;
-    const qty = avulsosCarrinho[a.id] || 0;
+    const qty = temVar ? qtyDoProdutoNoCarrinho(a.id) : (avulsosCarrinho[a.id] || 0);
+
+    // Produto com variacao nao tem preco unico — mostra "a partir de" o
+    // menor preco entre as opcoes, o valor certo so' aparece depois de
+    // escolher (nao da pra somar ao carrinho sem saber qual variacao).
+    let precoHtml;
+    if (temVar) {
+      const precos = a.variants.map(v => Number(isPromo ? v.price_with_promo : v.price_without_promo) || 0);
+      const min = Math.min(...precos);
+      precoHtml = `<span class="pp-card-price ${isPromo ? 'color-bas' : 'color-av'}">a partir de ${fmtMoney(min)}</span>`;
+    } else {
+      precoHtml = `<span class="pp-card-price ${isPromo ? 'color-bas' : 'color-av'}">${fmtMoney(price)}</span>
+            ${oldPrice ? `<span class="pp-card-price-old">${fmtMoney(oldPrice)}</span>` : ''}`;
+    }
+
+    const acaoHtml = temVar
+      ? `<button class="pp-add" data-av-detail="${a.id}">${qty > 0 ? `✓ ${qty} no carrinho — editar` : '🛒 Escolher opção'}</button>`
+      : (qty > 0 ? `
+          <div class="pp-card-qty">
+            <button data-av-dec="${a.id}">−</button>
+            <span class="qty-num" id="qty-${a.id}">${qty}</span>
+            <button data-av-inc="${a.id}">+</button>
+            <span class="pp-incart">✓ no carrinho</span>
+          </div>` : `
+          <button class="pp-add" data-av-add="${a.id}">🛒 Adicionar ao carrinho</button>`);
+
     return `
       <div class="pp-card">
         <div class="pp-card-img" style="background:var(--c-av-bg);cursor:pointer" data-av-detail="${a.id}">${img}</div>
@@ -2852,18 +2901,8 @@ function renderAvulsos() {
           <span class="pp-card-tag tag-av" style="cursor:pointer" data-av-detail="${a.id}">Avulso</span>
           <div class="pp-card-name" style="cursor:pointer" data-av-detail="${a.id}">${escapeHtml(a.name)}</div>
           <div class="pp-card-desc" style="cursor:pointer" data-av-detail="${a.id}">${escapeHtml(a.description || '')}</div>
-          <div>
-            <span class="pp-card-price ${isPromo ? 'color-bas' : 'color-av'}">${fmtMoney(price)}</span>
-            ${oldPrice ? `<span class="pp-card-price-old">${fmtMoney(oldPrice)}</span>` : ''}
-          </div>
-          ${qty > 0 ? `
-          <div class="pp-card-qty">
-            <button data-av-dec="${a.id}">−</button>
-            <span class="qty-num" id="qty-${a.id}">${qty}</span>
-            <button data-av-inc="${a.id}">+</button>
-            <span class="pp-incart">✓ no carrinho</span>
-          </div>` : `
-          <button class="pp-add" data-av-add="${a.id}">🛒 Adicionar ao carrinho</button>`}
+          <div>${precoHtml}</div>
+          ${acaoHtml}
         </div>
       </div>
     `;
@@ -2891,23 +2930,57 @@ function renderAvulsos() {
   }));
 }
 
+// Soma a quantidade de TODAS as variacoes de um produto no carrinho — o card
+// mostra esse total (a linha detalhada por variacao fica dentro do modal).
+function qtyDoProdutoNoCarrinho(productId) {
+  let total = 0;
+  Object.entries(avulsosCarrinho).forEach(([chave, qtd]) => {
+    if (chave === productId || chave.startsWith(productId + '::')) total += qtd;
+  });
+  return total;
+}
+
 // MODAL DE DETALHE DO PRODUTO
 let pdAvId = null;
+let pdAv = null;          // produto atualmente aberto (pra reler variants ao trocar opcao)
+let pdVariantId = null;   // variacao escolhida, se o produto tiver
+
+// Com variacao, o carrinho guarda a chave "produtoId::variantId" — sem
+// variacao, continua so' o productId, exatamente como sempre foi. Isso
+// mantem 100% dos produtos sem variacao funcionando sem nenhuma mudanca.
+function pdCartKey() {
+  return pdVariantId ? `${pdAvId}::${pdVariantId}` : pdAvId;
+}
 
 function abrirDetalhe(av) {
   pdAvId = av.id;
-  const isPromo = (kitsCarrinho['promo'] || 0) > 0;
-  const price = isPromo ? av.price_with_promo : av.price_without_promo;
-  const oldPrice = (isPromo && av.price_without_promo > av.price_with_promo) ? av.price_without_promo : null;
+  pdAv = av;
+  const temVar = av.variants && av.variants.length > 0;
+  pdVariantId = temVar ? av.variants[0].id : null;
 
   document.getElementById('pd-name').textContent = av.name;
   document.getElementById('pd-desc').textContent = av.description || '';
-  document.getElementById('pd-price').textContent = fmtMoney(price);
-  document.getElementById('pd-price').className = 'pd-price ' + (isPromo ? 'color-bas' : 'color-av');
-  const oldEl = document.getElementById('pd-price-old');
-  if (oldPrice) { oldEl.textContent = fmtMoney(oldPrice); oldEl.hidden = false; }
-  else { oldEl.hidden = true; }
-  document.getElementById('pd-qty-num').textContent = avulsosCarrinho[av.id] || 0;
+
+  const varWrap = document.getElementById('pd-variantes');
+  if (temVar) {
+    varWrap.hidden = false;
+    document.getElementById('pd-variantes-list').innerHTML = av.variants.map(v => `
+      <div class="pd-var-opt" data-pd-var="${v.id}" style="cursor:pointer;border:2px solid var(--gray-200);border-radius:8px;padding:4px;text-align:center;width:64px">
+        <div style="width:100%;height:48px;border-radius:5px;overflow:hidden;background:#fafafa;display:flex;align-items:center;justify-content:center">
+          ${v.image_url ? `<img src="${escapeHtml(v.image_url)}" style="width:100%;height:100%;object-fit:cover">` : '📦'}
+        </div>
+        <div style="font-size:10px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(v.name)}</div>
+      </div>
+    `).join('');
+    document.getElementById('pd-variantes-list').querySelectorAll('[data-pd-var]').forEach(el => {
+      el.addEventListener('click', () => { pdVariantId = el.dataset.pdVar; pdAtualizarSelecao(); });
+    });
+  } else {
+    varWrap.hidden = true;
+    document.getElementById('pd-variantes-list').innerHTML = '';
+  }
+
+  pdAtualizarSelecao();
 
   // Galeria: imagem principal + extras
   const imgs = [av.image_url, av.image_url_2, av.image_url_3, av.image_url_4]
@@ -2916,6 +2989,28 @@ function abrirDetalhe(av) {
   pdRenderGallery(imgs, av.image_url);
 
   document.getElementById('pd-overlay').classList.add('open');
+}
+
+// Atualiza preco, quantidade e destaque da opcao escolhida — chamado ao
+// abrir o modal e toda vez que o pai clica numa variacao diferente.
+function pdAtualizarSelecao() {
+  const isPromo = (kitsCarrinho['promo'] || 0) > 0;
+  const variante = pdVariantId ? pdAv.variants.find(v => v.id === pdVariantId) : null;
+  const base = variante || pdAv;
+  const price = isPromo ? base.price_with_promo : base.price_without_promo;
+  const oldPrice = (isPromo && base.price_without_promo > base.price_with_promo) ? base.price_without_promo : null;
+
+  document.getElementById('pd-price').textContent = fmtMoney(price);
+  document.getElementById('pd-price').className = 'pd-price ' + (isPromo ? 'color-bas' : 'color-av');
+  const oldEl = document.getElementById('pd-price-old');
+  if (oldPrice) { oldEl.textContent = fmtMoney(oldPrice); oldEl.hidden = false; }
+  else { oldEl.hidden = true; }
+
+  document.getElementById('pd-qty-num').textContent = avulsosCarrinho[pdCartKey()] || 0;
+
+  document.querySelectorAll('#pd-variantes-list [data-pd-var]').forEach(el => {
+    el.style.borderColor = el.dataset.pdVar === pdVariantId ? 'var(--blue)' : 'var(--gray-200)';
+  });
 }
 
 let pdCurrentImgs = [];
@@ -2967,19 +3062,26 @@ document.getElementById('pd-overlay').addEventListener('click', e => { if (e.tar
 
 document.getElementById('pd-inc').addEventListener('click', () => {
   if (!pdAvId) return;
-  avulsosCarrinho[pdAvId] = (avulsosCarrinho[pdAvId] || 0) + 1;
-  document.getElementById('pd-qty-num').textContent = avulsosCarrinho[pdAvId];
-  const q = document.getElementById('qty-' + pdAvId);
-  if (q) q.textContent = avulsosCarrinho[pdAvId];
+  if (pdAv?.variants?.length && !pdVariantId) { toast('Escolha uma opção antes de adicionar.', 'warn'); return; }
+  const chave = pdCartKey();
+  avulsosCarrinho[chave] = (avulsosCarrinho[chave] || 0) + 1;
+  document.getElementById('pd-qty-num').textContent = avulsosCarrinho[chave];
+  if (pdVariantId) { renderAvulsos(); } else {
+    const q = document.getElementById('qty-' + pdAvId);
+    if (q) q.textContent = avulsosCarrinho[chave];
+  }
   renderCart();
 });
 document.getElementById('pd-dec').addEventListener('click', () => {
   if (!pdAvId) return;
-  avulsosCarrinho[pdAvId] = Math.max(0, (avulsosCarrinho[pdAvId] || 0) - 1);
-  if (avulsosCarrinho[pdAvId] === 0) delete avulsosCarrinho[pdAvId];
-  document.getElementById('pd-qty-num').textContent = avulsosCarrinho[pdAvId] || 0;
-  const q = document.getElementById('qty-' + pdAvId);
-  if (q) q.textContent = avulsosCarrinho[pdAvId] || 0;
+  const chave = pdCartKey();
+  avulsosCarrinho[chave] = Math.max(0, (avulsosCarrinho[chave] || 0) - 1);
+  if (avulsosCarrinho[chave] === 0) delete avulsosCarrinho[chave];
+  document.getElementById('pd-qty-num').textContent = avulsosCarrinho[chave] || 0;
+  if (pdVariantId) { renderAvulsos(); } else {
+    const q = document.getElementById('qty-' + pdAvId);
+    if (q) q.textContent = avulsosCarrinho[chave] || 0;
+  }
   renderCart();
 });
 
@@ -2996,11 +3098,18 @@ function calcCart() {
     total += price;
   });
   const isPromo = (kitsCarrinho['promo'] || 0) > 0;
-  Object.entries(avulsosCarrinho).forEach(([id, qty]) => {
-    const av = avulsosDisp.find(x => x.id === id);
-    if (!av || qty <= 0) return;
-    const unit = isPromo ? av.price_with_promo : av.price_without_promo;
-    items.push({ tipo: 'avulso', id, label: `${av.name}${qty > 1 ? ' ×' + qty : ''}`, price: unit * qty, qty, unit });
+  Object.entries(avulsosCarrinho).forEach(([chave, qty]) => {
+    if (qty <= 0) return;
+    // Chave pode ser "productId" (sem variacao, como sempre foi) ou
+    // "productId::variantId" (produto com variacao escolhida).
+    const [productId, variantId] = chave.split('::');
+    const av = avulsosDisp.find(x => x.id === productId);
+    if (!av) return;
+    const variante = variantId ? av.variants?.find(v => v.id === variantId) : null;
+    const base = variante || av;
+    const unit = isPromo ? base.price_with_promo : base.price_without_promo;
+    const nome = variante ? `${av.name} — ${variante.name}` : av.name;
+    items.push({ tipo: 'avulso', id: chave, label: `${nome}${qty > 1 ? ' ×' + qty : ''}`, price: unit * qty, qty, unit, variantId: variantId || null });
     total += unit * qty;
   });
   return { items, total };
