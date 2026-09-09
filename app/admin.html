@@ -2292,7 +2292,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
     <div style="flex:1;overflow-y:auto;padding:16px 20px">
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
         <select class="form-select" style="width:210px;font-weight:600" id="drill-proj-sel" onchange="abrirDrillProjeto(this.value)" title="Trocar de projeto sem sair desta tela"></select>
-        <input class="form-input" style="width:190px" placeholder="Buscar por nome…" id="drill-al-busca" oninput="filtrarDrillAlunos()">
+        <input class="form-input" style="width:210px" placeholder="Buscar por nome ou nº do pedido…" id="drill-al-busca" oninput="filtrarDrillAlunos()">
         <select class="form-select" style="width:150px" id="drill-al-ftur" onchange="filtrarDrillAlunos()"><option value="">Todas as turmas</option></select>
         <select class="form-select" style="width:140px" id="drill-al-fst" onchange="filtrarDrillAlunos()">
           <option value="">Todos os status</option>
@@ -6459,7 +6459,13 @@ function filtrarDrillAlunos() {
   const fst   = document.getElementById('drill-al-fst').value;
 
   let lista = drillAlunosData;
-  if (busca) lista = lista.filter(a => a.name.toLowerCase().includes(busca));
+  // Mesma caixa busca nome do aluno OU numero do pedido (ex: "P0038") — separar
+  // em dois campos so' pra isso seria mais uma coisa pra caber na barra, e o
+  // Daniel raramente confunde as duas coisas na hora de digitar.
+  if (busca) lista = lista.filter(a =>
+    a.name.toLowerCase().includes(busca) ||
+    (a.order?.order_number || '').toLowerCase().includes(busca)
+  );
   if (ftur)  lista = lista.filter(a => a.class_id === ftur);
   if (fst === 'sem_pedido') lista = lista.filter(a => !a.order);
   else if (fst) lista = lista.filter(a => a.order?.payment_status === fst);
