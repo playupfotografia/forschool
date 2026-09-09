@@ -6386,7 +6386,7 @@ async function abrirDrillProjeto(projectId) {
     if (alunoIds.length) {
       const { data: cts, error: ctErr } = await supabase
         .from('student_contacts')
-        .select('id, student_id, kind, contacted_at, notes')
+        .select('id, student_id, kind, contacted_at, notes, follow_up_date')
         .eq('project_id', projectId)
         .in('student_id', alunoIds)
         .order('contacted_at', { ascending: false });
@@ -6559,8 +6559,13 @@ function celulaContato(a) {
   const notaTxt = a.contato?.notes
     ? `<div style="font-size:10px;color:var(--gray-500);margin-top:1px;max-width:140px;white-space:normal" title="${a.contato.notes.replace(/"/g,'&quot;')}">${a.contato.notes}</div>`
     : '';
+  // Lembrete por e-mail (migration_033): so' um badge discreto avisando que
+  // existe, ja que o disparo em si e' sozinho — nao precisa de acao aqui.
+  const lembreteTxt = a.contato?.follow_up_date
+    ? `<div style="font-size:10px;color:var(--purple);margin-top:1px" title="Aviso por e-mail automático 5 e 2 dias antes">📅 lembra ${fmtDataBR(a.contato.follow_up_date)}</div>`
+    : '';
   const quando = a.contato
-    ? `<div style="font-size:10px;color:var(--gray-400);margin-top:3px">✓ ${new Date(a.contato.contacted_at).toLocaleDateString('pt-BR')}${notaBtn}</div>${notaTxt}`
+    ? `<div style="font-size:10px;color:var(--gray-400);margin-top:3px">✓ ${new Date(a.contato.contacted_at).toLocaleDateString('pt-BR')}${notaBtn}</div>${notaTxt}${lembreteTxt}`
     : '';
 
   if (pago || !tipo) return quando || '<span style="color:var(--gray-300)">—</span>';
@@ -6576,25 +6581,60 @@ function celulaContato(a) {
             title="${jaFoi ? 'Já contatado — clique para falar de novo' : 'Abrir conversa no WhatsApp'}">💬 WhatsApp</button>${quando}`;
 }
 
+// "2026-09-30" -> "30/09/2026" e volta. dd/mm e' o formato que o Daniel
+// digita de cabeca; ISO e' o que o banco (e o cron do lembrete) precisam.
+function fmtDataBR(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
+}
+function parseDataBR(str) {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(String(str || '').trim());
+  if (!m) return null;
+  const dia = m[1].padStart(2, '0'), mes = m[2].padStart(2, '0'), ano = m[3];
+  if (+mes < 1 || +mes > 12 || +dia < 1 || +dia > 31) return null;
+  return `${ano}-${mes}-${dia}`;
+}
+
 // Guarda o que o responsavel respondeu (ex: "disse que compra dia 30"), pra
 // nao depender de memoria depois que a conversa some no meio do WhatsApp.
 // Atualiza o registro de contato mais recente daquele aluno neste projeto —
 // nao cria um novo, so' anota em cima do que ja existe.
+//
+// Pergunta tambem uma data opcional de retorno: se preenchida, o lembrete
+// por e-mail (migration_033 + Edge Function followup-alerts) avisa sozinho
+// 5 e 2 dias antes. Cancelar a segunda pergunta mantem a data que ja
+// existia; deixar em branco remove o lembrete sem mexer na anotacao.
 window.anotarContato = async function (studentId) {
   const a = drillAlunosData.find(x => x.id === studentId);
   if (!a?.contato?.id) return;
 
   const nota = prompt('O que o responsável respondeu? (ex: "disse que compra dia 30, quando recebe")', a.contato.notes || '');
-  if (nota === null) return; // cancelou
+  if (nota === null) return; // cancelou tudo
+
+  const dataStr = prompt(
+    'Data pra eu te lembrar por e-mail (dd/mm/aaaa) — deixe em branco pra não lembrar:',
+    a.contato.follow_up_date ? fmtDataBR(a.contato.follow_up_date) : ''
+  );
+  let followUp = a.contato.follow_up_date || null;
+  if (dataStr !== null) {
+    if (dataStr.trim() === '') {
+      followUp = null;
+    } else {
+      const iso = parseDataBR(dataStr);
+      if (!iso) toast('Data inválida (use dd/mm/aaaa) — anotação salva, lembrete não foi alterado.', 'warn');
+      else followUp = iso;
+    }
+  }
 
   try {
     const { error } = await supabase
       .from('student_contacts')
-      .update({ notes: nota.trim() || null })
+      .update({ notes: nota.trim() || null, follow_up_date: followUp })
       .eq('id', a.contato.id);
     if (error) throw error;
 
     a.contato.notes = nota.trim() || null;
+    a.contato.follow_up_date = followUp;
     filtrarDrillAlunos();
   } catch (e) { handleError(e, 'anotarContato'); }
 };
@@ -6733,7 +6773,7 @@ window.contatarResponsavel = async function (studentId, tipo) {
     }).select('id, contacted_at').single();
     if (cErr) throw cErr;
 
-    a.contato = { id: novoContato.id, kind: tipo, contacted_at: novoContato.contacted_at, notes: null };
+    a.contato = { id: novoContato.id, kind: tipo, contacted_at: novoContato.contacted_at, notes: null, follow_up_date: null };
     filtrarDrillAlunos();
   } catch (e) {
     handleError(e, 'contatarResponsavel');
