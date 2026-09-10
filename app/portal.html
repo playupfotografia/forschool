@@ -1335,17 +1335,66 @@ function renderPaymentMethods(pedido, el) {
     return;
   }
 
-  if (PAY_CFG.pix || PAY_CFG.credito || PAY_CFG.debito) {
-    el.innerHTML = blocoEscolhaPagamento(pedido, total);
+  // PIX e cartao sao decididos de forma independente: cada um pode estar
+  // automatico (Asaas) ou manual (chave fixa / link por WhatsApp). Da pra
+  // ter os dois automaticos, os dois manuais, ou um de cada jeito.
+  const canPixManual     = escola?.payment_pix_manual && PIX_KEY;
+  const cartaoAutomatico = PAY_CFG.credito || PAY_CFG.debito;
+  const temAutomatico    = PAY_CFG.pix || cartaoAutomatico;
+
+  const blocks = [];
+  if (temAutomatico) blocks.push(blocoEscolhaPagamento(pedido, total));
+  if (!PAY_CFG.pix && canPixManual) blocks.push(blocoPixManual(total));
+  if (!cartaoAutomatico) blocks.push(blocoCartaoWpp(total, pedido));
+
+  // Inter — placeholder, sempre exibido se marcado, independente do resto.
+  if (escola?.payment_inter) {
+    blocks.push(`
+      <div class="pix-block" style="border-color:var(--yellow);background:#FFFBEB">
+        <div style="font-weight:600;margin-bottom:5px;color:#854D0E">⚡ PIX automático via Inter <span style="background:var(--yellow);color:#854D0E;font-size:10px;padding:1px 6px;border-radius:4px;margin-left:6px;font-weight:700">EM BREVE</span></div>
+        <div style="font-size:12px;color:var(--gray-600)">
+          Em breve: QR Code dinâmico já com valor pré-preenchido + confirmação automática.
+        </div>
+      </div>
+    `);
+  }
+
+  // Link externo (SumUp/MP) — opcional, independe das outras combinacoes.
+  if (escola?.payment_external_link && PAY_LINK_URL) {
+    const parcelaInfo = total >= MIN_INSTALLMENT_VALUE
+      ? `<div style="font-size:11px;color:var(--green);font-weight:600;margin-top:5px">✓ Disponível em até ${MAX_INSTALLMENTS}× no cartão sem juros</div>`
+      : `<div style="font-size:11px;color:var(--gray-400);margin-top:5px">Cartão em 1× (parcelamento a partir de ${fmtMoney(MIN_INSTALLMENT_VALUE)})</div>`;
+    blocks.push(`
+      <div class="pix-block" style="border-color:var(--purple);background:var(--purple-light)">
+        <div style="font-weight:600;margin-bottom:7px;color:var(--purple)">💳 ${escapeHtml(PAY_LINK_LABEL || 'Pagar com cartão ou PIX')}</div>
+        <div style="font-size:12px;color:var(--gray-600);margin-bottom:7px">
+          Valor a pagar: <b>${fmtMoney(total)}</b> — copie esse valor antes de clicar.
+        </div>
+        <a href="${escapeHtml(PAY_LINK_URL)}" target="_blank" rel="noopener" class="btn btn-block" style="background:var(--purple);color:white;text-decoration:none;padding:10px">
+          🔗 Abrir link de pagamento
+        </a>
+        ${parcelaInfo}
+      </div>
+    `);
+  }
+
+  if (!blocks.length) {
+    el.innerHTML = `<div class="pay-erro">Nenhuma forma de pagamento configurada. ${botaoDuvida(pedido?.order_number)}</div>`;
     return;
   }
 
-  renderPagamentoManual(total, el, pedido);
+  el.innerHTML = blocks.join(
+    '<div style="text-align:center;font-size:11px;color:var(--gray-400);text-transform:uppercase;letter-spacing:1px;margin:14px 0 10px">ou</div>'
+  );
 }
 
 function blocoEscolhaPagamento(pedido, total) {
   const oid = pedido?.id || '';
   const opts = [];
+  // PIX automatico ou manual: o botao so aparece se for automatico, mas o
+  // rotulo de comparacao ("a mais que no PIX") vale pros dois casos —
+  // permite cartao automatico + PIX manual, com o texto certo.
+  const pixDisponivel = PAY_CFG.pix || (escola?.payment_pix_manual && PIX_KEY);
 
   if (PAY_CFG.pix) {
     opts.push(`
@@ -1365,11 +1414,12 @@ function blocoEscolhaPagamento(pedido, total) {
   const antec2 = PAY_CFG.antecipa ? (Number(PAY_CFG.antecParc) || 0) : 0;
 
   // O pai decide comparando com o PIX, entao o rotulo mostra a diferenca, nao
-  // a composicao da taxa. Sem PIX habilitado a comparacao nao faz sentido.
+  // a composicao da taxa. Sem PIX disponivel (nem automatico nem manual) a
+  // comparacao nao faz sentido.
   const subAcrescimo = (v) => {
     if (v <= total) return 'À vista';
     const dif = fmtMoney(v - total);
-    return PAY_CFG.pix ? `${dif} a mais que no PIX` : `Inclui ${dif} de taxa do cartão`;
+    return pixDisponivel ? `${dif} a mais que no PIX` : `Inclui ${dif} de taxa do cartão`;
   };
 
   if (PAY_CFG.credito) {
@@ -1406,7 +1456,7 @@ function blocoEscolhaPagamento(pedido, total) {
       </button>`);
   }
 
-  const dica = (PAY_CFG.pix && economia > 0)
+  const dica = (pixDisponivel && economia > 0)
     ? `<div class="pay-dica">💡 Pagando no PIX você economiza <b>${fmtMoney(economia)}</b></div>`
     : '';
 
@@ -1603,7 +1653,8 @@ function blocoCartaoWpp(total, pedido) {
   const sub = (v) => {
     if (v <= total) return '';
     const dif = fmtMoney(v - total);
-    const txt = PIX_KEY && escola?.payment_pix_manual
+    const pixDisponivel = PAY_CFG.pix || (PIX_KEY && escola?.payment_pix_manual);
+    const txt = pixDisponivel
       ? `${dif} a mais que no PIX`
       : `Inclui ${dif} de taxa do cartão`;
     return `<div style="font-size:11px;color:var(--gray-500);margin-top:3px">${txt}</div>`;
@@ -1644,70 +1695,22 @@ function blocoCartaoWpp(total, pedido) {
   `;
 }
 
-// Fluxo antigo: chave PIX manual + link externo
-function renderPagamentoManual(total, el, pedido) {
-  const blocks = [];
-
-  const canPixManual = escola?.payment_pix_manual && PIX_KEY;
-  const canInter     = escola?.payment_inter;  // sempre placeholder por enquanto
-  const canExtLink   = escola?.payment_external_link && PAY_LINK_URL;
-
-  // PIX manual
-  if (canPixManual) {
-    blocks.push(`
-      <div class="pix-block">
-        <div style="font-weight:600;margin-bottom:5px;color:var(--gray-700)">💚 Pagar via PIX (sem taxa)</div>
-        <div style="font-size:12px;color:var(--gray-500);margin-bottom:7px">
-          Use a chave abaixo no app do seu banco. Valor: <b>${fmtMoney(total)}</b>
-        </div>
-        <div class="pix-key">${escapeHtml(PIX_KEY)}${PIX_LABEL ? '  <span style="color:var(--gray-400)">(' + escapeHtml(PIX_LABEL) + ')</span>' : ''}</div>
-        <button class="btn btn-sm btn-secondary" style="margin-top:8px" onclick="copyPix('${escapeHtml(PIX_KEY).replace(/'/g, "\\'")}')">📋 Copiar chave</button>
-        <div style="font-size:11px;color:var(--gray-500);margin-top:8px">
-          Após pagar, envie o comprovante pelo WhatsApp acima. Confirmação manual leva até algumas horas.
-        </div>
+// PIX manual: chave fixa + botao de copiar. Extraido pra poder aparecer
+// tanto no fluxo 100% manual quanto ao lado do cartao automatico.
+function blocoPixManual(total) {
+  return `
+    <div class="pix-block">
+      <div style="font-weight:600;margin-bottom:5px;color:var(--gray-700)">💚 Pagar via PIX (sem taxa)</div>
+      <div style="font-size:12px;color:var(--gray-500);margin-bottom:7px">
+        Use a chave abaixo no app do seu banco. Valor: <b>${fmtMoney(total)}</b>
       </div>
-    `);
-  }
-
-  // Cartao sob demanda: o link e' gerado a mao e enviado pelo WhatsApp.
-  // Aparece sempre — quem nao alcanca o 2x ainda pode querer pagar a vista.
-  blocks.push(blocoCartaoWpp(total, pedido));
-
-  // Inter — placeholder
-  if (canInter) {
-    blocks.push(`
-      <div class="pix-block" style="border-color:var(--yellow);background:#FFFBEB">
-        <div style="font-weight:600;margin-bottom:5px;color:#854D0E">⚡ PIX automático via Inter <span style="background:var(--yellow);color:#854D0E;font-size:10px;padding:1px 6px;border-radius:4px;margin-left:6px;font-weight:700">EM BREVE</span></div>
-        <div style="font-size:12px;color:var(--gray-600)">
-          Em breve: QR Code dinâmico já com valor pré-preenchido + confirmação automática.
-        </div>
+      <div class="pix-key">${escapeHtml(PIX_KEY)}${PIX_LABEL ? '  <span style="color:var(--gray-400)">(' + escapeHtml(PIX_LABEL) + ')</span>' : ''}</div>
+      <button class="btn btn-sm btn-secondary" style="margin-top:8px" onclick="copyPix('${escapeHtml(PIX_KEY).replace(/'/g, "\\'")}')">📋 Copiar chave</button>
+      <div style="font-size:11px;color:var(--gray-500);margin-top:8px">
+        Após pagar, envie o comprovante pelo WhatsApp acima. Confirmação manual leva até algumas horas.
       </div>
-    `);
-  }
-
-  // Link externo (SumUp/MP)
-  if (canExtLink) {
-    const parcelaInfo = total >= MIN_INSTALLMENT_VALUE
-      ? `<div style="font-size:11px;color:var(--green);font-weight:600;margin-top:5px">✓ Disponível em até ${MAX_INSTALLMENTS}× no cartão sem juros</div>`
-      : `<div style="font-size:11px;color:var(--gray-400);margin-top:5px">Cartão em 1× (parcelamento a partir de ${fmtMoney(MIN_INSTALLMENT_VALUE)})</div>`;
-    blocks.push(`
-      <div class="pix-block" style="border-color:var(--purple);background:var(--purple-light)">
-        <div style="font-weight:600;margin-bottom:7px;color:var(--purple)">💳 ${escapeHtml(PAY_LINK_LABEL || 'Pagar com cartão ou PIX')}</div>
-        <div style="font-size:12px;color:var(--gray-600);margin-bottom:7px">
-          Valor a pagar: <b>${fmtMoney(total)}</b> — copie esse valor antes de clicar.
-        </div>
-        <a href="${escapeHtml(PAY_LINK_URL)}" target="_blank" rel="noopener" class="btn btn-block" style="background:var(--purple);color:white;text-decoration:none;padding:10px">
-          🔗 Abrir link de pagamento
-        </a>
-        ${parcelaInfo}
-      </div>
-    `);
-  }
-
-  // Nao ha mais caso de "nenhum metodo": o bloco de cartao pelo WhatsApp
-  // entra sempre, entao o responsavel nunca fica sem saida nessa tela.
-
-  el.innerHTML = blocks.join('<div style="text-align:center;font-size:11px;color:var(--gray-400);text-transform:uppercase;letter-spacing:1px;margin:14px 0 10px">ou</div>');
+    </div>
+  `;
 }
 
 // Copia chave PIX pra área de transferência
