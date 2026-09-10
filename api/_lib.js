@@ -231,4 +231,73 @@ async function avisarVenda(pedido) {
   });
 }
 
-module.exports = { env, asaas, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, avisarVenda };
+// ---------------------------------------------------------------------------
+// Aviso de pedido novo, ainda pendente (so' e-mail por enquanto).
+//
+// Existe pra cobrir o PIX manual: diferente do cartao pelo Asaas, o PIX
+// manual nao passa por nenhum webhook — o pai so' ve uma chave fixa e paga
+// fora do sistema. Sem isso, nenhum evento avisa que um pedido chegou.
+// Disparado na criacao do pedido (antes de saber qual metodo o pai vai
+// escolher), entao tambem dispara pra pedido que acaba sendo pago no cartao
+// automatico — esse ainda ganha o aviso de "venda confirmada" de sempre
+// quando o webhook confirmar, os dois nao se excluem.
+// ---------------------------------------------------------------------------
+function linhasDoPedidoPendente(pedido) {
+  const l = [
+    ['Pedido', pedido.order_number || '—'],
+    ['Aluno', pedido.student?.name || '—'],
+    ['Escola', pedido.school?.name || '—'],
+    ['Responsável', pedido.user?.name || '—'],
+    ['Valor do pedido', moeda(pedido.total_amount)],
+  ];
+  if (pedido.user?.phone) l.push(['WhatsApp do responsável', pedido.user.phone]);
+  return l;
+}
+
+async function avisarEmailPedidoPendente(pedido) {
+  const key = process.env.RESEND_API_KEY;
+  const para = process.env.ALERTA_EMAIL;
+  if (!key || !para) return { canal: 'email', enviado: false, motivo: 'nao configurado' };
+
+  const de = process.env.ALERTA_EMAIL_FROM || 'For School <onboarding@resend.dev>';
+  const linhas = linhasDoPedidoPendente(pedido)
+    .map(([k, v]) => `<tr><td style="padding:6px 12px 6px 0;color:#666">${k}</td><td style="padding:6px 0;font-weight:600">${v}</td></tr>`)
+    .join('');
+  const html = `<div style="font-family:system-ui,Arial,sans-serif;max-width:480px">
+    <h2 style="color:#4B6BFB;margin:0 0 4px">🛒 Novo pedido</h2>
+    <p style="color:#666;margin:0 0 16px;font-size:14px">
+      Aguardando pagamento. Se for PIX manual, confira o extrato — esse
+      método não avisa sozinho. Se for cartão pelo Asaas, você recebe o
+      aviso de venda confirmada quando cair.
+    </p>
+    <table style="border-collapse:collapse;font-size:14px">${linhas}</table>
+  </div>`;
+
+  const r = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: de,
+      to: para.split(',').map((e) => e.trim()).filter(Boolean),
+      subject: [
+        '🛒 Novo pedido',
+        pedido.school?.name,
+        moeda(pedido.total_amount),
+        pedido.order_number ? `(${pedido.order_number})` : null,
+      ].filter(Boolean).join(' — '),
+      html,
+    }),
+  });
+  if (!r.ok) throw new Error('Resend HTTP ' + r.status + ': ' + (await r.text()).slice(0, 200));
+  return { canal: 'email', enviado: true };
+}
+
+async function avisarPedidoPendente(pedido) {
+  const res = await Promise.allSettled([avisarEmailPedidoPendente(pedido)]);
+  res.forEach((r) => {
+    if (r.status === 'rejected') console.error('aviso de pedido pendente falhou:', r.reason?.message || r.reason);
+    else if (!r.value.enviado) console.log(`aviso ${r.value.canal}: ${r.value.motivo}`);
+  });
+}
+
+module.exports = { env, asaas, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, avisarVenda, avisarPedidoPendente };

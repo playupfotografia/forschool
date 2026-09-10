@@ -17,7 +17,7 @@
 // Header: Authorization: Bearer <access_token do Supabase>
 // ============================================================================
 
-const { asaas, sb, usuarioDoToken } = require('./_lib.js');
+const { asaas, sb, usuarioDoToken, avisarPedidoPendente } = require('./_lib.js');
 
 const KIT_RANK = { promo: 3, inter: 2, basico: 1 };
 const q = (v) => encodeURIComponent(v);
@@ -53,7 +53,7 @@ module.exports = async (req, res) => {
     let projeto = null;
     if (projectId) {
       const projs = await sb(
-        `/projects?id=eq.${q(projectId)}&select=id,school_id,delivery_date,delivery_fee,delivery_cutoff_days,pickup_enabled`
+        `/projects?id=eq.${q(projectId)}&select=id,school_id,delivery_date,delivery_fee,delivery_cutoff_days,pickup_enabled,payment_pix_manual`
       );
       projeto = projs?.[0];
       if (!projeto || projeto.school_id !== aluno.school_id) {
@@ -280,6 +280,32 @@ module.exports = async (req, res) => {
         headers: { Prefer: 'return=minimal' },
         body: JSON.stringify(itensFinal.map((i) => ({ order_id: orderId, ...i }))),
       });
+    }
+
+    // ---- 7. Aviso de pedido novo (so' PIX manual precisa) ------------------
+    // Cartao pelo Asaas ja avisa sozinho quando o webhook confirmar. PIX
+    // manual nunca passa por servidor nenhum — sem isso, nada avisa que um
+    // pedido chegou. So dispara na criacao (nao em cada edicao do carrinho
+    // pendente) e so' quando PIX esta configurado como manual pra esse
+    // projeto; se o pai acabar pagando no cartao mesmo assim, o aviso de
+    // "venda confirmada" chega depois do mesmo jeito — os dois convivem.
+    if (!existente) {
+      try {
+        const [config] = await sb('/app_settings?id=eq.1&select=pay_pix_enabled');
+        if (config?.pay_pix_enabled !== true && projeto?.payment_pix_manual) {
+          const [school] = await sb(`/schools?id=eq.${q(aluno.school_id)}&select=name`);
+          const [user] = await sb(`/users?id=eq.${q(uid)}&select=name,phone`);
+          await avisarPedidoPendente({
+            order_number: orderNumber,
+            total_amount: total,
+            student: { name: aluno.name },
+            school: { name: school?.name },
+            user: { name: user?.name, phone: user?.phone },
+          });
+        }
+      } catch (e) {
+        console.error('avisarPedidoPendente', e.message);
+      }
     }
 
     return res.status(200).json({
