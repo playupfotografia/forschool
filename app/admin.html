@@ -7920,6 +7920,7 @@ function buscarDuplicataCandidatos() {
       </button>`).join('');
   }, 300);
 }
+window.buscarDuplicataCandidatos = buscarDuplicataCandidatos;
 
 async function vincularDuplicata(outroId, outroNome) {
   if (!confirm(`Vincular este aluno como duplicata de "${outroNome}"?\n\nOs dois pedidos continuam existindo — isso só registra que é a mesma criança, e bloqueia o pagamento do pedido pendente pra evitar cobrança duplicada.`)) return;
