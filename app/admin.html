@@ -2457,6 +2457,19 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
         <div style="font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Pedido</div>
         <div id="al-pedido-content"></div>
       </div>
+
+      <!-- Duplicidade de cadastro: mesma crianca cadastrada 2x (ex: mae e
+           pai cada um na sua conta) — so' aparece editando aluno existente -->
+      <div id="al-dup-section" style="display:none;margin-top:12px">
+        <hr style="border:none;border-top:1px solid var(--gray-200);margin-bottom:12px">
+        <div style="font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">🔗 Duplicidade de cadastro</div>
+        <div id="al-dup-linked" style="display:none;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:10px;font-size:13px;margin-bottom:8px"></div>
+        <div id="al-dup-search-wrap">
+          <div style="font-size:12px;color:var(--gray-500);margin-bottom:6px">Não é um aluno novo, mas outro cadastro da mesma criança (ex: mãe e pai cadastraram cada um)? Busque e vincule — nenhum pedido é apagado, só fica registrado que é a mesma criança.</div>
+          <input class="form-input" id="al-dup-busca" placeholder="Buscar aluno pelo nome…" oninput="buscarDuplicataCandidatos()">
+          <div id="al-dup-resultados" style="margin-top:6px;max-height:160px;overflow-y:auto;display:flex;flex-direction:column;gap:4px"></div>
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" data-close="mod-aluno">Cancelar</button>
@@ -7068,7 +7081,7 @@ async function loadAlunos() {
   try {
     const [{ data, error }, { data: esc }] = await Promise.all([
       supabase.from('students').select(`
-        id, name, birth_date, photo_seq_number, notes,
+        id, name, birth_date, photo_seq_number, notes, duplicate_of_student_id,
         guardian2_name, guardian2_phone, guardian2_relationship,
         authorize_individual, authorize_class, authorization_date, authorization_signed_by, authorization_log,
         school:schools(id, name),
@@ -7700,6 +7713,7 @@ function abrirModalAluno() {
   document.getElementById('al-ficha').value = '';
   document.getElementById('al-obs').value   = '';
   document.getElementById('al-pedido-section').style.display = 'none';
+  document.getElementById('al-dup-section').style.display = 'none';
   document.getElementById('al-esc').value   = '';
   document.getElementById('al-ano').innerHTML = '<option value="">Selecione…</option>';
   document.getElementById('al-tur').innerHTML = '<option value="">Selecione…</option>';
@@ -7724,9 +7738,11 @@ function abrirModalAluno() {
 
 async function editarAluno(id) {
   let aluno = alunosCache.find(a => a.id === id);
-  if (!aluno) {
+  // Sempre busca de novo se faltar duplicate_of_student_id (o cache de
+  // alunosCache pode ter sido carregado antes dessa coluna existir na tela).
+  if (!aluno || aluno.duplicate_of_student_id === undefined) {
     const { data } = await supabase.from('students').select(`
-      id, name, birth_date, photo_seq_number, notes,
+      id, name, birth_date, photo_seq_number, notes, duplicate_of_student_id,
       guardian2_name, guardian2_phone, guardian2_relationship,
       authorize_individual, authorize_class, authorization_date, authorization_signed_by, authorization_log,
       school:schools(id, name),
@@ -7824,9 +7840,119 @@ async function editarAluno(id) {
     renderPedidoNoModal(ord, document.getElementById('al-pedido-content'));
   }
 
+  document.getElementById('al-dup-section').style.display = 'block';
+  await renderDupSection(aluno.duplicate_of_student_id);
+
   document.getElementById('mod-aluno').classList.add('open');
 }
 window.editarAluno = editarAluno;
+
+// ---------------------------------------------------------------------------
+// Duplicidade de cadastro — mesma crianca cadastrada 2x (ex: mae e pai cada
+// um na sua conta), cada um com seu proprio pedido. Em vez de apagar
+// qualquer um dos dois (perderia o historico), linka os dois registros —
+// so' pra saber que sao a mesma crianca, sem somar nada. migration_035.
+// ---------------------------------------------------------------------------
+let dupBuscaTimer = null;
+
+async function renderDupSection(duplicateOfId) {
+  const linkedEl = document.getElementById('al-dup-linked');
+  const searchWrap = document.getElementById('al-dup-search-wrap');
+  document.getElementById('al-dup-busca').value = '';
+  document.getElementById('al-dup-resultados').innerHTML = '';
+
+  // O link pode ter sido feito a partir de qualquer um dos dois lados —
+  // confere se este aluno aponta pra outro OU se algum outro aponta pra ele.
+  let outroId = duplicateOfId || null;
+  if (!outroId) {
+    const { data } = await supabase.from('students').select('id')
+      .eq('duplicate_of_student_id', editAlunoId).maybeSingle();
+    outroId = data?.id || null;
+  }
+
+  if (!outroId) {
+    linkedEl.style.display = 'none';
+    searchWrap.style.display = 'block';
+    return;
+  }
+
+  searchWrap.style.display = 'none';
+  linkedEl.style.display = 'block';
+  linkedEl.innerHTML = '<span class="spinner"></span> Carregando…';
+
+  const [{ data: outroAluno }, { data: outroPedido }] = await Promise.all([
+    supabase.from('students').select('id,name,school_class:school_classes(name)').eq('id', outroId).maybeSingle(),
+    supabase.from('orders').select('order_number,payment_status').eq('student_id', outroId)
+      .order('created_at', { ascending: false }).limit(1).maybeSingle(),
+  ]);
+
+  const stBadge = !outroPedido ? '<span class="badge badge-gray">sem pedido</span>'
+    : outroPedido.payment_status === 'paid' ? `<span class="badge badge-green">✓ Pago (${escapeHtml(outroPedido.order_number || '')})</span>`
+    : `<span class="badge badge-yellow">⏳ Pendente (${escapeHtml(outroPedido.order_number || '')})</span>`;
+
+  linkedEl.innerHTML = `
+    🔗 Vinculado a <b>${escapeHtml(outroAluno?.name || '(aluno removido)')}</b>
+    ${outroAluno?.school_class?.name ? ` — ${escapeHtml(outroAluno.school_class.name)}` : ''}
+    — pedido lá: ${stBadge}
+    <br><button type="button" class="btn btn-sm btn-secondary" style="margin-top:8px" onclick="removerVinculoDuplicata()">Desvincular</button>`;
+}
+
+function buscarDuplicataCandidatos() {
+  clearTimeout(dupBuscaTimer);
+  const termo = document.getElementById('al-dup-busca').value.trim();
+  const resEl = document.getElementById('al-dup-resultados');
+  if (termo.length < 2) { resEl.innerHTML = ''; return; }
+  dupBuscaTimer = setTimeout(async () => {
+    const { data, error } = await supabase.from('students')
+      .select('id,name,school:schools(name),school_class:school_classes(name)')
+      .ilike('name', `%${termo}%`)
+      .neq('id', editAlunoId)
+      .limit(8);
+    if (error) { console.error('buscarDuplicataCandidatos:', error.message); return; }
+    if (!data || !data.length) {
+      resEl.innerHTML = '<div style="font-size:12px;color:var(--gray-400);padding:6px">Nenhum aluno encontrado.</div>';
+      return;
+    }
+    resEl.innerHTML = data.map(a => `
+      <button type="button" class="btn btn-sm btn-secondary" style="text-align:left;justify-content:flex-start"
+        onclick="vincularDuplicata('${a.id}', '${escapeHtml(a.name).replace(/'/g, "\\'")}')">
+        ${escapeHtml(a.name)} <span style="color:var(--gray-400);font-size:11px">— ${escapeHtml(a.school_class?.name || '')} · ${escapeHtml(a.school?.name || '')}</span>
+      </button>`).join('');
+  }, 300);
+}
+
+async function vincularDuplicata(outroId, outroNome) {
+  if (!confirm(`Vincular este aluno como duplicata de "${outroNome}"?\n\nOs dois pedidos continuam existindo — isso só registra que é a mesma criança, e bloqueia o pagamento do pedido pendente pra evitar cobrança duplicada.`)) return;
+  try {
+    const { error } = await supabase.from('students')
+      .update({ duplicate_of_student_id: outroId }).eq('id', editAlunoId);
+    if (error) throw error;
+    toast('Vínculo salvo.', 'ok');
+    await renderDupSection(outroId);
+  } catch (err) {
+    handleError(err, 'vincularDuplicata');
+  }
+}
+window.vincularDuplicata = vincularDuplicata;
+
+async function removerVinculoDuplicata() {
+  if (!confirm('Remover o vínculo de duplicidade? O pedido pendente volta a poder ser pago normalmente.')) return;
+  try {
+    // O link pode estar salvo neste aluno OU no outro lado — limpa dos dois
+    // pra garantir, sem precisar saber de qual lado foi feito.
+    const [{ error: e1 }, { error: e2 }] = await Promise.all([
+      supabase.from('students').update({ duplicate_of_student_id: null }).eq('id', editAlunoId),
+      supabase.from('students').update({ duplicate_of_student_id: null }).eq('duplicate_of_student_id', editAlunoId),
+    ]);
+    if (e1) throw e1;
+    if (e2) throw e2;
+    toast('Vínculo removido.', 'ok');
+    await renderDupSection(null);
+  } catch (err) {
+    handleError(err, 'removerVinculoDuplicata');
+  }
+}
+window.removerVinculoDuplicata = removerVinculoDuplicata;
 
 function renderPedidoNoModal(order, el) {
   const kitMap = { basico: 'Básico', intermediario: 'Intermediário', promo: 'Promocional' };
