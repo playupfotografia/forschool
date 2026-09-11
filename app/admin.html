@@ -1560,6 +1560,10 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
   </div>
 </div>
 
+<!-- Sugestoes de tema de foto ja usados — evita "Natal" numa hora e "natal"
+     noutra, o que quebraria o agrupamento da ficha. Populada em loadProdutos(). -->
+<datalist id="temas-foto-list"></datalist>
+
 <!-- MODAL: PRODUTO -->
 <div class="modal-overlay" id="mod-prod">
   <div class="modal">
@@ -1638,6 +1642,11 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
         <div class="alert alert-info" style="font-size:11px;margin:0">
           Preço c/ Promo = quando o pai escolhe Kit Promocional, esses avulsos saem com desconto.<br>
           Custo de produção = o que você gasta pra produzir 1 unidade (zerado por padrão).
+        </div>
+        <div class="form-group">
+          <label class="form-label">🎨 Tema da foto <span style="font-weight:400;color:var(--gray-400)">(opcional — pra saber na sessão qual foto tirar pra quem comprou. Deixe vazio se o produto não precisa de foto temática)</span></label>
+          <input class="form-input" id="pr-tema" list="temas-foto-list" placeholder="Ex: Natal, Pequenos Artistas…">
+          <div style="font-size:11px;color:var(--gray-400);margin-top:3px">Se o produto tem variações (abaixo), marque o tema em cada variação em vez de aqui.</div>
         </div>
         <div style="border-top:1px solid var(--gray-100);padding-top:12px;margin-top:4px">
           <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">
@@ -3814,6 +3823,18 @@ async function loadProdutos() {
     produtosOrdem = data;
     renderProdCards();
     document.getElementById('sb-prod').textContent = data.length;
+
+    // Sugestoes de tema de foto (datalist do campo "Tema da foto") — junta
+    // o que ja foi usado em produtos e em variacoes, pra nao digitar errado
+    // uma segunda vez (ex: "Natal" numa hora, "natal" noutra).
+    const { data: variantesTemas } = await supabase
+      .from('product_variants').select('photo_theme').not('photo_theme', 'is', null);
+    const temas = [...new Set([
+      ...data.map(p => p.photo_theme).filter(Boolean),
+      ...(variantesTemas || []).map(v => v.photo_theme).filter(Boolean),
+    ])].sort();
+    document.getElementById('temas-foto-list').innerHTML =
+      temas.map(t => `<option value="${escapeHtml(t)}">`).join('');
   } catch (err) {
     handleError(err, 'loadProdutos');
     grid.innerHTML = '<div class="empty" style="color:var(--red)">Erro ao carregar produtos. Veja o console (F12).</div>';
@@ -3931,7 +3952,7 @@ document.getElementById('pr-file').addEventListener('change', async e => {
 document.getElementById('btn-novo-produto').addEventListener('click', () => {
   editProdId = null;
   document.getElementById('mod-prod-title').textContent = 'Novo produto';
-  ['pr-nome','pr-desc','pr-img','pr-pcom','pr-psem','pr-cost'].forEach(id => document.getElementById(id).value = '');
+  ['pr-nome','pr-desc','pr-img','pr-tema','pr-pcom','pr-psem','pr-cost'].forEach(id => document.getElementById(id).value = '');
   updateProdPreview('');
   [2,3,4].forEach(n => { document.getElementById('pr-img-'+n).value = ''; updateExtraPreview(n, ''); });
   prVariantesTemp = [];
@@ -3952,6 +3973,7 @@ async function editarProduto(id) {
     prVariantesTemp = (variantes || []).map(v => ({
       id: v.id, name: v.name, image_url: v.image_url,
       price_with_promo: v.price_with_promo, price_without_promo: v.price_without_promo,
+      photo_theme: v.photo_theme || '',
       _file: null,
     }));
     prVariantesOriginalIds = new Set(prVariantesTemp.map(v => v.id));
@@ -3960,6 +3982,7 @@ async function editarProduto(id) {
     document.getElementById('pr-nome').value = data.name || '';
     document.getElementById('pr-desc').value = data.description || '';
     document.getElementById('pr-img').value  = data.image_url || '';
+    document.getElementById('pr-tema').value = data.photo_theme || '';
     document.getElementById('pr-pcom').value = data.base_price_with_promo || '';
     document.getElementById('pr-psem').value = data.base_price_without_promo || '';
     document.getElementById('pr-cost').value = data.production_cost || '';
@@ -4029,6 +4052,7 @@ function renderPrVariantes() {
           <input class="form-input" type="number" step="0.01" style="flex:1" placeholder="Preço sem Promo" value="${v.price_without_promo ?? ''}" oninput="prVariantesTemp[${i}].price_without_promo=this.value">
           <button type="button" class="btn btn-sm btn-danger" onclick="removePrVariante(${i})" style="flex-shrink:0">Remover</button>
         </div>
+        <input class="form-input" list="temas-foto-list" style="font-size:12px" placeholder="🎨 Tema da foto (opcional — ex: Natal)" value="${escapeHtml(v.photo_theme || '')}" oninput="prVariantesTemp[${i}].photo_theme=this.value">
       </div>
     </div>
   `).join('');
@@ -4043,6 +4067,7 @@ window.addPrVariante = function () {
     image_url: '',
     price_with_promo: document.getElementById('pr-pcom').value || 0,
     price_without_promo: document.getElementById('pr-psem').value || 0,
+    photo_theme: '',
     _file: null,
   });
   renderPrVariantes();
@@ -4299,6 +4324,7 @@ document.getElementById('btn-salvar-produto').addEventListener('click', async ()
       image_url_2: document.getElementById('pr-img-2').value.trim() || null,
       image_url_3: document.getElementById('pr-img-3').value.trim() || null,
       image_url_4: document.getElementById('pr-img-4').value.trim() || null,
+      photo_theme: document.getElementById('pr-tema').value.trim() || null,
       base_price_with_promo:    parseFloat(document.getElementById('pr-pcom').value) || 0,
       base_price_without_promo: parseFloat(document.getElementById('pr-psem').value) || 0,
       production_cost:          parseFloat(document.getElementById('pr-cost').value) || 0,
@@ -4345,6 +4371,7 @@ document.getElementById('btn-salvar-produto').addEventListener('click', async ()
         image_url: v.image_url || null,
         price_with_promo: parseFloat(v.price_with_promo) || 0,
         price_without_promo: parseFloat(v.price_without_promo) || 0,
+        photo_theme: (v.photo_theme || '').trim() || null,
         sort_order: i,
       };
       if (v.id) {
@@ -7245,21 +7272,40 @@ function atualizarBtnImprimirFichas() {
  * @param {object} a - aluno { id, name, photo_seq_number, school, school_class, user }
  * @param {object} ped - pedido { items: [{quantity, product}], kits: [{quantity, kit}] } ou undefined
  */
-function montarFichaCard(a, ped) {
+// Busca os temas de foto atualmente cadastrados (produtos + variacoes) —
+// usado pra saber o que o Kit Promocional "carrega" (todos os temas do
+// momento, sem precisar marcar nada nele) e pra montar o aviso na ficha.
+async function buscarTodosTemasAtivos() {
+  const [{ data: prods }, { data: vars }] = await Promise.all([
+    supabase.from('products').select('photo_theme').eq('active', true).not('photo_theme', 'is', null),
+    supabase.from('product_variants').select('photo_theme').eq('active', true).not('photo_theme', 'is', null),
+  ]);
+  return [...new Set([...(prods || []).map(p => p.photo_theme), ...(vars || []).map(v => v.photo_theme)].filter(Boolean))];
+}
+
+function montarFichaCard(a, ped, todosTemas = []) {
   const turma  = a.school_class?.name || '—';
   const ano    = a.school_class?.year?.name || '—';
   const escola = a.school?.name || '—';
   const resp   = a.user || {};
 
   let compradoPartes = [];
+  const temasNecessarios = new Set();
   if (ped) {
     (ped.items || []).forEach(it => {
       const qty = parseInt(it.quantity || 1);
       compradoPartes.push((qty > 1 ? qty + '× ' : '') + (it.product?.name || '?'));
+      const tema = it.variant?.photo_theme || it.product?.photo_theme;
+      if (tema) temasNecessarios.add(tema);
     });
     (ped.kits || []).forEach(ok => {
       const kqty = parseInt(ok.quantity || 1);
       compradoPartes.push((kqty > 1 ? kqty + '× ' : '') + (ok.kit?.name || '?'));
+      // Kit Promocional nao tem tema marcado nele mesmo — "carrega" todos os
+      // temas que existirem no momento, pra acompanhar sozinho ano a ano.
+      if (ok.kit?.kit_type === 'promo') {
+        todosTemas.forEach(t => temasNecessarios.add(t));
+      }
     });
   }
   const comprou = compradoPartes.length > 0;
@@ -7272,6 +7318,10 @@ function montarFichaCard(a, ped) {
     ? `<div class="ficha-badge ficha-badge-comprou">✅ COMPROU</div>`
     : `<div class="ficha-badge ficha-badge-autorizou">📷 SÓ AUTORIZOU</div>`;
 
+  const temaBadge = temasNecessarios.size
+    ? `<div class="ficha-tema">📸 Fotografar: ${escapeHtml([...temasNecessarios].join(' + '))}</div>`
+    : '';
+
   const html = `<div class="ficha">
   <div class="ficha-body">
     <div class="ficha-header">
@@ -7279,6 +7329,7 @@ function montarFichaCard(a, ped) {
       <div class="ficha-escola">${escapeHtml(escola)}</div>
     </div>
     ${badge}
+    ${temaBadge}
     <div class="ficha-nome">${escapeHtml(a.name)}</div>
     <div class="ficha-info">
       <span><b>Ano:</b> ${escapeHtml(ano)}</span>
@@ -7321,6 +7372,7 @@ body{font-family:'DM Sans',Arial,sans-serif;background:#fff;color:#111}
 .ficha-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;margin-bottom:2px;width:fit-content}
 .ficha-badge-comprou{background:#d1fae5;color:#065f46}
 .ficha-badge-autorizou{background:#fef3c7;color:#92400e}
+.ficha-tema{display:inline-block;padding:3px 10px;border:2px solid #7c3aed;border-radius:6px;font-size:13px;font-weight:800;color:#5b21b6;margin-bottom:2px;width:fit-content}
 .ficha-nome{font-size:52px;font-weight:800;line-height:1.05;color:#111;letter-spacing:-.5px;text-align:center}
 .ficha-info{display:flex;gap:16px;font-size:14px;color:#444;flex-wrap:wrap}
 .ficha-comprado{font-size:14px;color:#333;border-top:1px solid #eee;padding-top:5px;margin-top:2px}
@@ -7367,18 +7419,19 @@ async function imprimirFichasSelecionadas() {
     const { data: pedidos, error: pedErr } = await supabase
       .from('orders')
       .select(`id, student_id,
-        items:order_items(quantity, product:products(name)),
-        kits:order_kits(quantity, kit:school_kits(name, items:school_kit_items(quantity, product:products(name))))`)
+        items:order_items(quantity, product:products(name, photo_theme), variant:product_variants(photo_theme)),
+        kits:order_kits(quantity, kit:school_kits(name, kit_type, items:school_kit_items(quantity, product:products(name))))`)
       .in('student_id', ids)
       .order('created_at', { ascending: false });
     if (pedErr) throw pedErr;
 
     const pedidoMap = {};
     (pedidos || []).forEach(p => { if (!pedidoMap[p.student_id]) pedidoMap[p.student_id] = p; });
+    const todosTemas = await buscarTodosTemasAtivos();
 
     const qrPayloads = {};
     const fichasHtml = alunos.map(a => {
-      const { html, qrPayload } = montarFichaCard(a, pedidoMap[a.id]);
+      const { html, qrPayload } = montarFichaCard(a, pedidoMap[a.id], todosTemas);
       qrPayloads[a.id] = qrPayload;
       return html;
     }).join('');
@@ -7653,17 +7706,18 @@ async function imprimirFichasSessao() {
     const { data: pedidos } = await supabase
       .from('orders')
       .select(`id, student_id,
-        items:order_items(quantity, product:products(name)),
-        kits:order_kits(quantity, kit:school_kits(name, items:school_kit_items(quantity, product:products(name))))`)
+        items:order_items(quantity, product:products(name, photo_theme), variant:product_variants(photo_theme)),
+        kits:order_kits(quantity, kit:school_kits(name, kit_type, items:school_kit_items(quantity, product:products(name))))`)
       .in('student_id', alunoIds);
 
     const pedidoMap = {};
     (pedidos || []).forEach(p => { if (!pedidoMap[p.student_id]) pedidoMap[p.student_id] = p; });
+    const todosTemas = await buscarTodosTemasAtivos();
 
     // 4. Monta fichas (mesmo layout/QR usado em "Imprimir fichas")
     const qrPayloads = {};
     const fichasHtml = autorizados.map(a => {
-      const { html, qrPayload } = montarFichaCard(a, pedidoMap[a.id]);
+      const { html, qrPayload } = montarFichaCard(a, pedidoMap[a.id], todosTemas);
       qrPayloads[a.id] = qrPayload;
       return html;
     }).join('');
