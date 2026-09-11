@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pagamento — For School</title>
 <link rel="icon" href="/assets/forschool.ico">
+<meta property="og:title" content="Pagamento — Play Up Fotografia">
+<meta property="og:description" content="Confira os dados do seu pedido e pague com Pix ou cartão, com segurança.">
+<meta property="og:image" content="https://forschool.playupfotografia.com.br/assets/logo-playup.png">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
 <style>
@@ -63,7 +68,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--gray-50);color:var(--gray
 <script type="module">
 import { supabase } from '/js/supabase-client.js';
 
-const token = new URLSearchParams(location.search).get('token');
+// O rewrite do Vercel (/pagar/:token -> /app/pagamento.html?token=:token) so'
+// existe internamente — o navegador nunca ve essa query string na barra de
+// endereco, ela continua mostrando /pagar/<token>. Por isso o token precisa
+// vir do proprio caminho da URL, nao de location.search (que fica vazio).
+const tokenDoPath = (location.pathname.match(/\/pagar\/([^/]+)/) || [])[1];
+const token = tokenDoPath || new URLSearchParams(location.search).get('token');
 const el = document.getElementById('conteudo');
 
 function escapeHtml(s) {
