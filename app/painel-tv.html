@@ -141,7 +141,7 @@ table.modo-unico .col-projeto{display:none}
 <script type="module">
 import { supabase, signIn, getCurrentUser, fmtMoney } from './js/supabase-client.js';
 
-const ROWS_POR_PAGINA = 28;
+let ROWS_POR_PAGINA = 20;   // chute inicial — recalculado de verdade em calcularLinhasPorPagina()
 const CICLO_PAGINA_MS = 9000;
 const REFRESH_MS = 30000;
 const TODOS_VALOR = '__todos__';
@@ -167,6 +167,43 @@ function fmtDataHoraCurta(iso) {
   const hh  = String(d.getHours()).padStart(2, '0');
   const mm  = String(d.getMinutes()).padStart(2, '0');
   return `${dia}/${mes} ${hh}:${mm}`;
+}
+
+// ---------------------------------------------------------------------------
+// Quantas linhas cabem de verdade na tela — em vez de um numero fixo
+// (chutado pensando num monitor comum), mede o espaco disponivel na TV real
+// e uma linha de "pior caso" (nome/itens compridos, que quebram em 2
+// linhas) pra nunca superestimar. Superestimar e' o pior erro possivel
+// aqui: as linhas que nao cabem ficam empurradas pra fora da tela sem
+// barra de rolagem (TV nao tem mouse) — e como pendente vem antes de pago
+// na ordenacao, sao os pagos que ficam invisiveis, escondidos sem aviso.
+// ---------------------------------------------------------------------------
+function calcularLinhasPorPagina() {
+  const table = document.getElementById('tv-table');
+  const tbody = document.getElementById('tv-tbody');
+  const pager = document.getElementById('tv-pager');
+  if (!table || !tbody) return 20;
+
+  tbody.innerHTML = `<tr>
+    <td class="col-projeto"><span class="tv-tag-projeto">Projeto Exemplo Bem Comprido</span><span class="tv-tag-escola">Escola Exemplo Comprida</span></td>
+    <td style="font-weight:600">Nome Bem Comprido de Aluno Exemplo</td>
+    <td class="tv-sub">1º Fund I — Professora Exemplo</td>
+    <td>P0000</td>
+    <td style="white-space:nowrap">00/00 00:00<div class="tv-sub">✓ 00/00 00:00</div></td>
+    <td><span class="tv-sub">Kit Intermediário, Chaveiro Acrílico Redondo, Marcador de Páginas</span></td>
+    <td><b>R$ 000,00</b></td>
+    <td><span class="badge badge-orange">⏳ Pendente</span></td>
+  </tr>`;
+  const alturaLinha = tbody.firstElementChild?.offsetHeight || 40;
+  tbody.innerHTML = '';
+
+  const topoTabela = table.getBoundingClientRect().top;
+  const alturaThead = table.querySelector('thead')?.offsetHeight || 0;
+  const alturaPager = (pager?.offsetHeight || 18) + 12;
+  const margemSeguranca = 16;
+  const alturaDisponivel = window.innerHeight - topoTabela - alturaThead - alturaPager - margemSeguranca;
+
+  return Math.max(4, Math.floor(alturaDisponivel / alturaLinha));
 }
 
 // ---------------------------------------------------------------------------
@@ -228,6 +265,7 @@ async function iniciarTela() {
     document.getElementById('tv-setup').style.display = 'none';
     document.getElementById('tv-content').style.display = 'block';
     document.getElementById('tv-table').classList.toggle('modo-unico', !projetoAtual.todos);
+    window.addEventListener('resize', () => { ROWS_POR_PAGINA = calcularLinhasPorPagina(); paginaAtual = 0; renderPagina(); reiniciarCicloPaginas(); });
     iniciarRelogio();
     carregarDados();
     timerRefresh = setInterval(carregarDados, REFRESH_MS);
@@ -311,6 +349,10 @@ async function carregarDados() {
     });
 
     renderStats();
+    // Recalcula com o cabecalho ja' com o texto real (nome do projeto/escola
+    // influencia quanto sobra de altura) — barato o suficiente pra fazer
+    // toda vez que os dados atualizam (a cada 30s).
+    ROWS_POR_PAGINA = calcularLinhasPorPagina();
     paginaAtual = 0;
     renderPagina();
     reiniciarCicloPaginas();
