@@ -968,6 +968,7 @@ body.modo-demo::after{content:'';position:fixed;inset:0;border:4px solid #7C3AED
         <span class="pd-price" id="pd-price"></span>
         <span class="pd-price-old" id="pd-price-old" hidden></span>
       </div>
+      <div style="font-size:12px;font-weight:600;color:var(--gray-500);margin-bottom:2px">Quantidade</div>
       <div class="pd-qty-row">
         <button id="pd-dec">−</button>
         <span class="pd-qty-num" id="pd-qty-num">0</span>
@@ -3035,6 +3036,25 @@ function pdAtualizarSelecao() {
   document.querySelectorAll('#pd-variantes-list [data-pd-var]').forEach(el => {
     el.style.borderColor = el.dataset.pdVar === pdVariantId ? 'var(--blue)' : 'var(--gray-200)';
   });
+
+  pdAtualizarBotaoFechar();
+}
+
+// O "+"/"-" ja adiciona ao carrinho na hora (nao existe um botao separado
+// de "comprar") — mas so' "Fechar" sozinho deixava parecendo que nada
+// tinha sido adicionado. Com item na quantidade, o botao vira uma
+// confirmacao visivel em vez de so' fechar.
+function pdAtualizarBotaoFechar() {
+  const qtd = avulsosCarrinho[pdCartKey()] || 0;
+  const btn = document.getElementById('pd-close-btn2');
+  if (qtd > 0) {
+    btn.textContent = '✓ Adicionar ao carrinho';
+    btn.className = 'btn btn-success';
+  } else {
+    btn.textContent = 'Fechar';
+    btn.className = 'btn btn-secondary';
+  }
+  btn.style.width = '100%';
 }
 
 let pdCurrentImgs = [];
@@ -3090,6 +3110,7 @@ document.getElementById('pd-inc').addEventListener('click', () => {
   const chave = pdCartKey();
   avulsosCarrinho[chave] = (avulsosCarrinho[chave] || 0) + 1;
   document.getElementById('pd-qty-num').textContent = avulsosCarrinho[chave];
+  pdAtualizarBotaoFechar();
   if (pdVariantId) { renderAvulsos(); } else {
     const q = document.getElementById('qty-' + pdAvId);
     if (q) q.textContent = avulsosCarrinho[chave];
@@ -3102,6 +3123,7 @@ document.getElementById('pd-dec').addEventListener('click', () => {
   avulsosCarrinho[chave] = Math.max(0, (avulsosCarrinho[chave] || 0) - 1);
   if (avulsosCarrinho[chave] === 0) delete avulsosCarrinho[chave];
   document.getElementById('pd-qty-num').textContent = avulsosCarrinho[chave] || 0;
+  pdAtualizarBotaoFechar();
   if (pdVariantId) { renderAvulsos(); } else {
     const q = document.getElementById('qty-' + pdAvId);
     if (q) q.textContent = avulsosCarrinho[chave] || 0;

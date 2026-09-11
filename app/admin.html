@@ -4041,22 +4041,32 @@ function renderPrVariantes() {
       </div>
       <div style="flex:1;display:flex;flex-direction:column;gap:5px;min-width:0">
         <div style="display:flex;gap:6px">
-          <input class="form-input" style="flex:1" placeholder="Nome (ex: Azul)" value="${escapeHtml(v.name || '')}" oninput="prVariantesTemp[${i}].name=this.value">
+          <input class="form-input" style="flex:1" placeholder="Nome (ex: Azul)" value="${escapeHtml(v.name || '')}" oninput="atualizarPrVariante(${i},'name',this.value)">
           <label class="btn btn-secondary" style="cursor:pointer;white-space:nowrap;font-size:11px;padding:6px 8px">
             Foto
             <input type="file" accept="image/*" style="display:none" onchange="onPrVarFile(${i}, this)">
           </label>
         </div>
         <div style="display:flex;gap:6px">
-          <input class="form-input" type="number" step="0.01" style="flex:1" placeholder="Preço c/ Promo" value="${v.price_with_promo ?? ''}" oninput="prVariantesTemp[${i}].price_with_promo=this.value">
-          <input class="form-input" type="number" step="0.01" style="flex:1" placeholder="Preço sem Promo" value="${v.price_without_promo ?? ''}" oninput="prVariantesTemp[${i}].price_without_promo=this.value">
+          <input class="form-input" type="number" step="0.01" style="flex:1" placeholder="Preço c/ Promo" value="${v.price_with_promo ?? ''}" oninput="atualizarPrVariante(${i},'price_with_promo',this.value)">
+          <input class="form-input" type="number" step="0.01" style="flex:1" placeholder="Preço sem Promo" value="${v.price_without_promo ?? ''}" oninput="atualizarPrVariante(${i},'price_without_promo',this.value)">
           <button type="button" class="btn btn-sm btn-danger" onclick="removePrVariante(${i})" style="flex-shrink:0">Remover</button>
         </div>
-        <input class="form-input" list="temas-foto-list" style="font-size:12px" placeholder="🎨 Tema da foto (opcional — ex: Natal)" value="${escapeHtml(v.photo_theme || '')}" oninput="prVariantesTemp[${i}].photo_theme=this.value">
+        <input class="form-input" list="temas-foto-list" style="font-size:12px" placeholder="🎨 Tema da foto (opcional — ex: Natal)" value="${escapeHtml(v.photo_theme || '')}" oninput="atualizarPrVariante(${i},'photo_theme',this.value)">
       </div>
     </div>
   `).join('');
 }
+
+// Atributo oninput inline nao ve variavel de dentro de <script type="module">
+// (so' funcao exposta em window.* funciona) — por isso os campos da
+// variacao (nome/preco/tema) precisam passar por aqui em vez de mutar
+// prVariantesTemp direto no HTML. Sem isso, digitar parecia normal na tela
+// mas nunca gravava de verdade: no save, nome ficava vazio e a linha era
+// pulada (a variacao "nao ficava" cadastrada).
+window.atualizarPrVariante = function (i, campo, valor) {
+  if (prVariantesTemp[i]) prVariantesTemp[i][campo] = valor;
+};
 
 window.addPrVariante = function () {
   // Preco parte do preco atual do produto — a maioria das variacoes custa
@@ -5674,15 +5684,14 @@ function renderPjColabs() {
         <span style="font-size:12px;color:var(--gray-500)">R$</span>
         <input type="number" step="0.01" value="${c.service_value || ''}" placeholder="0,00"
           style="width:90px;padding:4px 6px;font-size:12px;border:1px solid var(--gray-200);border-radius:4px;text-align:right"
-          onchange="projColabsTemp[${i}].service_value=parseFloat(this.value)||0">
-        <button class="btn btn-sm btn-danger" onclick="projColabsTemp.splice(${i},1);renderPjColabs()" style="padding:3px 8px">✕</button>
+          onchange="atualizarProjColab(${i},'service_value',parseFloat(this.value)||0)">
+        <button class="btn btn-sm btn-danger" onclick="removerProjColab(${i})" style="padding:3px 8px">✕</button>
       </div>
       <div>
         <label style="font-size:11px;color:var(--gray-500);display:block;margin-bottom:3px">Dias e horários de trabalho</label>
         <textarea rows="2" placeholder="Ex: 10/07 às 08h, 11/07 às 13h30…"
           style="width:100%;padding:5px 8px;font-size:12px;border:1px solid var(--gray-200);border-radius:4px;resize:vertical;font-family:inherit;box-sizing:border-box"
-          onchange="projColabsTemp[${i}].work_schedule=this.value"
-          oninput="projColabsTemp[${i}].work_schedule=this.value">${escapeHtml(c.work_schedule || '')}</textarea>
+          oninput="atualizarProjColab(${i},'work_schedule',this.value)">${escapeHtml(c.work_schedule || '')}</textarea>
       </div>
       <div style="display:flex;justify-content:flex-end">
         <button class="btn btn-sm btn-success" onclick="enviarWppColabProjeto(${i})" style="font-size:12px">💬 Enviar lembrete</button>
@@ -5691,6 +5700,18 @@ function renderPjColabs() {
   `).join('');
 }
 window.renderPjColabs = renderPjColabs;
+
+// Mesmo motivo do atualizarPrVariante (Produtos): atributo inline nao ve
+// variavel de dentro de <script type="module">, so' funcao exposta em
+// window.* funciona — por isso precisa passar por aqui em vez de mutar
+// projColabsTemp direto no HTML.
+window.atualizarProjColab = function (i, campo, valor) {
+  if (projColabsTemp[i]) projColabsTemp[i][campo] = valor;
+};
+window.removerProjColab = function (i) {
+  projColabsTemp.splice(i, 1);
+  renderPjColabs();
+};
 
 function enviarWppColabProjeto(i) {
   const c = projColabsTemp[i];
