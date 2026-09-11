@@ -2770,10 +2770,11 @@ document.querySelectorAll('.sb-item').forEach(btn => {
     document.querySelectorAll('.sb-item').forEach(b => b.classList.remove('active'));
     document.getElementById('page-' + page).classList.add('active');
     btn.classList.add('active');
+    pararAutoRefreshPedidos();   // trocou de pagina: para o timer da tela anterior
     if (page === 'dashboard') loadDashboard();
     if (page === 'produtos') loadProdutos();
     if (page === 'escolas') loadEscolas();
-    if (page === 'pedidos') loadPedidos();
+    if (page === 'pedidos') { loadPedidos(); iniciarAutoRefreshPedidos(); }
     if (page === 'config') loadConfig();
     if (page === 'bilhete') loadBilhete();
     if (page === 'informativos') loadInformativos();
@@ -2796,6 +2797,25 @@ document.querySelectorAll('.sb-item').forEach(btn => {
 // ============================================================================
 
 let pedidosCache = [];   // todos os pedidos carregados (pra filtrar client-side sem requery)
+let pedidosAutoRefreshTimer = null;
+
+// Atualiza a lista sozinha a cada 30s enquanto a tela de Pedidos estiver
+// aberta — pra nao precisar ficar dando F5 esperando um pagamento cair.
+// So' roda enquanto a pagina realmente estiver na tela; troca de pagina para
+// o timer (ver NAV).
+function iniciarAutoRefreshPedidos() {
+  pararAutoRefreshPedidos();
+  pedidosAutoRefreshTimer = setInterval(() => {
+    if (document.getElementById('page-pedidos')?.classList.contains('active')) {
+      loadPedidos();
+    } else {
+      pararAutoRefreshPedidos();
+    }
+  }, 30000);
+}
+function pararAutoRefreshPedidos() {
+  if (pedidosAutoRefreshTimer) { clearInterval(pedidosAutoRefreshTimer); pedidosAutoRefreshTimer = null; }
+}
 
 // Rotulo do metodo de pagamento, ja considerando a cobranca do gateway.
 // Mostra se veio do Asaas (automatico) ou se e' pagamento manual, como antes.
