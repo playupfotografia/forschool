@@ -3610,6 +3610,7 @@ document.getElementById('btn-salvar-config').addEventListener('click', async () 
 document.querySelectorAll('[data-close]').forEach(el => {
   el.addEventListener('click', () => {
     document.getElementById(el.dataset.close).classList.remove('open');
+    if (el.dataset.close === 'mod-drill-proj') pararAutoRefreshDrill();
   });
 });
 
@@ -6371,6 +6372,24 @@ let drillProjeto = null;    // projeto aberto — nome, slug e escola pras mensa
 let sessaoPorTurma = {};    // class_id -> { photo_date, period } da 1a sessao
 let drillAlunosData = [];   // [{id, name, class_name, year_name, user_id, responsible_name, order, sibling}]
 let drillPedidosData = [];  // [{id, order_number, student_name, kit_type, items, total_amount, payment_status, payment_proof_url}]
+let drillAutoRefreshTimer = null;
+
+// Atualiza sozinho a cada 30s enquanto o modal Alunos & Pedidos estiver
+// aberto — mesma ideia da tela de Pedidos. Recarrega em modo "silent" pra
+// nao resetar busca/turma/status que o Daniel ja tinha escolhido.
+function iniciarAutoRefreshDrill() {
+  pararAutoRefreshDrill();
+  drillAutoRefreshTimer = setInterval(() => {
+    if (document.getElementById('mod-drill-proj')?.classList.contains('open') && drillProjetoId) {
+      abrirDrillProjeto(drillProjetoId, { silent: true });
+    } else {
+      pararAutoRefreshDrill();
+    }
+  }, 30000);
+}
+function pararAutoRefreshDrill() {
+  if (drillAutoRefreshTimer) { clearInterval(drillAutoRefreshTimer); drillAutoRefreshTimer = null; }
+}
 
 // Tab switching inside drill modal
 document.querySelectorAll('#mod-drill-proj .tab-btn').forEach(btn => {
@@ -6426,25 +6445,27 @@ function popularSeletorDrill(projectId) {
   sel.value = projectId;
 }
 
-async function abrirDrillProjeto(projectId) {
+async function abrirDrillProjeto(projectId, opts = {}) {
+  const silent = !!opts.silent;   // true = atualizacao automatica de 30 em 30s
   drillProjetoId = projectId;
-  drillAlunosData = [];
-  drillPedidosData = [];
+  if (!silent) { drillAlunosData = []; drillPedidosData = []; }
   try { localStorage.setItem('drillUltimoProjeto', projectId); } catch {}
 
-  // Reset UI
+  // Reset UI — pulado no modo silencioso pra nao apagar busca/turma/status
+  // que o Daniel ja tinha escolhido, nem piscar spinner a cada 30s.
   const proj = projetosCache.find(p => p.id === projectId);
-  popularSeletorDrill(projectId);
-  drillProjeto = proj || null;   // usado pelas mensagens de contato
-  document.getElementById('drill-proj-title').textContent = proj ? proj.name : 'Alunos & Pedidos';
-  document.getElementById('drill-proj-sub').textContent  = proj ? (proj.school?.name || '') : '';
-  document.getElementById('drill-al-tab').innerHTML  = '<tr><td colspan="9" class="loading"><span class="spinner"></span>Carregando…</td></tr>';
-  document.getElementById('drill-al-busca').value = '';
-  document.getElementById('drill-al-ftur').value  = '';
-  document.getElementById('drill-al-fst').value   = '';
-  document.getElementById('drill-al-fcont').checked = false;
-
-  document.getElementById('mod-drill-proj').classList.add('open');
+  if (!silent) {
+    popularSeletorDrill(projectId);
+    drillProjeto = proj || null;   // usado pelas mensagens de contato
+    document.getElementById('drill-proj-title').textContent = proj ? proj.name : 'Alunos & Pedidos';
+    document.getElementById('drill-proj-sub').textContent  = proj ? (proj.school?.name || '') : '';
+    document.getElementById('drill-al-tab').innerHTML  = '<tr><td colspan="9" class="loading"><span class="spinner"></span>Carregando…</td></tr>';
+    document.getElementById('drill-al-busca').value = '';
+    document.getElementById('drill-al-ftur').value  = '';
+    document.getElementById('drill-al-fst').value   = '';
+    document.getElementById('drill-al-fcont').checked = false;
+    document.getElementById('mod-drill-proj').classList.add('open');
+  }
 
   try {
     // 1. Pegar class_ids do projeto — e, de quebra, a data da sessao de cada
@@ -6575,16 +6596,21 @@ async function abrirDrillProjeto(projectId) {
       student_name: alunoMap[p.student_id] || '—',
     }));
 
-    // 7. Popular filtro de turmas
+    // 7. Popular filtro de turmas — preserva a turma selecionada (importante
+    // no modo silencioso, senao a atualizacao automatica derrubava o filtro
+    // que o Daniel tinha escolhido a cada 30s).
     const turmas = [...new Map(alunosRaw.filter(a => a.class).map(a => [a.class.id, { id: a.class.id, name: a.class.name, year: a.class?.year?.name || '' }])).values()]
       .sort((a,b) => a.year.localeCompare(b.year) || a.name.localeCompare(b.name));
     const selTur = document.getElementById('drill-al-ftur');
+    const turmaAntes = selTur.value;
     selTur.innerHTML = '<option value="">Todas as turmas</option>' +
       turmas.map(t => `<option value="${t.id}">${escapeHtml(t.year ? t.year + ' — ' + t.name : t.name)}</option>`).join('');
+    if (turmaAntes) selTur.value = turmaAntes;
 
     renderDrillStats();
     filtrarDrillAlunos();
     filtrarDrillPedidos();
+    iniciarAutoRefreshDrill();
 
   } catch (err) {
     handleError(err, 'abrirDrillProjeto');
