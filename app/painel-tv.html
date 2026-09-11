@@ -67,10 +67,15 @@ table.modo-unico .col-projeto{display:none}
 #tv-empty{text-align:center;padding:60px;color:var(--gray-400);font-size:20px}
 
 /* Seletor de projeto — só aparece na primeira vez, pra configurar uma vez
-   só a partir do computador; depois fica salvo e nunca mais precisa mexer. */
-#tv-setup{max-width:420px;margin:80px auto;background:var(--white);border-radius:16px;padding:30px;box-shadow:0 10px 40px rgba(0,0,0,.08);text-align:center}
-#tv-setup select{width:100%;padding:12px;margin:16px 0;border:1px solid var(--gray-200);border-radius:8px;font-size:15px}
-#tv-setup button{padding:12px 24px;border:none;border-radius:8px;background:var(--blue);color:#fff;font-size:15px;font-weight:600;cursor:pointer}
+   só a partir do computador; depois fica salvo e nunca mais precisa mexer.
+   Lista de botoes grandes em vez de <select> nativo: o menu suspenso do
+   <select> nao abre/nao navega direito com controle remoto de TV — botao
+   focavel com seta pra cima/baixo funciona em qualquer navegador de TV. */
+#tv-setup{max-width:520px;margin:60px auto;background:var(--white);border-radius:16px;padding:30px;box-shadow:0 10px 40px rgba(0,0,0,.08);text-align:center}
+#tv-setup-lista{margin-top:18px;display:flex;flex-direction:column;gap:10px;max-height:70vh;overflow-y:auto}
+.tv-setup-opt{display:block;width:100%;text-align:left;padding:16px 20px;border:2px solid var(--gray-200);border-radius:10px;background:var(--gray-50);cursor:pointer;font-size:16px;font-weight:600;color:var(--gray-900)}
+.tv-setup-opt small{display:block;font-size:13px;font-weight:500;color:var(--gray-500);margin-top:2px}
+.tv-setup-opt:focus,.tv-setup-opt:hover{outline:none;border-color:var(--blue);background:var(--blue-light)}
 </style>
 </head>
 <body>
@@ -92,8 +97,7 @@ table.modo-unico .col-projeto{display:none}
   <div id="tv-setup" style="display:none">
     <h1 style="font-size:18px;margin-bottom:4px">Qual projeto acompanhar?</h1>
     <div class="tv-sub">Escolha uma vez — a partir daqui essa TV lembra sozinha.</div>
-    <select id="tv-setup-sel"></select><br>
-    <button id="tv-setup-btn">Usar este projeto</button>
+    <div id="tv-setup-lista"></div>
   </div>
 
   <div id="tv-content" style="display:none">
@@ -219,17 +223,32 @@ async function iniciarTela() {
     carregarDados();
     timerRefresh = setInterval(carregarDados, REFRESH_MS);
   } else {
-    // Nenhum projeto resolvido — pede pra escolher uma vez so'.
-    const sel = document.getElementById('tv-setup-sel');
-    sel.innerHTML = `<option value="${TODOS_VALOR}">🔎 Todos os projetos (pedidos de todas as escolas)</option>` +
-      projetosCacheTV.map(p =>
-        `<option value="${p.slug}">${escapeHtml(p.name)}${p.school?.name ? ' — ' + escapeHtml(p.school.name) : ''}</option>`).join('');
-    document.getElementById('tv-setup').style.display = 'block';
-    document.getElementById('tv-setup-btn').onclick = () => {
-      localStorage.setItem('tvPainelProjetoSlug', sel.value);
-      location.reload();
-    };
+    mostrarSeletorProjeto();
   }
+}
+
+// Lista de botoes grandes e focaveis — sem <select> nativo, que nao abre/nao
+// navega direito com controle remoto de TV. Cada botao ja' escolhe e recarrega
+// sozinho ao clicar/apertar OK, sem precisar de um segundo botao de confirmar.
+function mostrarSeletorProjeto() {
+  const lista = document.getElementById('tv-setup-lista');
+  const opcoes = [{ slug: TODOS_VALOR, label: '🔎 Todos os projetos', sub: 'Pedidos de todas as escolas ativas' }]
+    .concat(projetosCacheTV.map(p => ({ slug: p.slug, label: p.name, sub: p.school?.name || '' })));
+
+  lista.innerHTML = opcoes.map((o, i) =>
+    `<button type="button" class="tv-setup-opt" data-slug="${escapeHtml(o.slug)}" ${i === 0 ? 'autofocus' : ''}>
+      ${escapeHtml(o.label)}${o.sub ? `<small>${escapeHtml(o.sub)}</small>` : ''}
+    </button>`).join('');
+
+  lista.querySelectorAll('.tv-setup-opt').forEach(btn => {
+    btn.addEventListener('click', () => {
+      localStorage.setItem('tvPainelProjetoSlug', btn.dataset.slug);
+      location.reload();
+    });
+  });
+
+  document.getElementById('tv-setup').style.display = 'block';
+  lista.querySelector('.tv-setup-opt')?.focus();
 }
 
 // Link discreto "Trocar projeto" — limpa a escolha salva e volta pro
