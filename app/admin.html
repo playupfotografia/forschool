@@ -2830,6 +2830,7 @@ document.querySelectorAll('.sb-item').forEach(btn => {
 // ============================================================================
 
 let pedidosCache = [];   // todos os pedidos carregados (pra filtrar client-side sem requery)
+let duplicadoPagoPorAlunoPedidos = {};   // student_id -> pedido pago do cadastro duplicado (migration_035)
 let pedidosAutoRefreshTimer = null;
 
 // Atualiza a lista sozinha a cada 30s enquanto a tela de Pedidos estiver
@@ -2891,13 +2892,36 @@ async function loadPedidos() {
         payment_proof_url, paid_at, created_at, source, notes,
         gateway, gateway_status, installments, amount_charged, surcharge_amount,
         net_amount, gateway_fee, delivery_method, delivery_fee, delivery_address,
-        student:students(id, name),
+        student:students(id, name, duplicate_of_student_id),
         school:schools(id, name, slug)
       `)
       .order('created_at', { ascending: false });
     if (error) throw error;
 
     pedidosCache = data || [];
+
+    // Duplicidade de cadastro (migration_035): mapa student_id -> pedido
+    // pago do OUTRO lado do vinculo, nos dois sentidos. So' precisa olhar
+    // quem ja tem pedido (os dois lados de um vinculo relevante sempre
+    // tem), sem query extra em `students`.
+    const pedidoRecentePorAluno = {};
+    pedidosCache.forEach(p => {
+      if (p.student?.id && !pedidoRecentePorAluno[p.student.id]) pedidoRecentePorAluno[p.student.id] = p;
+    });
+    duplicadoPagoPorAlunoPedidos = {};
+    pedidosCache.forEach(p => {
+      const sid = p.student?.id;
+      if (!sid || duplicadoPagoPorAlunoPedidos[sid]) return;
+      let outroId = p.student.duplicate_of_student_id || null;
+      if (!outroId) {
+        const reverso = pedidosCache.find(q => q.student?.duplicate_of_student_id === sid);
+        outroId = reverso?.student?.id || null;
+      }
+      if (outroId && pedidoRecentePorAluno[outroId]?.payment_status === 'paid') {
+        duplicadoPagoPorAlunoPedidos[sid] = pedidoRecentePorAluno[outroId];
+      }
+    });
+
     filtrarPedidos();
   } catch (err) {
     handleError(err, 'loadPedidos');
@@ -2958,7 +2982,9 @@ function filtrarPedidos() {
 
   tb.innerHTML = lista.map(p => {
     const data = p.created_at ? new Date(p.created_at).toLocaleDateString('pt-BR') : '—';
+    const dupPago = p.payment_status === 'pending' ? duplicadoPagoPorAlunoPedidos[p.student?.id] : null;
     const stBadge = p.payment_status === 'paid'    ? '<span class="badge badge-green">Pago</span>'
+                  : dupPago ? `<span class="badge badge-blue" title="Mesma criança, cadastro diferente — pedido lá: ${escapeHtml(dupPago.order_number || '')}, pago">🔗 Duplicado ✓ Pago</span>`
                   : p.payment_status === 'pending' ? '<span class="badge badge-yellow">Pendente</span>'
                   : p.payment_status === 'refunded' ? '<span class="badge badge-gray">Reembolsado</span>'
                   : `<span class="badge badge-red">${escapeHtml(p.payment_status)}</span>`;
@@ -6555,7 +6581,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       const { data } = await supabase
         .from('students')
         .select(`
-          id, name, photo_seq_number, user_id,
+          id, name, photo_seq_number, user_id, duplicate_of_student_id,
           guardian2_name, guardian2_phone,
           class:school_classes(id, name, year:school_years(id, name)),
           responsible:users(id, name, phone)
@@ -6568,7 +6594,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       const { data } = await supabase
         .from('students')
         .select(`
-          id, name, photo_seq_number, user_id,
+          id, name, photo_seq_number, user_id, duplicate_of_student_id,
           guardian2_name, guardian2_phone,
           class:school_classes(id, name, year:school_years(id, name)),
           responsible:users(id, name, phone)
@@ -6623,6 +6649,23 @@ async function abrirDrillProjeto(projectId, opts = {}) {
     }
 
     // 5. Montar drillAlunosData
+    // Duplicidade de cadastro (migration_035): se este aluno esta' linkado a
+    // outro (nos dois sentidos) e o pedido do OUTRO lado esta' pago, guarda
+    // pra mostrar "Duplicado — Pago" em vez de "Pendente". Usa so' o que
+    // ja foi buscado nesta mesma leva (mae/pai geralmente caem na mesma
+    // turma/projeto), sem precisar de query extra.
+    const duplicadoPagoPorAluno = {};
+    alunosRaw.forEach(a => {
+      let outroId = a.duplicate_of_student_id || null;
+      if (!outroId) {
+        const reverso = alunosRaw.find(b => b.duplicate_of_student_id === a.id);
+        outroId = reverso?.id || null;
+      }
+      if (outroId && pedidosPorAluno[outroId]?.payment_status === 'paid') {
+        duplicadoPagoPorAluno[a.id] = pedidosPorAluno[outroId];
+      }
+    });
+
     drillAlunosData = alunosRaw.map(a => ({
       id: a.id,
       name: a.name,
@@ -6637,6 +6680,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       sibling: a.user_id && userIdCount[a.user_id] > 1,
       order: pedidosPorAluno[a.id] || null,
       contato: contatoPorAluno[a.id] || null,
+      duplicadoPago: duplicadoPagoPorAluno[a.id] || null,
     }));
 
     // 6. Montar drillPedidosData (adiciona nome do aluno)
@@ -6752,6 +6796,11 @@ function filtrarDrillAlunos() {
 
       if (o.payment_status === 'paid') {
         stCell = `<button class="btn btn-sm badge-green" style="border:none;cursor:pointer;font-weight:600" onclick="drillMarcarPendente('${o.id}')" title="Clique para reverter para pendente">✓ Pago</button>`;
+      } else if (o.payment_status === 'pending' && a.duplicadoPago) {
+        // Duplicidade de cadastro vinculada (migration_035): o pedido lá do
+        // outro cadastro do mesmo aluno ja esta' pago — nao e' mais um
+        // "pendente" de verdade, so' o registro duplicado.
+        stCell = `<span class="badge badge-blue" title="Mesma criança, cadastro diferente — pedido lá: ${escapeHtml(a.duplicadoPago.order_number || '')}, pago">🔗 Duplicado ✓ Pago</span>`;
       } else if (o.payment_status === 'pending') {
         stCell = `<button class="btn btn-sm badge-yellow" style="border:none;cursor:pointer;font-weight:600" onclick="drillMarcarPago('${o.id}')" title="Clique para marcar como pago">⏳ Pendente</button>`;
       } else {
