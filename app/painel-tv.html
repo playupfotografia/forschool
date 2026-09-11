@@ -35,8 +35,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--gray-50);color:var(--gray
 #tv-proj-school{font-size:10px;color:var(--gray-500);margin-top:0}
 #tv-clock{font-family:'DM Sans',monospace;font-weight:800;font-size:20px;color:var(--blue);text-align:right;line-height:1.05}
 #tv-clock small{display:block;font-size:10px;font-weight:600;color:var(--gray-500)}
-#tv-trocar{font-size:10px;color:var(--gray-400);cursor:pointer;user-select:none}
-#tv-trocar:hover{color:var(--blue)}
+#tv-trocar,#tv-fullscreen{font-size:10px;color:var(--gray-400);cursor:pointer;user-select:none}
+#tv-trocar:hover,#tv-fullscreen:hover{color:var(--blue)}
 /* Trocar projeto + os dois logos numa linha so' — antes cada um numa linha
    deixava a coluna direita bem mais alta que a esquerda (nome do
    projeto/escola), e como o cabecalho e' um flex row a altura dele e' a do
@@ -116,6 +116,7 @@ table.modo-unico .col-projeto{display:none}
         <div id="tv-clock">—</div>
         <div id="tv-logos">
           <div id="tv-trocar" title="Trocar de projeto ou entrar no modo 'todos os projetos'">🔁 Trocar projeto</div>
+          <div id="tv-fullscreen" title="Tela cheia — esconde a barra do navegador">⛶ Tela cheia</div>
           <img src="assets/logo.png" alt="For School">
           <img src="assets/logo-playup.png" alt="Play Up Fotografia">
         </div>
@@ -308,6 +309,19 @@ document.getElementById('tv-trocar').addEventListener('click', () => {
   url.searchParams.delete('projeto');
   location.href = url.toString();
 });
+
+// Tela cheia — esconde a barra de endereco do navegador da TV, ganhando
+// mais espaco vertical ainda. Precisa ser um clique de verdade (API do
+// navegador nao deixa entrar em fullscreen sozinho, sem gesto do usuario).
+const btnFull = document.getElementById('tv-fullscreen');
+function atualizarBotaoFullscreen() {
+  btnFull.textContent = document.fullscreenElement ? '⛶ Sair da tela cheia' : '⛶ Tela cheia';
+}
+btnFull.addEventListener('click', () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen().catch(() => {});
+});
+document.addEventListener('fullscreenchange', atualizarBotaoFullscreen);
 
 // ---------------------------------------------------------------------------
 // RELOGIO
