@@ -31,13 +31,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--gray-50);color:var(--gray
 /* TELA TV */
 #tv-screen{display:none;padding:8px 28px;min-height:100vh}
 #tv-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px}
-#tv-header img{height:15px;margin-bottom:1px}
 #tv-proj-name{font-size:15px;font-weight:800;color:var(--gray-900)}
 #tv-proj-school{font-size:10px;color:var(--gray-500);margin-top:0}
 #tv-clock{font-family:'DM Sans',monospace;font-weight:800;font-size:20px;color:var(--blue);text-align:right;line-height:1.05}
 #tv-clock small{display:block;font-size:10px;font-weight:600;color:var(--gray-500)}
 #tv-trocar{text-align:right;font-size:10px;color:var(--gray-400);cursor:pointer;margin-top:1px;user-select:none}
 #tv-trocar:hover{color:var(--blue)}
+#tv-logos{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:6px}
+#tv-logos img{height:32px}
 
 #tv-stats{display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap}
 .tv-stat{background:var(--white);border-radius:8px;padding:4px 12px;box-shadow:0 1px 4px rgba(0,0,0,.05);min-width:95px}
@@ -48,11 +49,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--gray-50);color:var(--gray
 .tv-stat.rec b{color:var(--blue)}
 
 table{width:100%;border-collapse:collapse;background:var(--white);border-radius:14px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.05)}
-th{text-align:left;padding:12px 18px;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-500);background:var(--gray-50);border-bottom:1px solid var(--gray-200)}
-td{padding:13px 18px;font-size:19px;border-bottom:1px solid var(--gray-100)}
+th{text-align:left;padding:7px 16px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-500);background:var(--gray-50);border-bottom:1px solid var(--gray-200)}
+td{padding:7px 16px;font-size:15px;border-bottom:1px solid var(--gray-100)}
 tr:last-child td{border-bottom:none}
-.tv-sub{font-size:14px;color:var(--gray-500)}
-.badge{display:inline-block;padding:4px 12px;border-radius:20px;font-size:14px;font-weight:700}
+.tv-sub{font-size:11px;color:var(--gray-500)}
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700}
 .badge-green{background:var(--green-light);color:var(--green)}
 .badge-orange{background:var(--orange-light);color:var(--orange)}
 .badge-gray{background:var(--gray-100);color:var(--gray-500)}
@@ -103,13 +104,16 @@ table.modo-unico .col-projeto{display:none}
   <div id="tv-content" style="display:none">
     <div id="tv-header">
       <div>
-        <img src="assets/logo.png" alt="For School"><br>
         <div id="tv-proj-name">—</div>
         <div id="tv-proj-school"></div>
       </div>
       <div>
         <div id="tv-clock">—</div>
         <div id="tv-trocar" title="Trocar de projeto ou entrar no modo 'todos os projetos'">🔁 Trocar projeto</div>
+        <div id="tv-logos">
+          <img src="assets/logo.png" alt="For School">
+          <img src="assets/logo-playup.png" alt="Play Up Fotografia">
+        </div>
       </div>
     </div>
 
@@ -132,7 +136,7 @@ table.modo-unico .col-projeto{display:none}
 <script type="module">
 import { supabase, signIn, getCurrentUser, fmtMoney } from './js/supabase-client.js';
 
-const ROWS_POR_PAGINA = 20;
+const ROWS_POR_PAGINA = 26;
 const CICLO_PAGINA_MS = 9000;
 const REFRESH_MS = 30000;
 const TODOS_VALOR = '__todos__';
