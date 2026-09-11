@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>For School — Painel TV</title>
+<link rel="icon" href="assets/forschool.ico">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --blue:#4B6BFB;--blue-light:#EEF1FF;
+  --green:#27AE60;--green-light:#E9F7EF;
+  --orange:#E3815A;--orange-light:#FEF3EC;
+  --gray-50:#F9FAFB;--gray-100:#F3F4F6;--gray-200:#E5E7EB;
+  --gray-400:#9CA3AF;--gray-500:#6B7280;--gray-700:#374151;--gray-900:#111827;
+  --white:#fff;
+}
+body{font-family:'DM Sans',sans-serif;background:var(--gray-50);color:var(--gray-900);min-height:100vh}
+
+/* LOGIN — mesma pegada visual do admin, só que autocontida (essa tela nao
+   carrega o admin.html inteiro). */
+#login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:22px;background:linear-gradient(135deg,var(--blue-light),#EDE9FE)}
+.login-card{background:var(--white);border-radius:16px;padding:34px;width:100%;max-width:380px;box-shadow:0 10px 40px rgba(0,0,0,.1);text-align:center}
+.login-card img{height:48px;margin-bottom:14px}
+.login-card h1{font-size:18px;margin-bottom:20px;color:var(--gray-700)}
+.login-card input{width:100%;padding:12px 14px;margin-bottom:10px;border:1px solid var(--gray-200);border-radius:8px;font-size:15px}
+.login-card button{width:100%;padding:12px;border:none;border-radius:8px;background:var(--blue);color:#fff;font-size:15px;font-weight:600;cursor:pointer;margin-top:6px}
+#login-err{color:#E74C3C;font-size:13px;margin-top:10px;display:none}
+
+/* TELA TV */
+#tv-screen{display:none;padding:28px 40px;min-height:100vh}
+#tv-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px}
+#tv-header img{height:40px;margin-bottom:6px}
+#tv-proj-name{font-size:28px;font-weight:800;color:var(--gray-900)}
+#tv-proj-school{font-size:16px;color:var(--gray-500);margin-top:2px}
+#tv-clock{font-family:'DM Sans',monospace;font-weight:800;font-size:52px;color:var(--blue);text-align:right;line-height:1.05}
+#tv-clock small{display:block;font-size:18px;font-weight:600;color:var(--gray-500)}
+#tv-trocar{text-align:right;font-size:13px;color:var(--gray-400);cursor:pointer;margin-top:6px;user-select:none}
+#tv-trocar:hover{color:var(--blue)}
+
+#tv-stats{display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+.tv-stat{background:var(--white);border-radius:14px;padding:14px 24px;box-shadow:0 1px 4px rgba(0,0,0,.05);min-width:140px}
+.tv-stat b{display:block;font-size:30px;line-height:1.1}
+.tv-stat span{font-size:13px;color:var(--gray-500);text-transform:uppercase;letter-spacing:.4px}
+.tv-stat.pag b{color:var(--green)}
+.tv-stat.pend b{color:var(--orange)}
+.tv-stat.rec b{color:var(--blue)}
+
+table{width:100%;border-collapse:collapse;background:var(--white);border-radius:14px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+th{text-align:left;padding:12px 18px;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-500);background:var(--gray-50);border-bottom:1px solid var(--gray-200)}
+td{padding:13px 18px;font-size:19px;border-bottom:1px solid var(--gray-100)}
+tr:last-child td{border-bottom:none}
+.tv-sub{font-size:14px;color:var(--gray-500)}
+.badge{display:inline-block;padding:4px 12px;border-radius:20px;font-size:14px;font-weight:700}
+.badge-green{background:var(--green-light);color:var(--green)}
+.badge-orange{background:var(--orange-light);color:var(--orange)}
+.badge-gray{background:var(--gray-100);color:var(--gray-500)}
+/* Coluna "Projeto" so' existe no modo "todos os projetos" — no modo de um
+   projeto so' ela fica redundante (ja' esta' no cabecalho), entao' se
+   esconde sozinha via essa classe no <table>. */
+table.modo-unico .col-projeto{display:none}
+.tv-tag-projeto{display:block;font-size:12px;font-weight:700;color:var(--blue)}
+.tv-tag-escola{display:block;font-size:12px;color:var(--gray-400)}
+
+#tv-pager{text-align:center;margin-top:16px;color:var(--gray-400);font-size:15px}
+#tv-empty{text-align:center;padding:60px;color:var(--gray-400);font-size:20px}
+
+/* Seletor de projeto — só aparece na primeira vez, pra configurar uma vez
+   só a partir do computador; depois fica salvo e nunca mais precisa mexer. */
+#tv-setup{max-width:420px;margin:80px auto;background:var(--white);border-radius:16px;padding:30px;box-shadow:0 10px 40px rgba(0,0,0,.08);text-align:center}
+#tv-setup select{width:100%;padding:12px;margin:16px 0;border:1px solid var(--gray-200);border-radius:8px;font-size:15px}
+#tv-setup button{padding:12px 24px;border:none;border-radius:8px;background:var(--blue);color:#fff;font-size:15px;font-weight:600;cursor:pointer}
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <div class="login-card">
+    <img src="assets/logo.png" alt="For School">
+    <h1>Painel TV — Alunos & Pedidos</h1>
+    <form id="tv-login-form">
+      <input type="email" id="tv-email" placeholder="E-mail" required autocomplete="username">
+      <input type="password" id="tv-senha" placeholder="Senha" required autocomplete="current-password">
+      <button type="submit">Entrar</button>
+    </form>
+    <div id="login-err"></div>
+  </div>
+</div>
+
+<div id="tv-screen">
+  <div id="tv-setup" style="display:none">
+    <h1 style="font-size:18px;margin-bottom:4px">Qual projeto acompanhar?</h1>
+    <div class="tv-sub">Escolha uma vez — a partir daqui essa TV lembra sozinha.</div>
+    <select id="tv-setup-sel"></select><br>
+    <button id="tv-setup-btn">Usar este projeto</button>
+  </div>
+
+  <div id="tv-content" style="display:none">
+    <div id="tv-header">
+      <div>
+        <img src="assets/logo.png" alt="For School"><br>
+        <div id="tv-proj-name">—</div>
+        <div id="tv-proj-school"></div>
+      </div>
+      <div>
+        <div id="tv-clock">—</div>
+        <div id="tv-trocar" title="Trocar de projeto ou entrar no modo 'todos os projetos'">🔁 Trocar projeto</div>
+      </div>
+    </div>
+
+    <div id="tv-stats">
+      <div class="tv-stat"><b id="tv-st-alunos">—</b><span id="tv-st-alunos-label">Alunos</span></div>
+      <div class="tv-stat pag"><b id="tv-st-pagos">—</b><span>Pagos</span></div>
+      <div class="tv-stat pend"><b id="tv-st-pend">—</b><span>Pendentes</span></div>
+      <div class="tv-stat rec"><b id="tv-st-rec">—</b><span>Receita confirmada</span></div>
+    </div>
+
+    <table id="tv-table">
+      <thead><tr><th class="col-projeto">Projeto</th><th>Aluno</th><th>Turma</th><th>Nº pedido</th><th>Quando</th><th>Itens</th><th>Total</th><th>Status</th></tr></thead>
+      <tbody id="tv-tbody"></tbody>
+    </table>
+    <div id="tv-empty" style="display:none">Nenhum aluno encontrado neste projeto.</div>
+    <div id="tv-pager"></div>
+  </div>
+</div>
+
+<script type="module">
+import { supabase, signIn, getCurrentUser, fmtMoney } from './js/supabase-client.js';
+
+const ROWS_POR_PAGINA = 14;
+const CICLO_PAGINA_MS = 9000;
+const REFRESH_MS = 30000;
+const TODOS_VALOR = '__todos__';
+const LIMITE_PEDIDOS_TODOS = 300;   // trava de seguranca no modo "todos os projetos" — e' um feed, nao um relatorio
+
+let projetoAtual = null;      // {id, name, school} de um projeto, ou {id:TODOS_VALOR, todos:true, name} no modo "todos"
+let projetosCacheTV = [];     // lista de projetos ativos (pra montar o seletor e o modo "todos")
+let listaAlunos = [];         // dataset atual, ja' ordenado — no modo "todos" cada linha e' um pedido, nao um aluno
+let paginaAtual = 0;
+let timerCiclo = null;
+let timerRefresh = null;
+let timerRelogio = null;
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+function fmtDataHoraCurta(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const dia = String(d.getDate()).padStart(2, '0');
+  const mes = String(d.getMonth() + 1).padStart(2, '0');
+  const hh  = String(d.getHours()).padStart(2, '0');
+  const mm  = String(d.getMinutes()).padStart(2, '0');
+  return `${dia}/${mes} ${hh}:${mm}`;
+}
+
+// ---------------------------------------------------------------------------
+// LOGIN
+// ---------------------------------------------------------------------------
+document.getElementById('tv-login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('login-err');
+  errEl.style.display = 'none';
+  try {
+    await signIn(document.getElementById('tv-email').value.trim(), document.getElementById('tv-senha').value);
+    iniciarTela();
+  } catch (err) {
+    errEl.textContent = err.message || 'Erro ao entrar';
+    errEl.style.display = 'block';
+  }
+});
+
+async function checarLogin() {
+  const user = await getCurrentUser();
+  if (user) iniciarTela();
+  else document.getElementById('login-screen').style.display = 'flex';
+}
+
+// ---------------------------------------------------------------------------
+// SETUP DO PROJETO — le' da URL (?projeto=slug), depois do localStorage, e
+// so' mostra o seletor se nenhum dos dois resolver. Uma vez escolhido, salva
+// e nunca mais pede — a TV so' fica exibindo.
+// ---------------------------------------------------------------------------
+async function iniciarTela() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('tv-screen').style.display = 'block';
+
+  const { data: projetos } = await supabase
+    .from('projects')
+    .select('id, name, slug, active, demo_mode, school:schools(id, name)')
+    .eq('active', true)
+    .eq('demo_mode', false)
+    .order('name');
+
+  projetosCacheTV = projetos || [];
+
+  const porUrl = new URLSearchParams(location.search).get('projeto');
+  const porStorage = localStorage.getItem('tvPainelProjetoSlug');
+  const slugAlvo = porUrl || porStorage;
+
+  const modoTodos = slugAlvo === TODOS_VALOR;
+  const achado = (!modoTodos && slugAlvo) ? projetosCacheTV.find(p => p.slug === slugAlvo || p.id === slugAlvo) : null;
+
+  if (modoTodos) {
+    if (porUrl) localStorage.setItem('tvPainelProjetoSlug', TODOS_VALOR);
+    projetoAtual = { id: TODOS_VALOR, todos: true, name: '🔎 Todos os projetos ativos' };
+  } else if (achado) {
+    if (porUrl) localStorage.setItem('tvPainelProjetoSlug', achado.slug);
+    projetoAtual = achado;
+  }
+
+  if (projetoAtual) {
+    document.getElementById('tv-setup').style.display = 'none';
+    document.getElementById('tv-content').style.display = 'block';
+    document.getElementById('tv-table').classList.toggle('modo-unico', !projetoAtual.todos);
+    iniciarRelogio();
+    carregarDados();
+    timerRefresh = setInterval(carregarDados, REFRESH_MS);
+  } else {
+    // Nenhum projeto resolvido — pede pra escolher uma vez so'.
+    const sel = document.getElementById('tv-setup-sel');
+    sel.innerHTML = `<option value="${TODOS_VALOR}">🔎 Todos os projetos (pedidos de todas as escolas)</option>` +
+      projetosCacheTV.map(p =>
+        `<option value="${p.slug}">${escapeHtml(p.name)}${p.school?.name ? ' — ' + escapeHtml(p.school.name) : ''}</option>`).join('');
+    document.getElementById('tv-setup').style.display = 'block';
+    document.getElementById('tv-setup-btn').onclick = () => {
+      localStorage.setItem('tvPainelProjetoSlug', sel.value);
+      location.reload();
+    };
+  }
+}
+
+// Link discreto "Trocar projeto" — limpa a escolha salva e volta pro
+// seletor. So' isso: quem opera de verdade e' o computador, essa tela e'
+// so' visualizacao no dia a dia, mas trocar de projeto de vez em quando
+// precisa de algum jeito de fazer isso direto na TV.
+document.getElementById('tv-trocar').addEventListener('click', () => {
+  localStorage.removeItem('tvPainelProjetoSlug');
+  const url = new URL(location.href);
+  url.searchParams.delete('projeto');
+  location.href = url.toString();
+});
+
+// ---------------------------------------------------------------------------
+// RELOGIO
+// ---------------------------------------------------------------------------
+function iniciarRelogio() {
+  const tick = () => {
+    const agora = new Date();
+    const hora = agora.toLocaleTimeString('pt-BR');
+    const data = agora.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+    document.getElementById('tv-clock').innerHTML = `${hora}<small>${data}</small>`;
+  };
+  tick();
+  timerRelogio = setInterval(tick, 1000);
+}
+
+// ---------------------------------------------------------------------------
+// DADOS — dois modos:
+//  - projeto unico: mesma logica de abrirDrillProjeto() do admin (uma linha
+//    por ALUNO, com ou sem pedido), sem os pedacos que so' fazem sentido em
+//    tela interativa (contato, filtros, edicao).
+//  - "todos os projetos": uma linha por PEDIDO (nao teria sentido listar
+//    todo aluno sem pedido de toda escola — isso e' um feed de pedidos
+//    entrando, nao um relatorio de matricula).
+// ---------------------------------------------------------------------------
+async function carregarDados() {
+  try {
+    if (projetoAtual.todos) await carregarDadosTodos();
+    else await carregarDadosUnico();
+
+    // Prioriza quem precisa de atencao: pendente > pago > sem pedido.
+    // Dentro de cada grupo, mais recente primeiro (quem acabou de mexer sobe).
+    const peso = a => a.order?.payment_status === 'pending' ? 0 : a.order?.payment_status === 'paid' ? 1 : 2;
+    listaAlunos.sort((a, b) => {
+      const dp = peso(a) - peso(b);
+      if (dp) return dp;
+      const da = a.order?.created_at || '';
+      const db = b.order?.created_at || '';
+      return db.localeCompare(da);
+    });
+
+    renderStats();
+    paginaAtual = 0;
+    renderPagina();
+    reiniciarCicloPaginas();
+
+  } catch (err) {
+    console.error('[painel-tv] carregarDados:', err);
+  }
+}
+
+async function carregarDadosUnico() {
+  document.getElementById('tv-proj-name').textContent = projetoAtual.name;
+  document.getElementById('tv-proj-school').textContent = projetoAtual.school?.name || '';
+
+  const { data: sessions } = await supabase
+    .from('project_sessions').select('id').eq('project_id', projetoAtual.id);
+  const sessionIds = (sessions || []).map(s => s.id);
+
+  let classIds = [];
+  if (sessionIds.length) {
+    const { data: psc } = await supabase
+      .from('project_session_classes').select('school_class_id').in('session_id', sessionIds);
+    classIds = [...new Set((psc || []).map(r => r.school_class_id))];
+  }
+
+  let alunosRaw = [];
+  if (classIds.length) {
+    const { data } = await supabase
+      .from('students')
+      .select('id, name, class:school_classes(id, name, year:school_years(name))')
+      .in('class_id', classIds).order('name');
+    alunosRaw = data || [];
+  } else if (projetoAtual.school?.id) {
+    const { data } = await supabase
+      .from('students')
+      .select('id, name, class:school_classes(id, name, year:school_years(name))')
+      .eq('school_id', projetoAtual.school.id).order('name');
+    alunosRaw = data || [];
+  }
+
+  const alunoIds = alunosRaw.map(a => a.id);
+  let pedidosRaw = [];
+  if (alunoIds.length) {
+    const { data } = await supabase
+      .from('orders')
+      .select('id, order_number, total_amount, payment_status, paid_at, created_at, student_id, items:order_items(quantity, variant_name, product:products(name))')
+      .in('student_id', alunoIds);
+    pedidosRaw = data || [];
+  }
+  const pedidoPorAluno = {};
+  pedidosRaw.forEach(p => { pedidoPorAluno[p.student_id] = p; });
+
+  listaAlunos = alunosRaw.map(a => ({
+    id: a.id,
+    name: a.name,
+    turma: a.class?.name ? (a.class.year?.name ? a.class.year.name + ' — ' + a.class.name : a.class.name) : '—',
+    order: pedidoPorAluno[a.id] || null,
+  }));
+}
+
+async function carregarDadosTodos() {
+  document.getElementById('tv-proj-name').textContent = '🔎 Todos os projetos ativos';
+  document.getElementById('tv-proj-school').textContent = projetosCacheTV.length + ' escola(s)';
+
+  const idsProjetos = projetosCacheTV.map(p => p.id);
+  if (!idsProjetos.length) { listaAlunos = []; return; }
+
+  const infoPorProjeto = {};
+  projetosCacheTV.forEach(p => { infoPorProjeto[p.id] = { nome: p.name, escola: p.school?.name || '' }; });
+
+  const { data: pedidos } = await supabase
+    .from('orders')
+    .select(`
+      id, order_number, total_amount, payment_status, paid_at, created_at, project_id,
+      student:students(id, name, class:school_classes(name, year:school_years(name))),
+      items:order_items(quantity, variant_name, product:products(name))
+    `)
+    .in('project_id', idsProjetos)
+    .order('created_at', { ascending: false })
+    .limit(LIMITE_PEDIDOS_TODOS);
+
+  listaAlunos = (pedidos || []).map(o => {
+    const cls = o.student?.class;
+    return {
+      id: o.id,
+      name: o.student?.name || '—',
+      turma: cls?.name ? (cls.year?.name ? cls.year.name + ' — ' + cls.name : cls.name) : '—',
+      projeto: infoPorProjeto[o.project_id]?.nome || '—',
+      escola: infoPorProjeto[o.project_id]?.escola || '',
+      order: o,
+    };
+  });
+}
+
+function renderStats() {
+  const pedidos = listaAlunos.map(a => a.order).filter(Boolean);
+  const pagos = pedidos.filter(p => p.payment_status === 'paid');
+  const pend  = pedidos.filter(p => p.payment_status === 'pending');
+  const rec   = pagos.reduce((s, p) => s + Number(p.total_amount || 0), 0);
+  // No modo "todos" cada linha ja' e' um pedido — o rotulo muda pra nao
+  // confundir com "quantidade de alunos" (nao existe aluno sem pedido aqui).
+  document.getElementById('tv-st-alunos-label').textContent = projetoAtual.todos ? 'Pedidos' : 'Alunos';
+  document.getElementById('tv-st-alunos').textContent = listaAlunos.length;
+  document.getElementById('tv-st-pagos').textContent  = pagos.length;
+  document.getElementById('tv-st-pend').textContent   = pend.length;
+  document.getElementById('tv-st-rec').textContent    = fmtMoney(rec);
+}
+
+function renderPagina() {
+  const tbody = document.getElementById('tv-tbody');
+  const totalPaginas = Math.max(1, Math.ceil(listaAlunos.length / ROWS_POR_PAGINA));
+  if (paginaAtual >= totalPaginas) paginaAtual = 0;
+
+  if (!listaAlunos.length) {
+    tbody.innerHTML = '';
+    document.getElementById('tv-empty').style.display = 'block';
+    document.getElementById('tv-pager').textContent = '';
+    return;
+  }
+  document.getElementById('tv-empty').style.display = 'none';
+
+  const fatia = listaAlunos.slice(paginaAtual * ROWS_POR_PAGINA, (paginaAtual + 1) * ROWS_POR_PAGINA);
+
+  tbody.innerHTML = fatia.map(a => {
+    const o = a.order;
+    let numCell = '<span style="color:var(--gray-400)">—</span>';
+    let quandoCell = '<span style="color:var(--gray-400)">—</span>';
+    let itensCell = '<span class="tv-sub">Sem pedido</span>';
+    let totalCell = '—';
+    let statusCell = '<span class="badge badge-gray">Sem pedido</span>';
+
+    if (o) {
+      numCell = `<span style="font-family:monospace">${escapeHtml(o.order_number || '—')}</span>`;
+      quandoCell = fmtDataHoraCurta(o.created_at) +
+        (o.paid_at ? `<div class="tv-sub" style="color:var(--green)">✓ ${fmtDataHoraCurta(o.paid_at)}</div>` : '');
+      const itens = (o.items || [])
+        .map(i => `${escapeHtml(i.product?.name || '?')}${i.variant_name ? ` (${escapeHtml(i.variant_name)})` : ''}${i.quantity > 1 ? ' ×' + i.quantity : ''}`)
+        .join(', ');
+      itensCell = itens ? `<span class="tv-sub">${itens}</span>` : '<span class="tv-sub">—</span>';
+      totalCell = `<b>${fmtMoney(Number(o.total_amount || 0))}</b>`;
+      statusCell = o.payment_status === 'paid'
+        ? '<span class="badge badge-green">✓ Pago</span>'
+        : o.payment_status === 'pending'
+          ? '<span class="badge badge-orange">⏳ Pendente</span>'
+          : `<span class="badge badge-gray">${escapeHtml(o.payment_status)}</span>`;
+    }
+
+    const projetoCell = a.projeto
+      ? `<span class="tv-tag-projeto">${escapeHtml(a.projeto)}</span><span class="tv-tag-escola">${escapeHtml(a.escola || '')}</span>`
+      : '';
+
+    return `<tr>
+      <td class="col-projeto">${projetoCell}</td>
+      <td style="font-weight:600">${escapeHtml(a.name)}</td>
+      <td class="tv-sub">${escapeHtml(a.turma)}</td>
+      <td>${numCell}</td>
+      <td style="white-space:nowrap">${quandoCell}</td>
+      <td>${itensCell}</td>
+      <td>${totalCell}</td>
+      <td>${statusCell}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('tv-pager').textContent = totalPaginas > 1
+    ? `Página ${paginaAtual + 1} de ${totalPaginas} — atualiza sozinho`
+    : '';
+}
+
+function reiniciarCicloPaginas() {
+  if (timerCiclo) clearInterval(timerCiclo);
+  const totalPaginas = Math.max(1, Math.ceil(listaAlunos.length / ROWS_POR_PAGINA));
+  if (totalPaginas <= 1) return;
+  timerCiclo = setInterval(() => {
+    paginaAtual = (paginaAtual + 1) % totalPaginas;
+    renderPagina();
+  }, CICLO_PAGINA_MS);
+}
+
+checarLogin();
+</script>
+</body>
+</html>
