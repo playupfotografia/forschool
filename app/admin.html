@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>For School — Admin</title>
+<link rel="icon" href="assets/forschool.ico">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
 <!-- Geração de QR Code (Bilhete) -->
 <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
@@ -2728,6 +2729,20 @@ function showApp(user) {
   document.getElementById('sb-user').textContent = user.email;
   loadDashboard();
   loadCounts();
+  abrirPaginaPorHash();
+}
+
+// Link direto tipo admin#pedidos pra abrir ja' numa pagina especifica (usado
+// no atalho de TV) — sem isso, todo acesso cai no dashboard e precisa de
+// clique manual. Whitelist contra o hash virar seletor CSS invalido/injecao.
+function abrirPaginaPorHash() {
+  const pagina = location.hash.slice(1);
+  const paginasValidas = ['dashboard','escolas','informativos','termos','produtos',
+    'projetos','bilhete','alunos','carometro','comunicados','montagem','pedidos',
+    'relatorios','analise-produtos','vendedores','comissoes','colaboradores','config'];
+  if (paginasValidas.includes(pagina)) {
+    document.querySelector(`.sb-item[data-page="${pagina}"]`)?.click();
+  }
 }
 
 loginForm.addEventListener('submit', async (e) => {
