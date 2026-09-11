@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pagamento — For School</title>
+<link rel="icon" href="/assets/forschool.ico">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --blue:#4B6BFB;--blue-light:#EEF1FF;
+  --green:#27AE60;--green-light:#E9F7EF;
+  --gray-50:#F9FAFB;--gray-100:#F3F4F6;--gray-200:#E5E7EB;
+  --gray-400:#9CA3AF;--gray-500:#6B7280;--gray-700:#374151;--gray-900:#111827;
+  --white:#fff;
+}
+body{font-family:'DM Sans',sans-serif;background:var(--gray-50);color:var(--gray-900);min-height:100vh;padding:20px 14px}
+.wrap{max-width:440px;margin:0 auto}
+.logos{display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:18px}
+.logos img{height:38px}
+.card{background:var(--white);border-radius:16px;box-shadow:0 4px 20px rgba(0,0,0,.06);padding:22px;margin-bottom:16px}
+.titulo{font-size:20px;font-weight:800;text-align:center;margin-bottom:4px}
+.sub{font-size:13px;color:var(--gray-500);text-align:center;margin-bottom:18px}
+.linha{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--gray-100);font-size:14px}
+.linha:last-child{border-bottom:none}
+.linha b{color:var(--gray-900);text-align:right}
+.linha span:first-child{color:var(--gray-500)}
+.itens-lista{font-size:13px;color:var(--gray-700);margin-top:2px}
+.valor-box{text-align:center;margin:18px 0 6px}
+.valor-box .rotulo{font-size:12px;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px}
+.valor-box .num{font-size:34px;font-weight:800;color:var(--blue)}
+.pago-box{background:var(--green-light);color:#065F46;border-radius:12px;padding:20px;text-align:center;font-weight:700;font-size:16px}
+.tabs{display:flex;gap:8px;margin-bottom:14px}
+.tab{flex:1;padding:10px;border-radius:10px;border:2px solid var(--gray-200);background:var(--white);font-weight:700;font-size:14px;cursor:pointer;text-align:center;color:var(--gray-500)}
+.tab.active{border-color:var(--blue);color:var(--blue);background:var(--blue-light)}
+.pane{display:none}
+.pane.active{display:block}
+.qr-wrap{display:flex;justify-content:center;margin:14px 0}
+.qr-wrap canvas{border-radius:10px;border:1px solid var(--gray-200)}
+.copia-box{background:var(--gray-50);border:1px solid var(--gray-200);border-radius:10px;padding:10px 12px;font-size:11px;color:var(--gray-500);word-break:break-all;margin-bottom:10px;font-family:monospace}
+.btn{display:block;width:100%;padding:13px;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;text-align:center;text-decoration:none}
+.btn-copiar{background:var(--gray-900);color:#fff;margin-bottom:8px}
+.btn-cartao{background:var(--blue);color:#fff}
+.nome-titular{font-size:12px;color:var(--gray-500);text-align:center;margin-top:10px;line-height:1.5}
+.duvida{display:block;text-align:center;margin-top:16px;font-size:13px;color:var(--gray-500);text-decoration:none}
+.erro{text-align:center;color:var(--gray-500);padding:40px 20px;font-size:15px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logos">
+    <img src="/assets/logo.png" alt="For School">
+    <img src="/assets/logo-playup.png" alt="Play Up Fotografia">
+  </div>
+
+  <div id="conteudo">
+    <div class="erro">Carregando…</div>
+  </div>
+</div>
+
+<script type="module">
+import { supabase } from '/js/supabase-client.js';
+
+const token = new URLSearchParams(location.search).get('token');
+const el = document.getElementById('conteudo');
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+function fmtMoney(v) {
+  return 'R$ ' + Number(v || 0).toFixed(2).replace('.', ',');
+}
+
+// ---------------------------------------------------------------------------
+// Gerador de "Pix Copia e Cola" (BR Code / EMV) — a chave sozinha nao vira
+// QR pagavel de verdade; precisa desse formato com nome/cidade/valor e um
+// checksum CRC16 no final, seguindo o padrao do Banco Central.
+// ---------------------------------------------------------------------------
+function crc16ccitt(str) {
+  let crc = 0xFFFF;
+  for (let i = 0; i < str.length; i++) {
+    crc ^= (str.charCodeAt(i) << 8);
+    for (let j = 0; j < 8; j++) {
+      crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF;
+    }
+  }
+  return crc.toString(16).toUpperCase().padStart(4, '0');
+}
+function tlv(id, valor) {
+  return id + String(valor.length).padStart(2, '0') + valor;
+}
+function montarPayloadPix({ chave, nome, cidade, valor, txid }) {
+  const merchantAccount = tlv('26', tlv('00', 'br.gov.bcb.pix') + tlv('01', chave));
+  const txidSafe = String(txid || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 25) || '***';
+  let payload = tlv('00', '01')
+    + merchantAccount
+    + tlv('52', '0000')
+    + tlv('53', '986')
+    + (valor > 0 ? tlv('54', valor.toFixed(2)) : '')
+    + tlv('58', 'BR')
+    + tlv('59', String(nome).toUpperCase().slice(0, 25))
+    + tlv('60', String(cidade).toUpperCase().slice(0, 15))
+    + tlv('62', tlv('05', txidSafe))
+    + '6304';
+  return payload + crc16ccitt(payload);
+}
+
+// Nome/cidade do titular da chave Pix (conta Nubank) — o codigo do QR
+// precisa bater com o que esta cadastrado no banco, senao o app do
+// pagador mostra aviso de "nome nao confere". A pagina mostra "Play Up
+// Fotografia" pro pai reconhecer, mas explica essa diferenca.
+const PIX_TITULAR_NOME = 'LUCIANA CANTIERI PEREIRA';
+const PIX_TITULAR_CIDADE = 'SANTO ANDRE';
+
+async function iniciar() {
+  if (!token) {
+    el.innerHTML = '<div class="erro">Link inválido.</div>';
+    return;
+  }
+  const { data, error } = await supabase.rpc('get_pedido_publico', { p_token: token });
+  const pedido = data && data[0];
+  if (error || !pedido) {
+    el.innerHTML = '<div class="erro">Não encontramos esse pedido. Confira se o link está completo, ou fale com a Play Up.</div>';
+    return;
+  }
+  render(pedido);
+}
+
+function render(p) {
+  const itens = (p.itens || []).map(i =>
+    `${i.quantidade > 1 ? i.quantidade + '× ' : ''}${escapeHtml(i.nome)}${i.variante ? ` (${escapeHtml(i.variante)})` : ''}`
+  );
+  if (p.kit_name) itens.unshift(escapeHtml(p.kit_name));
+
+  const infoHtml = `
+    <div class="card">
+      <div class="titulo">Pedido ${escapeHtml(p.order_number || '')}</div>
+      <div class="sub">${escapeHtml(p.school_name || '')}</div>
+      <div class="linha"><span>Aluno</span><b>${escapeHtml(p.student_name || '')}</b></div>
+      <div class="linha"><span>Turma</span><b>${escapeHtml([p.year_name, p.class_name].filter(Boolean).join(' — ') || '—')}</b></div>
+      <div class="linha"><span>Itens</span><b class="itens-lista">${itens.join('<br>') || '—'}</b></div>
+      <div class="valor-box">
+        <div class="rotulo">Valor do pedido</div>
+        <div class="num">${fmtMoney(p.total_amount)}</div>
+      </div>
+    </div>`;
+
+  if (p.payment_status === 'paid') {
+    el.innerHTML = infoHtml + `
+      <div class="pago-box">✓ Pagamento confirmado<br><span style="font-weight:400;font-size:13px">Obrigada pelo pedido! 💛</span></div>`;
+    return;
+  }
+
+  const temPix = !!p.pix_key;
+  const temCartao = true; // botao sempre disponivel — gera a cobranca na hora se precisar
+  let payloadPix = '';
+  if (temPix) {
+    payloadPix = montarPayloadPix({
+      chave: p.pix_key,
+      nome: PIX_TITULAR_NOME,
+      cidade: PIX_TITULAR_CIDADE,
+      valor: Number(p.total_amount) || 0,
+      txid: p.order_number,
+    });
+  }
+
+  el.innerHTML = infoHtml + `
+    <div class="card">
+      <div class="tabs">
+        ${temPix ? `<div class="tab active" data-tab="pix">🔑 Pix</div>` : ''}
+        <div class="tab${temPix ? '' : ' active'}" data-tab="cartao">💳 Cartão</div>
+      </div>
+
+      ${temPix ? `
+      <div class="pane active" data-pane="pix">
+        <div class="qr-wrap"><canvas id="qr-pix" width="220" height="220"></canvas></div>
+        <div class="copia-box" id="pix-copia">${escapeHtml(payloadPix)}</div>
+        <button class="btn btn-copiar" id="btn-copiar-pix">📋 Copiar código Pix</button>
+        <div class="nome-titular">Aponte a câmera do app do seu banco pro QR acima, ou copie o código e cole na opção "Pix Copia e Cola".<br>A chave está no nome de <b>Luciana Cantieri Pereira</b> (conta da Play Up Fotografia) — é normal aparecer esse nome ao confirmar.</div>
+      </div>` : ''}
+
+      <div class="pane${temPix ? '' : ' active'}" data-pane="cartao">
+        <button class="btn btn-cartao" id="btn-pagar-cartao">💳 Pagar com cartão</button>
+        <div class="nome-titular">Você será levado(a) pra uma página segura de pagamento (Asaas) — seus dados do cartão não passam pelo nosso site.</div>
+      </div>
+    </div>
+    <a class="duvida" href="https://wa.me/5511999363796?text=${encodeURIComponent('Olá! Tenho uma dúvida sobre o pagamento do pedido ' + (p.order_number || '') + '.')}" target="_blank">💬 Dúvidas? Fale com a Play Up</a>
+  `;
+
+  document.querySelectorAll('.tab').forEach(t => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+      document.querySelectorAll('.pane').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      document.querySelector(`.pane[data-pane="${t.dataset.tab}"]`)?.classList.add('active');
+    });
+  });
+
+  if (temPix) {
+    QRCode.toCanvas(document.getElementById('qr-pix'), payloadPix, { width: 220, margin: 1 }, err => { if (err) console.error(err); });
+    document.getElementById('btn-copiar-pix').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(payloadPix);
+        const btn = document.getElementById('btn-copiar-pix');
+        btn.textContent = '✓ Copiado!';
+        setTimeout(() => { btn.textContent = '📋 Copiar código Pix'; }, 2000);
+      } catch { alert('Não consegui copiar automaticamente — selecione o código acima manualmente.'); }
+    });
+  }
+
+  document.getElementById('btn-pagar-cartao').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-pagar-cartao');
+    if (p.checkout_url) { location.href = p.checkout_url; return; }
+    btn.disabled = true;
+    btn.textContent = 'Gerando link de pagamento…';
+    try {
+      const resp = await fetch('/api/criar-cobranca', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: p.order_id, method: 'credito', payment_link_token: token }),
+      });
+      const json = await resp.json();
+      if (!resp.ok) throw new Error(json.erro || 'Erro ao gerar cobrança.');
+      if (json.checkout_url) location.href = json.checkout_url;
+      else throw new Error('Não recebemos o link de pagamento.');
+    } catch (err) {
+      alert(err.message || 'Erro ao gerar o pagamento. Tente de novo em instantes.');
+      btn.disabled = false;
+      btn.textContent = '💳 Pagar com cartão';
+    }
+  });
+}
+
+iniciar();
+</script>
+</body>
+</html>

@@ -6,6 +6,7 @@
     { "source": "/admin/", "destination": "/app/admin.html" },
     { "source": "/painel-tv", "destination": "/app/painel-tv.html" },
     { "source": "/painel-tv/", "destination": "/app/painel-tv.html" },
+    { "source": "/pagar/:token", "destination": "/app/pagamento.html?token=:token" },
     { "source": "/", "destination": "/app/portal.html" },
     { "source": "/:slug", "destination": "/app/portal.html" }
   ]

@@ -23,28 +23,38 @@ module.exports = async (req, res) => {
   }
 
   try {
-    // Falamos com o banco por service_role, que ignora RLS — sem esta checagem
-    // qualquer um que adivinhasse um id geraria cobranca pro pedido alheio.
-    const uid = await usuarioDoToken(req);
-    if (!uid) return res.status(401).json({ erro: 'Sessao expirada. Faca login novamente.' });
-
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
     const orderId = body.order_id;
     const metodo = String(body.method || '').toLowerCase();
+    const linkToken = body.payment_link_token ? String(body.payment_link_token) : null;
     let parcelas = parseInt(body.installments, 10) || 1;
 
     if (!orderId) return res.status(400).json({ erro: 'order_id e obrigatorio.' });
     if (!BILLING[metodo]) return res.status(400).json({ erro: 'Metodo invalido.' });
 
+    // Falamos com o banco por service_role, que ignora RLS — sem esta checagem
+    // qualquer um que adivinhasse um id geraria cobranca pro pedido alheio.
+    // Duas formas de autorizar: (1) login normal do pai (fluxo do portal),
+    // ou (2) o payment_link_token do pedido (link publico gerado no admin
+    // pra responsavel que nao consegue logar — migration_037). So' uma
+    // das duas precisa bater.
+    const uid = await usuarioDoToken(req);
+    if (!uid && !linkToken) {
+      return res.status(401).json({ erro: 'Sessao expirada. Faca login novamente.' });
+    }
+
     // ---- 1. Pedido + responsavel + aluno -----------------------------------
     const pedidos = await sb(
       `/orders?id=eq.${encodeURIComponent(orderId)}&select=` +
       'id,order_number,total_amount,payment_status,gateway_id,student_id,' +
-      'user_id,users(name,email,cpf,phone),students(name)'
+      'user_id,payment_link_token,users(name,email,cpf,phone),students(name)'
     );
     const pedido = pedidos?.[0];
     if (!pedido) return res.status(404).json({ erro: 'Pedido nao encontrado.' });
-    if (pedido.user_id && pedido.user_id !== uid) {
+
+    const autorizadoPorLogin = uid && (!pedido.user_id || pedido.user_id === uid);
+    const autorizadoPorToken = linkToken && pedido.payment_link_token && linkToken === pedido.payment_link_token;
+    if (!autorizadoPorLogin && !autorizadoPorToken) {
       return res.status(403).json({ erro: 'Esse pedido nao e seu.' });
     }
     if (pedido.payment_status === 'paid') {

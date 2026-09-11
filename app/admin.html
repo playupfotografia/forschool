@@ -2339,6 +2339,43 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
   </div>
 </div>
 
+<!-- MODAL PEDIDO MANUAL — pro responsavel que nao consegue fazer sozinho -->
+<div class="modal-overlay" id="mod-pedido-manual">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-header">
+      <div class="modal-title">Criar pedido manual — <span id="pm-aluno-nome"></span></div>
+      <button class="modal-close" data-close="mod-pedido-manual">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="pm-loading" class="loading"><span class="spinner"></span> Carregando catálogo…</div>
+      <div id="pm-aviso-sem-user" style="display:none;background:var(--yellow);background:#FEF9C3;color:#854D0E;border-radius:8px;padding:10px 12px;font-size:12px;margin-bottom:10px">⚠️ Este aluno ainda não tem um responsável com login vinculado — o botão de "Pagar com cartão" não vai funcionar no link de pagamento (falta CPF). O PIX manual funciona normalmente.</div>
+      <div id="pm-conteudo" style="display:none">
+        <div class="form-group">
+          <label class="form-label">Kit</label>
+          <div id="pm-kits-list" style="display:flex;flex-direction:column;gap:6px"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Avulsos</label>
+          <div id="pm-avulsos-list" style="display:flex;flex-direction:column;gap:8px;max-height:240px;overflow-y:auto"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--gray-200);padding-top:12px;margin-top:8px">
+          <b>Total</b>
+          <b id="pm-total" style="font-size:20px;color:var(--blue)">R$ 0,00</b>
+        </div>
+        <label class="chk-inline" style="margin-top:12px">
+          <input type="checkbox" id="pm-ja-pago">
+          <span>Já foi pago (recebido manualmente — não gera cobrança no Asaas)</span>
+        </label>
+        <div id="pm-resultado" style="display:none;margin-top:14px;background:var(--blue-light);border-radius:10px;padding:14px;font-size:13px"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" data-close="mod-pedido-manual">Fechar</button>
+      <button class="btn btn-primary" id="btn-salvar-pedido-manual" style="display:none">Criar pedido</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL ALUNO -->
 <div class="modal-overlay" id="mod-aluno">
   <div class="modal">
@@ -6778,6 +6815,253 @@ function renderDrillStats() {
   document.getElementById('drill-st-rec').textContent       = fmtMoney(rec);
 }
 
+// ---------------------------------------------------------------------------
+// PEDIDO MANUAL — pro responsavel que nao consegue fazer o pedido sozinho
+// (ex: idoso sem pratica com celular). Admin monta o pedido pelo aluno;
+// se nao marcar como ja pago, gera um link publico de pagamento
+// (/pagar/<token>, migration_037) sem exigir login nenhum do responsavel.
+// Mesma regra de preco do catalogo do portal: projeto tem prioridade,
+// senao cai pra escola (loadCatalogo() em portal.html).
+// ---------------------------------------------------------------------------
+let pmAlunoId = null;
+let pmKits = [];       // [{id, kit_type, name, price}]
+let pmKitEscolhido = null;   // kit_type ou null
+let pmAvulsos = [];    // [{id, name, price_with_promo, price_without_promo, variants:[{id,name,price_with_promo,price_without_promo}], qty, variantId}]
+
+async function abrirPedidoManual(alunoId, alunoNome) {
+  pmAlunoId = alunoId;
+  pmKitEscolhido = null;
+  document.getElementById('pm-aluno-nome').textContent = alunoNome;
+  document.getElementById('pm-loading').style.display = 'block';
+  document.getElementById('pm-conteudo').style.display = 'none';
+  document.getElementById('pm-resultado').style.display = 'none';
+  document.getElementById('pm-ja-pago').checked = false;
+  document.getElementById('btn-salvar-pedido-manual').style.display = 'inline-flex';
+  document.getElementById('btn-salvar-pedido-manual').disabled = false;
+  document.getElementById('btn-salvar-pedido-manual').textContent = 'Criar pedido';
+  document.getElementById('mod-pedido-manual').classList.add('open');
+
+  const alunoAtual = drillAlunosData.find(a => a.id === alunoId);
+  document.getElementById('pm-aviso-sem-user').style.display = alunoAtual?.user_id ? 'none' : 'block';
+
+  try {
+    const projId = drillProjetoId;
+    const schoolId = drillProjeto?.school?.id;
+
+    const [kitsProj, kitsEsc, prodsResp, pricesProj, pricesEsc] = await Promise.all([
+      supabase.from('school_kits').select('*').eq('project_id', projId).eq('available', true).order('kit_type'),
+      supabase.from('school_kits').select('*').eq('school_id', schoolId).is('project_id', null).eq('available', true).order('kit_type'),
+      supabase.from('products').select('*').eq('active', true).eq('type', 'avulso').order('sort_order'),
+      supabase.from('school_prices').select('*').eq('project_id', projId),
+      supabase.from('school_prices').select('*').eq('school_id', schoolId).is('project_id', null),
+    ]);
+    const kitsData = (kitsProj.data && kitsProj.data.length) ? kitsProj.data : (kitsEsc.data || []);
+    const pricesData = (pricesProj.data && pricesProj.data.length) ? pricesProj.data : (pricesEsc.data || []);
+
+    pmKits = kitsData.map(k => ({ id: k.id, kit_type: k.kit_type, name: k.name, price: Number(k.price) || 0 }));
+
+    const priceMap = {};
+    pricesData.forEach(p => { priceMap[p.product_id] = p; });
+    const prodsAtivos = (prodsResp.data || []).filter(p => {
+      const sp = priceMap[p.id];
+      return sp ? sp.available : true;
+    });
+
+    let variantesPorProduto = {};
+    if (prodsAtivos.length) {
+      const { data: variantes } = await supabase
+        .from('product_variants')
+        .select('id, product_id, name, price_with_promo, price_without_promo')
+        .in('product_id', prodsAtivos.map(p => p.id))
+        .eq('active', true)
+        .order('sort_order');
+      (variantes || []).forEach(v => { (variantesPorProduto[v.product_id] ||= []).push(v); });
+    }
+
+    pmAvulsos = prodsAtivos.map(p => {
+      const sp = priceMap[p.id];
+      const variants = variantesPorProduto[p.id] || null;
+      return {
+        id: p.id,
+        name: p.name,
+        price_with_promo: sp?.price_with_promo ?? p.base_price_with_promo,
+        price_without_promo: sp?.price_without_promo ?? p.base_price_without_promo,
+        variants,
+        qty: 0,
+        variantId: variants?.[0]?.id || null,
+      };
+    });
+
+    renderPmKits();
+    renderPmAvulsos();
+    pmAtualizarTotal();
+    document.getElementById('pm-loading').style.display = 'none';
+    document.getElementById('pm-conteudo').style.display = 'block';
+  } catch (err) {
+    handleError(err, 'abrirPedidoManual');
+  }
+}
+window.abrirPedidoManual = abrirPedidoManual;
+
+function renderPmKits() {
+  const el = document.getElementById('pm-kits-list');
+  const kitLabel = { basico: 'Kit Básico', inter: 'Kit Intermediário', promo: 'Kit Promocional' };
+  const opcoes = [{ kit_type: null, name: 'Nenhum kit (só avulsos)', price: 0 }, ...pmKits];
+  el.innerHTML = opcoes.map(k => `
+    <label style="display:flex;align-items:center;gap:8px;border:1px solid var(--gray-200);border-radius:8px;padding:8px 10px;cursor:pointer">
+      <input type="radio" name="pm-kit" value="${k.kit_type || ''}" ${pmKitEscolhido === k.kit_type ? 'checked' : ''} onchange="pmEscolherKit(${k.kit_type ? `'${k.kit_type}'` : 'null'})">
+      <span style="flex:1">${escapeHtml(k.name || kitLabel[k.kit_type] || 'Sem kit')}</span>
+      ${k.kit_type ? `<b>${fmtMoney(k.price)}</b>` : ''}
+    </label>`).join('');
+}
+
+function pmEscolherKit(kitType) {
+  pmKitEscolhido = kitType;
+  renderPmAvulsos();   // preco do avulso depende do kit ser promo ou nao
+  pmAtualizarTotal();
+}
+window.pmEscolherKit = pmEscolherKit;
+
+function renderPmAvulsos() {
+  const isPromo = pmKitEscolhido === 'promo';
+  const el = document.getElementById('pm-avulsos-list');
+  if (!pmAvulsos.length) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--gray-400)">Nenhum avulso disponível neste projeto.</div>';
+    return;
+  }
+  el.innerHTML = pmAvulsos.map((a, i) => {
+    const preco = isPromo ? a.price_with_promo : a.price_without_promo;
+    const variantSel = a.variants ? `
+      <select style="font-size:12px;padding:3px 6px;border:1px solid var(--gray-200);border-radius:6px" onchange="pmMudarVariante(${i}, this.value)">
+        ${a.variants.map(v => `<option value="${v.id}" ${v.id === a.variantId ? 'selected' : ''}>${escapeHtml(v.name)}</option>`).join('')}
+      </select>` : '';
+    return `
+    <div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--gray-100);padding-bottom:6px">
+      <span style="flex:1;font-size:13px">${escapeHtml(a.name)}</span>
+      ${variantSel}
+      <span style="font-size:12px;color:var(--gray-500);width:70px;text-align:right">${fmtMoney(preco)}</span>
+      <button type="button" class="btn btn-sm btn-secondary" onclick="pmMudarQtd(${i},-1)" style="padding:2px 8px">−</button>
+      <span style="width:20px;text-align:center;font-weight:600">${a.qty}</span>
+      <button type="button" class="btn btn-sm btn-secondary" onclick="pmMudarQtd(${i},1)" style="padding:2px 8px">+</button>
+    </div>`;
+  }).join('');
+}
+
+function pmMudarQtd(i, delta) {
+  pmAvulsos[i].qty = Math.max(0, pmAvulsos[i].qty + delta);
+  renderPmAvulsos();
+  pmAtualizarTotal();
+}
+window.pmMudarQtd = pmMudarQtd;
+
+function pmMudarVariante(i, variantId) {
+  pmAvulsos[i].variantId = variantId;
+  pmAtualizarTotal();
+}
+window.pmMudarVariante = pmMudarVariante;
+
+function pmAtualizarTotal() {
+  const isPromo = pmKitEscolhido === 'promo';
+  let total = 0;
+  if (pmKitEscolhido) total += pmKits.find(k => k.kit_type === pmKitEscolhido)?.price || 0;
+  pmAvulsos.forEach(a => {
+    if (a.qty > 0) total += a.qty * (isPromo ? a.price_with_promo : a.price_without_promo);
+  });
+  document.getElementById('pm-total').textContent = fmtMoney(total);
+  return total;
+}
+
+document.getElementById('btn-salvar-pedido-manual').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-salvar-pedido-manual');
+  const total = pmAtualizarTotal();
+  if (total <= 0) { toast('Escolha pelo menos um kit ou avulso.', 'warn'); return; }
+
+  btn.disabled = true; btn.textContent = 'Salvando…';
+  try {
+    const jaPago = document.getElementById('pm-ja-pago').checked;
+    const schoolId = drillProjeto?.school?.id;
+    // Vincula ao responsavel ja cadastrado do aluno, se houver — sem isso o
+    // botao de cartao na pagina publica falha por falta de CPF (o Asaas
+    // exige CPF do pagador).
+    const alunoAtual = drillAlunosData.find(a => a.id === pmAlunoId);
+
+    const payload = {
+      student_id: pmAlunoId,
+      user_id: alunoAtual?.user_id || null,
+      school_id: schoolId,
+      project_id: drillProjetoId,
+      kit_type: pmKitEscolhido || null,
+      total_amount: total,
+      payment_status: jaPago ? 'paid' : 'pending',
+      paid_at: jaPago ? new Date().toISOString() : null,
+      payment_method: jaPago ? 'outro' : null,
+      source: 'admin_manual',
+    };
+    const { data: novo, error } = await supabase.from('orders').insert(payload).select().single();
+    if (error) throw error;
+
+    if (pmKitEscolhido) {
+      const kit = pmKits.find(k => k.kit_type === pmKitEscolhido);
+      const { error: eKit } = await supabase.from('order_kits').insert({
+        order_id: novo.id, kit_id: kit.id, quantity: 1, unit_price: kit.price,
+      });
+      if (eKit) throw eKit;
+    }
+
+    const itensComprados = pmAvulsos.filter(a => a.qty > 0);
+    if (itensComprados.length) {
+      const isPromo = pmKitEscolhido === 'promo';
+      const rows = itensComprados.map(a => {
+        const variante = a.variants?.find(v => v.id === a.variantId);
+        return {
+          order_id: novo.id,
+          product_id: a.id,
+          quantity: a.qty,
+          unit_price: isPromo ? a.price_with_promo : a.price_without_promo,
+          variant_id: variante?.id || null,
+          variant_name: variante?.name || null,
+        };
+      });
+      const { error: eItens } = await supabase.from('order_items').insert(rows);
+      if (eItens) throw eItens;
+    }
+
+    const resEl = document.getElementById('pm-resultado');
+    resEl.style.display = 'block';
+    if (jaPago) {
+      resEl.innerHTML = `✓ Pedido <b>${escapeHtml(novo.order_number)}</b> criado e marcado como pago.`;
+    } else {
+      // Link publico de pagamento — token aleatorio, sem exigir login do
+      // responsavel (migration_037).
+      const token = crypto.randomUUID();
+      const { error: eTok } = await supabase.from('orders').update({ payment_link_token: token }).eq('id', novo.id);
+      if (eTok) throw eTok;
+      const link = `https://forschool.playupfotografia.com.br/pagar/${token}`;
+      resEl.innerHTML = `
+        ✓ Pedido <b>${escapeHtml(novo.order_number)}</b> criado como pendente.<br>
+        Envie este link de pagamento pro responsável (não precisa de login):<br>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <input class="form-input" id="pm-link-pagamento" readonly value="${escapeHtml(link)}" style="font-size:12px">
+          <button type="button" class="btn btn-sm btn-primary" onclick="pmCopiarLink()">Copiar</button>
+        </div>`;
+    }
+    toast('Pedido criado!', 'ok');
+    btn.style.display = 'none';
+    loadPedidos();
+    if (drillProjetoId) abrirDrillProjeto(drillProjetoId, { silent: true });
+  } catch (err) {
+    handleError(err, 'salvarPedidoManual');
+    btn.disabled = false; btn.textContent = 'Criar pedido';
+  }
+});
+
+function pmCopiarLink() {
+  const inp = document.getElementById('pm-link-pagamento');
+  inp.select();
+  navigator.clipboard.writeText(inp.value).then(() => toast('Link copiado!', 'ok')).catch(() => {});
+}
+window.pmCopiarLink = pmCopiarLink;
+
 function filtrarDrillAlunos() {
   const busca = (document.getElementById('drill-al-busca').value || '').toLowerCase().trim();
   const ftur  = document.getElementById('drill-al-ftur').value;
@@ -6823,7 +7107,9 @@ function filtrarDrillAlunos() {
     let quandoCell = '<span style="color:var(--gray-300)">—</span>';
     let pedCell  = '<span style="color:var(--gray-400);font-size:11px">Sem pedido</span>';
     let totCell  = '—';
-    let stCell   = '—';
+    // Responsavel que nao consegue fazer o pedido sozinho (ex: idoso sem
+    // pratica com celular) — admin monta o pedido manualmente aqui.
+    let stCell   = `<button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();abrirPedidoManual('${a.id}','${escapeHtml(a.name).replace(/'/g, "\\'")}')" style="font-size:11px">+ Criar pedido</button>`;
 
     if (a.order) {
       const o = a.order;
