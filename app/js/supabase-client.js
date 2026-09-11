@@ -67,8 +67,15 @@ export async function signOut() {
  * "already registered" (mesmo texto do signUp normal).
  */
 export async function createParentAccount(email, password, meta = {}) {
+  // storageKey proprio: sem isso, o client temporario e o `supabase`
+  // principal (linha 14 deste arquivo) compartilham a mesma chave padrao
+  // do projeto e o mesmo canal de sincronizacao entre abas do GoTrue —
+  // mesmo com persistSession:false, o signUp() aqui ainda "vazava" e
+  // derrubava a sessao do admin bem na hora de gravar o aluno (erro de
+  // RLS "new row violates row-level security policy", auth.uid() virando
+  // null por um instante). Isolar por completo resolve.
   const tempClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false }
+    auth: { persistSession: false, autoRefreshToken: false, storageKey: 'sb-temp-parent-creation' }
   });
   const { data, error } = await tempClient.auth.signUp({
     email,
