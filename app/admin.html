@@ -4037,7 +4037,7 @@ function renderPrVariantes() {
   wrap.innerHTML = prVariantesTemp.map((v, i) => `
     <div style="display:flex;gap:8px;align-items:flex-start;border:1px solid var(--gray-100);border-radius:8px;padding:8px">
       <div style="width:44px;height:44px;border-radius:6px;overflow:hidden;background:#fafafa;border:1px dashed var(--gray-200);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px" id="pr-var-preview-${i}">
-        ${v.image_url ? `<img src="${escapeHtml(v.image_url)}" style="width:100%;height:100%;object-fit:cover">` : '📷'}
+        ${(v.image_url || v._previewUrl) ? `<img src="${escapeHtml(v.image_url || v._previewUrl)}" style="width:100%;height:100%;object-fit:cover">` : '📷'}
       </div>
       <div style="flex:1;display:flex;flex-direction:column;gap:5px;min-width:0">
         <div style="display:flex;gap:6px">
@@ -4094,6 +4094,11 @@ window.onPrVarFile = function (i, input) {
   prVariantesTemp[i]._file = file;
   const reader = new FileReader();
   reader.onload = (ev) => {
+    // Guarda no proprio objeto (nao so' no DOM) — sem isso, adicionar outra
+    // variacao chama renderPrVariantes() e redesenha a lista toda, perdendo
+    // esse preview (a foto em si nao se perde, so' o preview visual, mas
+    // parece que apagou).
+    prVariantesTemp[i]._previewUrl = ev.target.result;
     const el = document.getElementById('pr-var-preview-' + i);
     if (el) el.innerHTML = `<img src="${ev.target.result}" style="width:100%;height:100%;object-fit:cover">`;
   };
