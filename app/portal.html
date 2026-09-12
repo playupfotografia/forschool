@@ -427,6 +427,9 @@ body.modo-demo::after{content:'';position:fixed;inset:0;border:4px solid #7C3AED
         <button class="toggle-btn active" id="tab-cadastro" type="button">Primeiro acesso</button>
         <button class="toggle-btn" id="tab-login" type="button">Já tenho cadastro</button>
       </div>
+      <div style="text-align:center;font-size:11.5px;color:var(--gray-500);line-height:1.5;margin:-6px 0 14px">
+        Já cadastrou um filho antes? Use <b>"Já tenho cadastro"</b> — a mesma conta serve pra todos os irmãos.
+      </div>
 
       <!-- FORM CADASTRO -->
       <form id="form-cadastro" novalidate>
@@ -506,6 +509,16 @@ body.modo-demo::after{content:'';position:fixed;inset:0;border:4px solid #7C3AED
           <label class="form-label">Data de nascimento</label>
           <input class="form-input" type="date" id="cad-al-nasc">
         </div>
+
+        <!-- Irmaos cadastrados de uma vez so'. Sem isso, quem tem dois filhos na
+             escola precisava terminar o cadastro e depois descobrir sozinho o
+             botao de adicionar filho — e muita gente acabava recadastrando a
+             mesma crianca varias vezes achando que nao tinha funcionado. -->
+        <div id="cad-filhos-extra"></div>
+        <button type="button" class="btn btn-block" id="btn-add-outro-filho-cadastro"
+                style="background:#fff;border:2px dashed #4B6BFB;color:#4B6BFB;font-weight:700;padding:10px;font-size:13px">
+          + Tenho outro filho(a) nessa escola
+        </button>
 
         <hr style="border:none;border-top:1px solid var(--gray-100);margin:14px 0">
         <div style="font-size:12px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">2º Responsável <span style="font-weight:400;text-transform:none;letter-spacing:0">(opcional)</span></div>
@@ -721,8 +734,11 @@ body.modo-demo::after{content:'';position:fixed;inset:0;border:4px solid #7C3AED
       <div style="font-size:13px;color:#666;margin-top:4px">Selecione para quem você quer ver as fotos</div>
     </div>
     <div id="lista-filhos" style="display:flex;flex-direction:column;gap:12px"></div>
-    <button type="button" class="btn btn-block" style="margin-top:16px;background:#fff;border:2px dashed #4B6BFB;color:#4B6BFB;font-weight:700"
-            onclick="irAdicionarFilho()">+ Adicionar outro filho</button>
+    <div style="font-size:12px;color:#888;text-align:center;margin-top:16px">
+      Só use o botão abaixo se o filho(a) <b>não estiver na lista acima</b>.
+    </div>
+    <button type="button" class="btn btn-block" style="margin-top:8px;background:#fff;border:2px dashed #4B6BFB;color:#4B6BFB;font-weight:700"
+            onclick="irAdicionarFilho()">+ Cadastrar um filho novo</button>
   </div>
 </div>
 
@@ -753,6 +769,10 @@ body.modo-demo::after{content:'';position:fixed;inset:0;border:4px solid #7C3AED
         <div style="font-size:12px;color:var(--gray-500)" id="cat-info"></div>
       </div>
       <div id="cat-prazo" style="font-size:12px;font-weight:600;background:var(--blue-light);color:var(--blue-dark);padding:6px 12px;border-radius:20px"></div>
+      <button type="button" id="cat-trocar-filho" onclick="verMeusFilhos()"
+              style="display:none;background:none;border:1px solid var(--gray-200);border-radius:20px;padding:6px 12px;font-size:12px;font-weight:600;color:var(--blue);cursor:pointer">
+        👨‍👧‍👦 Trocar de filho
+      </button>
     </div>
 
     <div id="aviso-pedido-aberto" style="display:none;background:#FFFBEB;border:1px solid #FCD34D;border-radius:10px;padding:11px 13px;font-size:12.5px;color:#92400e;line-height:1.5;margin-bottom:16px"></div>
@@ -919,17 +939,28 @@ body.modo-demo::after{content:'';position:fixed;inset:0;border:4px solid #7C3AED
     </div>
 
     <!-- Sem este botao, o pai de dois filhos tentava criar uma conta nova e
-         esbarrava no CPF, que so' pode existir uma vez. -->
+         esbarrava no CPF, que so' pode existir uma vez.
+         O "Trocar de filho" veio depois, de um caso real: uma mae cadastrou a
+         MESMA crianca 8 vezes. Ela queria voltar pro filho que ja' existia, e o
+         unico botao na tela dizia "adicionar outro filho" — entao ela cadastrava
+         de novo, com o nome escrito um pouco diferente a cada tentativa. -->
     <div class="mc-section">
       <div class="mc-section-title">
         <div class="mc-section-icon" style="background:#E0F2FE">👨‍👧‍👦</div>
-        Tem outro filho na escola?
+        Seus filhos
+      </div>
+      <div id="mc-trocar-filho-wrap" style="display:none;margin-bottom:10px">
+        <div style="font-size:13px;color:#666;margin:0 0 10px">
+          Você tem mais de um filho nesta conta. Para ver os pedidos e as fotos de outro, é só trocar aqui.
+        </div>
+        <button type="button" class="btn btn-block" style="background:var(--blue);color:#fff;font-weight:700"
+                onclick="verMeusFilhos()">👨‍👧‍👦 Trocar de filho</button>
       </div>
       <div style="font-size:13px;color:#666;margin:0 0 12px">
-        Use esta mesma conta — não crie outro cadastro.
+        Tem outro filho na escola que <b>ainda não está cadastrado</b>? Use esta mesma conta — não crie outro cadastro.
       </div>
       <button type="button" class="btn btn-block" style="background:#fff;border:2px dashed #4B6BFB;color:#4B6BFB;font-weight:700"
-              onclick="irAdicionarFilho()">+ Adicionar outro filho</button>
+              onclick="irAdicionarFilho()">+ Cadastrar um filho novo</button>
     </div>
 
     <div class="mc-section" id="mc-comunicados-section" style="display:none">
@@ -1871,6 +1902,64 @@ document.getElementById('tab-login').addEventListener('click', () => {
   document.getElementById('form-cadastro').style.display = 'none';
 });
 
+// Blocos de irmao no cadastro inicial — gemeos e irmaos entram de uma vez so',
+// cada um virando um aluno separado (com autorizacao e pedido proprios).
+function popularSelectAno(sel) {
+  sel.innerHTML = '<option value="">— Selecione —</option>';
+  years.forEach(y => {
+    const o = document.createElement('option');
+    o.value = y.id; o.textContent = y.name;
+    sel.appendChild(o);
+  });
+}
+
+let filhoExtraSeq = 0;
+window.removerBlocoFilhoExtra = function (idx) {
+  document.getElementById(`filho-extra-${idx}`)?.remove();
+};
+
+document.getElementById('btn-add-outro-filho-cadastro').addEventListener('click', () => {
+  const idx = ++filhoExtraSeq;
+  const wrap = document.createElement('div');
+  wrap.className = 'filho-extra-bloco';
+  wrap.id = `filho-extra-${idx}`;
+  wrap.style.cssText = 'border:1px dashed var(--gray-200);border-radius:10px;padding:12px;margin-bottom:10px';
+  wrap.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-size:12px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px">Outro filho(a)</div>
+      <button type="button" onclick="removerBlocoFilhoExtra(${idx})" style="background:none;border:none;color:var(--red);font-size:12px;cursor:pointer;padding:2px">Remover</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Nome do(a) aluno(a)</label>
+      <input class="form-input filho-extra-nome" placeholder="Nome completo do filho(a)">
+    </div>
+    <div class="fg2">
+      <div class="form-group">
+        <label class="form-label">Ano</label>
+        <select class="form-select filho-extra-ano"><option value="">— Selecione —</option></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Turma</label>
+        <select class="form-select filho-extra-turma"><option value="">— Selecione —</option></select>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+      <label class="form-label">Data de nascimento</label>
+      <input class="form-input filho-extra-nasc" type="date">
+    </div>`;
+  document.getElementById('cad-filhos-extra').appendChild(wrap);
+
+  const selAno = wrap.querySelector('.filho-extra-ano');
+  popularSelectAno(selAno);
+  selAno.addEventListener('change', e => {
+    const sel = wrap.querySelector('.filho-extra-turma');
+    sel.innerHTML = '<option value="">— Selecione —</option>';
+    classes.filter(c => c.year_id === e.target.value).forEach(c => {
+      sel.insertAdjacentHTML('beforeend', `<option value="${c.id}">${escapeHtml(c.name)}</option>`);
+    });
+  });
+});
+
 // Cascata Ano → Turma
 document.getElementById('cad-al-ano').addEventListener('change', e => {
   const yearId = e.target.value;
@@ -1925,10 +2014,28 @@ document.getElementById('form-cadastro').addEventListener('submit', async e => {
   const classId = document.getElementById('cad-al-turma').value;
   const nasc = document.getElementById('cad-al-nasc').value;
 
+  // Irmaos preenchidos no mesmo cadastro. Bloco aberto e deixado em branco e'
+  // ignorado — quem clicou no botao e desistiu nao fica travado no formulario.
+  const filhosExtras = Array.from(document.querySelectorAll('.filho-extra-bloco'))
+    .map(el => ({
+      nome:    el.querySelector('.filho-extra-nome').value.trim(),
+      yearId:  el.querySelector('.filho-extra-ano').value,
+      classId: el.querySelector('.filho-extra-turma').value,
+      nasc:    el.querySelector('.filho-extra-nasc').value,
+    }))
+    .filter(f => f.nome);
+
   if (!email || !password || !nome || !cpf || !rg || !tel || !parentesco || !alNome || !yearId || !classId) {
     erroEl.textContent = 'Preencha todos os campos obrigatórios marcados com *.';
     erroEl.style.display = 'block';
     return;
+  }
+  for (const f of filhosExtras) {
+    if (!f.yearId || !f.classId) {
+      erroEl.textContent = `Escolha o ano e a turma de "${f.nome}", ou clique em Remover nesse bloco.`;
+      erroEl.style.display = 'block';
+      return;
+    }
   }
   if (!validarCPF(cpf)) {
     erroEl.textContent = 'CPF inválido. Verifique o número digitado.';
@@ -2001,6 +2108,27 @@ document.getElementById('form-cadastro').addEventListener('submit', async e => {
       });
     if (stErr) throw stErr;
 
+    // Irmaos do mesmo cadastro. O numero da ficha segue a contagem local — sao
+    // inseridos na mesma leva, entao nao vale reconsultar o maximo a cada um.
+    let seqIrmao = nextSeq;
+    for (const f of filhosExtras) {
+      seqIrmao++;
+      const { error: irErr } = await supabase.from('students').insert({
+        name: f.nome,
+        birth_date: f.nasc || null,
+        user_id: user.id,
+        class_id: f.classId,
+        school_id: escola.id,
+        photo_seq_number: seqIrmao,
+        guardian2_name: g2Nome || null,
+        guardian2_phone: g2Tel || null,
+        guardian2_relationship: g2Par || null,
+      });
+      if (irErr) throw irErr;
+    }
+
+    // afterLogin decide sozinho: um filho vai direto pra autorizacao, dois ou
+    // mais caem na tela de escolher filho.
     await afterLogin(user);
   } catch (err) {
     const msg = err.message || '';
@@ -2208,6 +2336,16 @@ let _todosFilhos = [];
 
 window.selecionarFilho = selecionarFilho;
 
+// Volta pra lista de filhos. Sem isso, quem escolhia um filho ficava preso nele
+// ate' sair e entrar de novo — e o unico botao a' vista dizia "adicionar outro
+// filho", o que fazia gente recadastrar a mesma crianca pra tentar voltar.
+window.verMeusFilhos = async function () {
+  const user = _filhosUser || await getCurrentUser();
+  if (!user) { show('screen-auth'); return; }
+  if (_todosFilhos.length > 1) { showSelecaoFilhos(_todosFilhos, user); return; }
+  await afterLogin(user);
+};
+
 function showSelecaoFilhos(students, user) {
   _filhosUser = user;
   _todosFilhos = students;
@@ -2278,6 +2416,11 @@ async function afterLogin(user) {
     `)
     .eq('user_id', user.id)
     .eq('school_id', escola.id);
+
+  // Guarda a familia inteira pra o botao "Trocar de filho" nao precisar
+  // reconsultar o banco — e pra saber se esse botao deve aparecer.
+  _filhosUser = user;
+  _todosFilhos = students || [];
 
   if (!students || students.length === 0) {
     // Pai logado mas não tem aluno nessa escola — talvez seja conta admin, ou de outra escola
@@ -2356,6 +2499,9 @@ async function loadMinhaConta() {
   document.getElementById('btn-mc-wpp').href = `https://wa.me/${WPP_NUMERO}?text=${encodeURIComponent(
     `Olá! Sou responsável de ${student.name} (${escola.name}). Preciso de ajuda.`
   )}`;
+
+  const trocarWrap = document.getElementById('mc-trocar-filho-wrap');
+  if (trocarWrap) trocarWrap.style.display = _todosFilhos.length > 1 ? 'block' : 'none';
 
   show('screen-minha-conta');
 
@@ -2636,7 +2782,11 @@ document.getElementById('btn-auth-confirm').addEventListener('click', async () =
 
     toast('Autorização confirmada!', 'ok');
     const user = await getCurrentUser();
-    await loadCatalogo(user);
+    // Passa pelo afterLogin em vez de ir direto pro catalogo: com um filho so'
+    // o destino e' o mesmo, e com irmaos a mae volta pra lista e VE' quem ja'
+    // esta cadastrado — era esse o passo que faltava pra ninguem recadastrar a
+    // mesma crianca achando que nao tinha dado certo.
+    await afterLogin(user);
   } catch (err) {
     handleError(err, 'submitAutorizacao');
   }
@@ -2743,6 +2893,8 @@ async function loadCatalogo(user) {
   document.getElementById('cat-info').textContent = `${escola.name} · ${anoNome}${turmaNome ? ' / Turma ' + turmaNome : ''}`;
   const prazo = escola.order_deadline ? new Date(escola.order_deadline + 'T00:00:00').toLocaleDateString('pt-BR') : '';
   document.getElementById('cat-prazo').textContent = prazo ? `⏰ Pedidos até ${prazo}` : '';
+  const btnTrocar = document.getElementById('cat-trocar-filho');
+  if (btnTrocar) btnTrocar.style.display = _todosFilhos.length > 1 ? 'inline-block' : 'none';
 
   // Buscar kits + items + produtos — prefere nível de projeto, cai para escola
   const projId = projeto?.id;
