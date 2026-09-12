@@ -6516,6 +6516,47 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
 // DRILL-DOWN PROJETO (Alunos & Pedidos)
 // ============================================================================
 
+// Dois "irmaos" com nome praticamente igual quase nunca sao irmaos de verdade
+// — e' a mesma crianca cadastrada duas vezes pelo mesmo responsavel. Foi o que
+// aconteceu em 11/09/2026 (8 cadastros do mesmo aluno, cada um com o nome
+// escrito de um jeito). Irmao de verdade divide sobrenome, nao o nome inteiro.
+function normalizarNome(n) {
+  return String(n || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/\s+/g, ' ').trim();
+}
+function distanciaEdicao(a, b) {
+  if (a === b) return 0;
+  let linha = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let anterior = linha[0];
+    linha[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const temp = linha[j];
+      linha[j] = Math.min(
+        linha[j] + 1,                                    // remocao
+        linha[j - 1] + 1,                                // insercao
+        anterior + (a[i - 1] === b[j - 1] ? 0 : 1)       // substituicao
+      );
+      anterior = temp;
+    }
+  }
+  return linha[b.length];
+}
+function nomesQuaseIguais(n1, n2) {
+  const a = normalizarNome(n1), b = normalizarNome(n2);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  // "Yohan Vitoriano" dentro de "Yohan Vitoriano da Silva Yamamoto"
+  if (a.startsWith(b) || b.startsWith(a)) return true;
+  // "Yohan Vitoriani" / "Yohan Vitoriano" — erro de digitacao no sobrenome.
+  // So' vale com o primeiro nome identico: irmao divide sobrenome, nao o
+  // primeiro nome, entao "Ana Silva"/"Ane Silva" sao duas criancas mesmo.
+  if (a.split(' ')[0] !== b.split(' ')[0]) return false;
+  if (Math.min(a.length, b.length) < 8) return false;
+  return distanciaEdicao(a, b) <= 2;
+}
+
 let drillProjetoId = null;
 let drillProjeto = null;    // projeto aberto — nome, slug e escola pras mensagens
 let sessaoPorTurma = {};    // class_id -> { photo_date, period } da 1a sessao
@@ -6696,7 +6737,12 @@ async function abrirDrillProjeto(projectId, opts = {}) {
 
     // 3. Detectar irmãos: mesmos user_id
     const userIdCount = {};
-    alunosRaw.forEach(a => { if (a.user_id) userIdCount[a.user_id] = (userIdCount[a.user_id] || 0) + 1; });
+    const irmaosPorUser = {};
+    alunosRaw.forEach(a => {
+      if (!a.user_id) return;
+      userIdCount[a.user_id] = (userIdCount[a.user_id] || 0) + 1;
+      (irmaosPorUser[a.user_id] = irmaosPorUser[a.user_id] || []).push({ id: a.id, name: a.name || '' });
+    });
 
     // 4. Buscar pedidos dos alunos
     const alunoIds = alunosRaw.map(a => a.id);
@@ -6756,9 +6802,15 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       }
     });
 
-    drillAlunosData = alunosRaw.map(a => ({
+    drillAlunosData = alunosRaw.map(a => {
+      const irmaos = (irmaosPorUser[a.user_id] || [])
+        .filter(x => x.id !== a.id)
+        .map(x => x.name);
+      return {
       id: a.id,
       name: a.name,
+      irmaos,
+      duplicataSuspeita: irmaos.some(n => nomesQuaseIguais(n, a.name)),
       class_id: a.class?.id || null,
       class_name: a.class?.name || '—',
       year_name: a.class?.year?.name || '—',
@@ -6771,7 +6823,8 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       order: pedidosPorAluno[a.id] || null,
       contato: contatoPorAluno[a.id] || null,
       duplicadoPago: duplicadoPagoPorAluno[a.id] || null,
-    }));
+      };
+    });
 
     // 6. Montar drillPedidosData (adiciona nome do aluno)
     const alunoMap = {};
@@ -7099,9 +7152,19 @@ function filtrarDrillAlunos() {
   }
 
   tb.innerHTML = lista.map(a => {
-    const irmao = a.sibling
-      ? '<span class="badge badge-yellow" title="Responsável tem outro aluno neste projeto">Irmão</span>'
-      : '—';
+    // Mostra de quem e' irmao, nao so' que tem um: nome repetido na lista e'
+    // o sinal de que o responsavel cadastrou a mesma crianca duas vezes.
+    let irmao = '—';
+    if (a.sibling) {
+      const todos = a.irmaos || [];
+      const mostra = todos.slice(0, 2).map(n => escapeHtml(n)).join('<br>');
+      const resto = todos.length > 2 ? `<br>+${todos.length - 2}` : '';
+      const badge = a.duplicataSuspeita
+        ? '<span class="badge badge-red" title="Nome quase igual ao de outro aluno do mesmo responsável — pode ser a mesma criança cadastrada duas vezes">⚠ Possível duplicata</span>'
+        : '<span class="badge badge-yellow" title="Responsável tem outro aluno neste projeto">Irmão</span>';
+      irmao = `${badge}<div style="font-size:11px;color:var(--gray-500);margin-top:3px;line-height:1.35"
+                    title="${escapeHtml(todos.join(', '))}">${mostra}${resto}</div>`;
+    }
 
     let numCell  = '<span style="color:var(--gray-300)">—</span>';
     let quandoCell = '<span style="color:var(--gray-300)">—</span>';
