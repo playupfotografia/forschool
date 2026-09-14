@@ -1,0 +1,16 @@
+{
+  "name": "For School — Admin",
+  "short_name": "For School",
+  "description": "Painel de gestão da Play Up Fotografia",
+  "start_url": "/admin",
+  "scope": "/admin",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F9FAFB",
+  "theme_color": "#4B6BFB",
+  "icons": [
+    { "src": "/assets/icone-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/assets/icone-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/assets/icone-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
