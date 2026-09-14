@@ -358,6 +358,17 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
 .car-nome { font-size:11px; font-weight:600; color:#222; text-align:center; line-height:1.2; word-break:break-word; width:100%; }
 .car-preview-wrap { background:#fff; box-shadow:0 4px 24px rgba(0,0,0,.13); border-radius:4px; max-width:960px; margin:0 auto; }
 .car-upload-box { background:#f8f8fb; border:1px solid #e8e8ee; border-radius:8px; padding:14px 16px; font-size:13px; }
+
+/* Selecao de turmas pra impressao de fichas */
+.fs-ano { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:var(--gray-500); padding:12px 2px 4px; }
+.fs-turma { display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:var(--radius); cursor:pointer; }
+.fs-turma:hover { background:var(--gray-50); }
+.fs-turma input { width:16px; height:16px; flex-shrink:0; cursor:pointer; }
+.fs-turma-nome { font-weight:600; font-size:14px; flex:1; min-width:0; }
+.fs-turma-sessao { font-size:12px; color:var(--gray-500); white-space:nowrap; }
+.fs-turma-sessao.sem { color:var(--gray-300); font-style:italic; }
+.fs-turma-qtd { font-size:12px; font-weight:600; color:var(--gray-600); min-width:64px; text-align:right; font-variant-numeric:tabular-nums; }
+.fs-turma.vazia { opacity:.5; }
 </style>
 </head>
 <body>
@@ -686,7 +697,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
       <div style="display:flex;gap:8px">
         <button class="btn btn-secondary" onclick="abrirModalFichasSessao()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-          Fichas da sessão
+          Fichas por turma
         </button>
         <button class="btn btn-secondary" onclick="abrirModalAutorizacoes()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="12.5" y2="18"/><polyline points="12.5 18 15 13"/></svg>
@@ -1541,30 +1552,38 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
 <div class="modal-overlay" id="mod-fichas-sessao">
   <div class="modal" style="max-width:480px">
     <div class="modal-header">
-      <div class="modal-title">Fichas da sessão</div>
+      <div class="modal-title">Fichas por turma</div>
       <button class="modal-close" data-close="mod-fichas-sessao">&times;</button>
     </div>
-    <div class="modal-body" style="display:flex;flex-direction:column;gap:16px">
-      <p style="font-size:14px;color:var(--gray-500)">Imprime as fichas de identificação (com QR code) de todos os alunos autorizados na sessão selecionada.</p>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+      <p style="font-size:14px;color:var(--gray-500)">Marque as turmas que você vai atender. Imprime as fichas (com QR code) de todos os alunos autorizados, agrupadas por turma.</p>
       <div>
         <label class="form-label">Projeto</label>
         <select class="form-select" id="fs-projeto" onchange="onFichasSessaoProjeto()">
           <option value="">Selecione o projeto…</option>
         </select>
       </div>
-      <div>
-        <label class="form-label">Sessão de fotos</label>
-        <select class="form-select" id="fs-sessao">
-          <option value="">Selecione o projeto primeiro…</option>
-        </select>
+
+      <div id="fs-atalhos" style="display:none;gap:6px;flex-wrap:wrap">
+        <button type="button" class="btn btn-sm btn-secondary" onclick="fsMarcar('todas')">Marcar todas</button>
+        <button type="button" class="btn btn-sm btn-secondary" onclick="fsMarcar('manhã')">Só manhã</button>
+        <button type="button" class="btn btn-sm btn-secondary" onclick="fsMarcar('tarde')">Só tarde</button>
+        <button type="button" class="btn btn-sm btn-secondary" onclick="fsMarcar('nenhuma')">Limpar</button>
+      </div>
+
+      <div id="fs-turmas" style="display:flex;flex-direction:column;gap:2px;max-height:46vh;overflow-y:auto">
+        <div style="font-size:13px;color:var(--gray-400);padding:8px 0">Selecione o projeto primeiro…</div>
       </div>
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" data-close="mod-fichas-sessao">Cancelar</button>
-      <button class="btn btn-primary" id="btn-gerar-fichas-sessao" onclick="imprimirFichasSessao()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:16px;height:16px"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-        Gerar fichas
-      </button>
+    <div class="modal-footer" style="justify-content:space-between;align-items:center">
+      <span id="fs-total" style="font-size:13px;color:var(--gray-500)"></span>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary" data-close="mod-fichas-sessao">Cancelar</button>
+        <button class="btn btn-primary" id="btn-gerar-fichas-sessao" onclick="imprimirFichasSessao()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:16px;height:16px"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          Gerar fichas
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -8024,37 +8043,132 @@ ${paginasHtml}
   win.document.close();
 }
 
+// Turmas do projeto aberto no modal: [{id, turma, ano, periodo, dataBR, qtd}]
+// na ordem em que aparecem na tela — e' essa ordem que agrupa as fichas na
+// impressao (todas do G3, depois G4...), em vez de misturar tudo por nome.
+let fsTurmas = [];
+
 async function abrirModalFichasSessao() {
-  // Popula projetos
   const sel = document.getElementById('fs-projeto');
   sel.innerHTML = '<option value="">Carregando…</option>';
-  const { data: projs } = await supabase.from('projects').select('id, name, school:schools(name)').order('name');
+  const { data: projs } = await supabase.from('projects').select('id, name, school_id, school:schools(name)').order('name');
   sel.innerHTML = '<option value="">Selecione o projeto…</option>' +
-    (projs || []).map(p => `<option value="${p.id}">${escapeHtml(p.name)}${p.school ? ' — ' + escapeHtml(p.school.name) : ''}</option>`).join('');
-  document.getElementById('fs-sessao').innerHTML = '<option value="">Selecione o projeto primeiro…</option>';
+    (projs || []).map(p => `<option value="${p.id}" data-escola="${p.school_id}">${escapeHtml(p.name)}${p.school ? ' — ' + escapeHtml(p.school.name) : ''}</option>`).join('');
+  fsTurmas = [];
+  document.getElementById('fs-turmas').innerHTML = '<div style="font-size:13px;color:var(--gray-400);padding:8px 0">Selecione o projeto primeiro…</div>';
+  document.getElementById('fs-atalhos').style.display = 'none';
+  document.getElementById('fs-total').textContent = '';
   document.getElementById('mod-fichas-sessao').classList.add('open');
 }
 
 async function onFichasSessaoProjeto() {
-  const projId = document.getElementById('fs-projeto').value;
-  const sel = document.getElementById('fs-sessao');
-  if (!projId) { sel.innerHTML = '<option value="">Selecione o projeto primeiro…</option>'; return; }
-  sel.innerHTML = '<option value="">Carregando…</option>';
-  const { data: sessions } = await supabase
-    .from('project_sessions')
-    .select('id, photo_date, period')
-    .eq('project_id', projId)
-    .order('photo_date');
-  sel.innerHTML = '<option value="">Selecione a sessão…</option>' +
-    (sessions || []).map(s => {
-      const dt = s.photo_date ? new Date(s.photo_date + 'T12:00:00').toLocaleDateString('pt-BR') : '—';
-      return `<option value="${s.id}">${dt}${s.period ? ' · ' + escapeHtml(s.period) : ''}</option>`;
-    }).join('');
+  const sel  = document.getElementById('fs-projeto');
+  const cont = document.getElementById('fs-turmas');
+  const projId   = sel.value;
+  const escolaId = sel.selectedOptions[0]?.dataset.escola;
+  fsTurmas = [];
+  document.getElementById('fs-total').textContent = '';
+  document.getElementById('fs-atalhos').style.display = 'none';
+  if (!projId) { cont.innerHTML = '<div style="font-size:13px;color:var(--gray-400);padding:8px 0">Selecione o projeto primeiro…</div>'; return; }
+  cont.innerHTML = '<div class="loading" style="padding:14px"><span class="spinner"></span>Carregando turmas…</div>';
+
+  try {
+    // Anos/turmas da escola + sessoes do projeto + alunos autorizados, em paralelo
+    const [anosResp, sessResp, alunosResp] = await Promise.all([
+      supabase.from('school_years').select('id, name, sort_order, classes:school_classes(id, name)')
+        .eq('school_id', escolaId).order('sort_order'),
+      supabase.from('project_sessions').select('id, photo_date, period, classes:project_session_classes(school_class_id)')
+        .eq('project_id', projId).order('photo_date'),
+      supabase.from('students').select('class_id, authorize_individual, authorize_class')
+        .eq('school_id', escolaId).not('authorization_date', 'is', null).limit(5000),
+    ]);
+    if (anosResp.error) throw anosResp.error;
+    if (sessResp.error) throw sessResp.error;
+    if (alunosResp.error) throw alunosResp.error;
+
+    // Periodo/data vem da SESSAO, nao da turma — turma sem sessao vinculada
+    // ainda aparece na lista, so' sem o horario.
+    const sessaoPorClasse = {};
+    (sessResp.data || []).forEach(s => {
+      (s.classes || []).forEach(c => {
+        if (!sessaoPorClasse[c.school_class_id]) sessaoPorClasse[c.school_class_id] = s;
+      });
+    });
+
+    const autorizadosPorClasse = {};
+    (alunosResp.data || []).forEach(a => {
+      if (!a.class_id) return;
+      if (!a.authorize_individual && !a.authorize_class) return;
+      autorizadosPorClasse[a.class_id] = (autorizadosPorClasse[a.class_id] || 0) + 1;
+    });
+
+    (anosResp.data || []).forEach(ano => {
+      (ano.classes || []).sort((x, y) => (x.name || '').localeCompare(y.name || '', 'pt-BR')).forEach(t => {
+        const s = sessaoPorClasse[t.id];
+        fsTurmas.push({
+          id: t.id,
+          turma: t.name,
+          ano: ano.name,
+          periodo: s?.period || '',
+          dataBR: s?.photo_date ? new Date(s.photo_date + 'T12:00:00').toLocaleDateString('pt-BR') : '',
+          qtd: autorizadosPorClasse[t.id] || 0,
+        });
+      });
+    });
+
+    if (!fsTurmas.length) { cont.innerHTML = '<div style="font-size:13px;color:var(--gray-400);padding:8px 0">Essa escola não tem turmas cadastradas.</div>'; return; }
+    renderFsTurmas();
+    document.getElementById('fs-atalhos').style.display = 'flex';
+  } catch (err) {
+    cont.innerHTML = `<div style="font-size:13px;color:var(--red);padding:8px 0">Erro ao carregar turmas: ${escapeHtml(err.message)}</div>`;
+  }
 }
 
+function renderFsTurmas() {
+  let html = '', anoAtual = null;
+  fsTurmas.forEach((t, i) => {
+    if (t.ano !== anoAtual) { anoAtual = t.ano; html += `<div class="fs-ano">${escapeHtml(t.ano)}</div>`; }
+    const quando = t.periodo || t.dataBR
+      ? `<span class="fs-turma-sessao">${escapeHtml([t.dataBR, t.periodo].filter(Boolean).join(' · '))}</span>`
+      : `<span class="fs-turma-sessao sem">sem sessão</span>`;
+    html += `<label class="fs-turma${t.qtd ? '' : ' vazia'}">
+      <input type="checkbox" data-i="${i}" onchange="fsAtualizarTotal()"${t.qtd ? '' : ' disabled'}>
+      <span class="fs-turma-nome">${escapeHtml(t.turma)}</span>
+      ${quando}
+      <span class="fs-turma-qtd">${t.qtd} ficha${t.qtd === 1 ? '' : 's'}</span>
+    </label>`;
+  });
+  document.getElementById('fs-turmas').innerHTML = html;
+  fsAtualizarTotal();
+}
+
+window.fsMarcar = function (modo) {
+  document.querySelectorAll('#fs-turmas input[type=checkbox]').forEach(cb => {
+    if (cb.disabled) return;
+    const t = fsTurmas[cb.dataset.i];
+    cb.checked = modo === 'todas' ? true
+               : modo === 'nenhuma' ? false
+               : t.periodo === modo;
+  });
+  fsAtualizarTotal();
+};
+
+window.fsAtualizarTotal = function () {
+  const marcadas = [...document.querySelectorAll('#fs-turmas input[type=checkbox]:checked')]
+    .map(cb => fsTurmas[cb.dataset.i]);
+  const fichas = marcadas.reduce((s, t) => s + t.qtd, 0);
+  document.getElementById('fs-total').textContent = marcadas.length
+    ? `${marcadas.length} turma${marcadas.length === 1 ? '' : 's'} · ${fichas} ficha${fichas === 1 ? '' : 's'}`
+    : '';
+  const btn = document.getElementById('btn-gerar-fichas-sessao');
+  btn.disabled = !marcadas.length;
+  btn.style.opacity = marcadas.length ? '' : '.5';
+};
+
 async function imprimirFichasSessao() {
-  const sessaoId = document.getElementById('fs-sessao').value;
-  if (!sessaoId) { toast('Selecione uma sessão.', 'error'); return; }
+  const marcadas = [...document.querySelectorAll('#fs-turmas input[type=checkbox]:checked')]
+    .map(cb => fsTurmas[cb.dataset.i]);
+  if (!marcadas.length) { toast('Marque ao menos uma turma.', 'error'); return; }
 
   const btn = document.getElementById('btn-gerar-fichas-sessao');
   const orig = btn.innerHTML;
@@ -8062,18 +8176,15 @@ async function imprimirFichasSessao() {
   btn.disabled = true;
 
   try {
-    // 1. Classes da sessão
-    const { data: sessClasses } = await supabase
-      .from('project_session_classes')
-      .select('school_class_id')
-      .eq('session_id', sessaoId);
-    const classIds = (sessClasses || []).map(sc => sc.school_class_id);
-    if (!classIds.length) { toast('Esta sessão não tem turmas vinculadas.', 'error'); return; }
+    const classIds = marcadas.map(t => t.id);
+    // Ordem de impressao: a mesma da tela (ano → turma), e nome dentro da turma
+    const ordemTurma = {};
+    marcadas.forEach((t, i) => { ordemTurma[t.id] = i; });
 
-    // 2. Alunos autorizados nessas turmas
+    // Alunos autorizados nessas turmas
     const { data: alunos, error: alunosErr } = await supabase
       .from('students')
-      .select(`id, name, photo_seq_number, authorize_individual, authorize_class, authorization_date,
+      .select(`id, name, class_id, photo_seq_number, authorize_individual, authorize_class, authorization_date,
         school_class:school_classes(name, year:school_years(name)),
         school:schools(name),
         user:users(id, name, phone)`)
@@ -8082,8 +8193,11 @@ async function imprimirFichasSessao() {
       .order('name');
     if (alunosErr) throw alunosErr;
 
-    const autorizados = (alunos || []).filter(a => a.authorize_individual || a.authorize_class);
-    if (!autorizados.length) { toast('Nenhum aluno autorizado nesta sessão.', 'error'); return; }
+    const autorizados = (alunos || [])
+      .filter(a => a.authorize_individual || a.authorize_class)
+      .sort((x, y) => (ordemTurma[x.class_id] - ordemTurma[y.class_id])
+        || (x.name || '').localeCompare(y.name || '', 'pt-BR'));
+    if (!autorizados.length) { toast('Nenhum aluno autorizado nas turmas marcadas.', 'error'); return; }
 
     // 3. Pedidos
     const alunoIds = autorizados.map(a => a.id);
