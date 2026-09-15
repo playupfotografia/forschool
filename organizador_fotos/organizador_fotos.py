@@ -84,11 +84,37 @@ def organizar(pasta_origem: Path, pasta_saida: Path):
     sem_aluno     = 0
     pasta_sem     = pasta_saida / '_sem_aluno'
 
+    turmas_info = {}   # nome_pasta -> quantas fotos de turma
+
     for i, foto in enumerate(fotos, 1):
         prefixo = f'[{i:4}/{len(fotos)}] {foto.name[:38]:<38}'
         print(prefixo, end=' ', flush=True)
 
         dados = ler_qr(foto)
+
+        # QR de TURMA (cartao "foto de turma", gerado no admin). Marca o inicio
+        # das fotos coletivas: elas nao pertencem a aluno nenhum, e sem isso
+        # cairiam na pasta do ultimo aluno fotografado.
+        if dados and str(dados.get('tipo', '')).lower() == 'turma':
+            turma   = dados.get('turma', dados.get('t', ''))
+            ano     = dados.get('ano', dados.get('a', ''))
+            periodo = dados.get('periodo', dados.get('p', ''))
+
+            if aluno_atual and aluno_atual in alunos_info:
+                alunos_info[aluno_atual]['fotos_count'] = fotos_aluno
+
+            partes = [p for p in [ano, f'Turma {turma}' if turma else ''] if p]
+            nome_pasta = sanitizar_nome(' - '.join(partes)) or 'Turma'
+            pasta_aluno = pasta_saida / '_TURMAS' / nome_pasta
+            pasta_aluno.mkdir(parents=True, exist_ok=True)
+
+            # aluno_atual = None diz ao resto do laco "as proximas fotos nao
+            # sao de aluno": sao copiadas, mas nao entram no indice.
+            aluno_atual = None
+            fotos_aluno = 0
+            turmas_info.setdefault(nome_pasta, 0)
+            print(f'🏫 QR TURMA → {nome_pasta}' + (f'  ({periodo})' if periodo else ''))
+            continue
 
         if dados:
             nome   = dados.get('nome', dados.get('n', 'Desconhecido'))
@@ -139,11 +165,17 @@ def organizar(pasta_origem: Path, pasta_saida: Path):
             fotos_aluno += 1
             destino = pasta_aluno / foto.name
             shutil.copy2(foto, destino)
-            if destino not in alunos_info[aluno_atual]['fotos']:
-                alunos_info[aluno_atual]['fotos'].append(destino)
-                alunos_info[aluno_atual]['blocos'].append(
-                    alunos_info[aluno_atual]['bloco_atual'])
-            print(f'✓  → {aluno_atual} (foto {fotos_aluno})')
+            # aluno_atual None = foto de turma: copia, mas nao registra no
+            # indice (foto de turma nao vira produto de aluno).
+            if aluno_atual and aluno_atual in alunos_info:
+                if destino not in alunos_info[aluno_atual]['fotos']:
+                    alunos_info[aluno_atual]['fotos'].append(destino)
+                    alunos_info[aluno_atual]['blocos'].append(
+                        alunos_info[aluno_atual]['bloco_atual'])
+                print(f'✓  → {aluno_atual} (foto {fotos_aluno})')
+            else:
+                turmas_info[pasta_aluno.name] = turmas_info.get(pasta_aluno.name, 0) + 1
+                print(f'✓  → _TURMAS/{pasta_aluno.name} (foto {fotos_aluno})')
 
         else:
             sem_aluno += 1
@@ -160,6 +192,8 @@ def organizar(pasta_origem: Path, pasta_saida: Path):
     for nome_pasta, info in alunos_info.items():
         qtd = len(info['fotos'])
         print(f'   {info["nome"]:<35} {qtd} foto(s)')
+    for nome_t, qtd in turmas_info.items():
+        print(f'   🏫 _TURMAS/{nome_t:<26} {qtd} foto(s)')
     if sem_aluno:
         print(f'   ⚠  {sem_aluno} foto(s) sem aluno → _sem_aluno')
     print(f'{"="*60}')

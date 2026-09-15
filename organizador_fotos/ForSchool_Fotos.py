@@ -395,8 +395,35 @@ class App(tk.Tk):
         sem_aluno   = 0
         pasta_sem   = saida / '_sem_aluno'
 
+        turmas_info = {}   # nome_pasta -> quantas fotos de turma
+
         for i, foto in enumerate(fotos, 1):
             dados = ler_qr(foto)
+
+            # QR de TURMA (cartao "foto de turma", gerado no admin). Marca o
+            # inicio das fotos coletivas: elas nao pertencem a aluno nenhum, e
+            # sem isso caem na pasta do ultimo aluno fotografado.
+            if dados and str(dados.get('tipo', '')).lower() == 'turma':
+                turma   = dados.get('turma', dados.get('t', ''))
+                ano     = dados.get('ano', dados.get('a', ''))
+                periodo = dados.get('periodo', dados.get('p', ''))
+
+                if aluno_atual and aluno_atual in alunos_info:
+                    alunos_info[aluno_atual]['fotos_count'] = fotos_aluno
+
+                partes = [p for p in [ano, f'Turma {turma}' if turma else ''] if p]
+                nome_pasta = sanitizar(' - '.join(partes)) or 'Turma'
+                pasta_aluno = saida / '_TURMAS' / nome_pasta
+                pasta_aluno.mkdir(parents=True, exist_ok=True)
+
+                # aluno_atual = None e' o que diz ao resto do laco "as proximas
+                # fotos nao sao de aluno": elas sao copiadas, mas nao entram no
+                # indice nem viram produto.
+                aluno_atual = None
+                fotos_aluno = 0
+                turmas_info.setdefault(nome_pasta, 0)
+                self._log1(f'🏫 QR TURMA → {nome_pasta}' + (f'  ({periodo})' if periodo else ''))
+                continue
 
             if dados:
                 nome   = dados.get('nome', dados.get('n', 'Desconhecido'))
@@ -444,11 +471,16 @@ class App(tk.Tk):
                 fotos_aluno += 1
                 destino = pasta_aluno / foto.name
                 shutil.copy2(foto, destino)
-                # Foto repetida (mesmo cartao lido duas vezes) nao entra de novo
-                if str(destino) not in alunos_info[aluno_atual]['fotos']:
-                    alunos_info[aluno_atual]['fotos'].append(str(destino))
-                    alunos_info[aluno_atual]['blocos'].append(
-                        alunos_info[aluno_atual]['bloco_atual'])
+                # aluno_atual None = estamos numa foto de turma: copia, mas nao
+                # registra no indice (foto de turma nao vira produto de aluno).
+                if aluno_atual and aluno_atual in alunos_info:
+                    # Foto repetida (mesmo cartao lido duas vezes) nao entra de novo
+                    if str(destino) not in alunos_info[aluno_atual]['fotos']:
+                        alunos_info[aluno_atual]['fotos'].append(str(destino))
+                        alunos_info[aluno_atual]['blocos'].append(
+                            alunos_info[aluno_atual]['bloco_atual'])
+                else:
+                    turmas_info[pasta_aluno.name] = turmas_info.get(pasta_aluno.name, 0) + 1
                 self._log1(f'   ✓ {foto.name}')
 
             else:
@@ -469,6 +501,11 @@ class App(tk.Tk):
         self._pasta_organizada = saida
 
         self._log1(f'\n✅ Concluído! {len(alunos_info)} aluno(s) organizados.')
+        if turmas_info:
+            total_turma = sum(turmas_info.values())
+            self._log1(f'🏫 {total_turma} foto(s) de turma → _TURMAS/')
+            for nome_t, qtd in turmas_info.items():
+                self._log1(f'     {nome_t}: {qtd} foto(s)')
         if sem_aluno:
             self._log1(f'⚠  {sem_aluno} foto(s) sem aluno → _sem_aluno')
         self._log1(f'\n👉 Vá para a aba "2 · Montar produtos" para continuar.')
