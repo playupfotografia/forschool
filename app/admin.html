@@ -134,6 +134,17 @@ td{padding:10px 13px;font-size:13px;color:var(--gray-700);border-bottom:1px soli
 .conf-chk{width:19px;height:19px;cursor:pointer;accent-color:var(--green);vertical-align:middle}
 .conf-chk:disabled{cursor:not-allowed;opacity:.35}
 .conf-td{text-align:center;white-space:nowrap}
+/* Pilhas da conferencia de caixa: cada uma e' um destino de conferencia
+   diferente (Asaas, extrato do banco, nada a fazer). Clicaveis. */
+.conf-pilhas{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:9px}
+.conf-pilha{border:1px solid var(--gray-100);border-left:4px solid var(--gray-300);border-radius:var(--radius);
+  padding:10px 12px;cursor:pointer;background:#fff;transition:background .12s}
+.conf-pilha:hover{background:var(--gray-50)}
+.conf-pilha.ativa{background:var(--gray-50);border-color:var(--gray-300)}
+.conf-pilha-nome{font-size:12px;font-weight:600;color:var(--gray-700)}
+.conf-pilha-val{font-size:17px;font-weight:700;margin-top:3px}
+.conf-pilha-sub{font-size:11px;color:var(--gray-500);margin-top:2px;line-height:1.4}
+.conf-pilha-falta{font-weight:700}
 tr:last-child td{border-bottom:none}
 tr:hover td{background:var(--gray-50)}
 .td-name{font-weight:500;color:var(--gray-900)}
@@ -988,6 +999,24 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
       <div class="stat-card pink"><div class="stat-label">Receita confirmada</div><div class="stat-value" id="pd-rec">—</div></div>
       <div class="stat-card green"><div class="stat-label">Caiu na conta (líquido)</div><div class="stat-value" id="pd-liq">—</div><div class="stat-label" style="font-weight:400;text-transform:none;letter-spacing:0;margin-top:2px" id="pd-liq-sub"></div></div>
     </div>
+    <!-- CONFERENCIA DE CAIXA (migration_044) — as pilhas separam o que ja'
+         bate sozinho do que exige olho no extrato. Clicar numa pilha filtra. -->
+    <div class="card mb-12">
+      <div class="card-header" style="cursor:pointer" onclick="toggleConferencia()">
+        <div class="card-title">🔎 Conferência de pagamentos</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span id="pd-conf-resumo" style="font-size:12px;color:var(--gray-500)"></span>
+          <span id="pd-conf-seta" style="color:var(--gray-400)">▾</span>
+        </div>
+      </div>
+      <div id="pd-conf-corpo" style="display:none;padding:4px 16px 14px">
+        <div id="pd-conf-pilhas" class="conf-pilhas"></div>
+        <div style="font-size:11px;color:var(--gray-400);margin-top:10px;line-height:1.5">
+          Marque o ✔ de cada pedido conforme confere no extrato. Se o pedido mudar depois
+          (pagamento confirmado, valor alterado, status revertido), ele volta sozinho para a fila.
+        </div>
+      </div>
+    </div>
     <div class="card">
       <div class="card-header" style="gap:8px;flex-wrap:wrap">
         <div style="display:flex;gap:7px;flex:1;flex-wrap:wrap">
@@ -1000,6 +1029,18 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
             <option value="refunded">Reembolsados</option>
             <option value="cancelled">Cancelados</option>
           </select>
+          <select class="form-select" style="width:160px" id="pd-fpilha" onchange="filtrarPedidos()" title="Como o dinheiro entrou (ou não)">
+            <option value="">Toda origem</option>
+            <option value="caiu">💵 Caiu pelo Asaas</option>
+            <option value="aguardando">⏳ Confirmado, não caiu</option>
+            <option value="mao">✋ Pago na mão</option>
+            <option value="pendente">⌛ Pendente</option>
+          </select>
+          <select class="form-select" style="width:150px" id="pd-fconf" onchange="filtrarPedidos()" title="Conferência de caixa">
+            <option value="">✔ Conferência: toda</option>
+            <option value="falta">Falta conferir</option>
+            <option value="ok">Já conferidos</option>
+          </select>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <span id="pd-count" style="font-size:12px;color:var(--gray-400)"></span>
@@ -1008,8 +1049,8 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th style="width:32px"><input type="checkbox" id="pd-sel-all" title="Selecionar todos" onchange="toggleSelecionarTodosPedidos(this)"></th><th>Nº</th><th>Aluno</th><th>Escola</th><th>Kit</th><th>Total</th><th>Método</th><th>Data</th><th>Status</th><th>Ações</th></tr></thead>
-          <tbody id="pd-tab"><tr><td colspan="10" class="loading"><span class="spinner"></span>Carregando pedidos…</td></tr></tbody>
+          <thead><tr><th style="width:32px"><input type="checkbox" id="pd-sel-all" title="Selecionar todos" onchange="toggleSelecionarTodosPedidos(this)"></th><th>Nº</th><th>Aluno</th><th>Escola</th><th>Kit</th><th>Total</th><th>Método</th><th>Data</th><th>Status</th><th title="Marque depois de bater este pedido no extrato">✔ Conf.</th><th>Ações</th></tr></thead>
+          <tbody id="pd-tab"><tr><td colspan="11" class="loading"><span class="spinner"></span>Carregando pedidos…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -2943,6 +2984,200 @@ document.querySelectorAll('.sb-item').forEach(btn => {
 
 let pedidosCache = [];   // todos os pedidos carregados (pra filtrar client-side sem requery)
 let duplicadoPagoPorAlunoPedidos = {};   // student_id -> pedido pago do cadastro duplicado (migration_035)
+let conferidoPorPedido = {};             // order_id -> {checked_at, notes} (migration_044)
+
+// ---------------------------------------------------------------------------
+// CONFERENCIA DE CAIXA (migration_044)
+//
+// De onde o dinheiro veio — e, por consequencia, ONDE conferir:
+//   'caiu'       o Asaas creditou. Confere pelo TOTAL, nao pedido a pedido.
+//   'aguardando' cartao confirmado que ainda nao apareceu creditado.
+//   'mao'        marcado como pago por voce. E' o que exige extrato do banco.
+//   'pendente'   nao pagou — ou pagou e ninguem viu (o buraco do PIX manual).
+// Reembolsado/cancelado ficam de fora: nao ha' caixa a conferir.
+// ---------------------------------------------------------------------------
+// A caixinha ✔ de cada linha. Pedido reembolsado/cancelado nao tem caixa a
+// conferir, entao nem ganha caixinha.
+function celulaConferencia(p) {
+  if (!pilhaDoPedido(p)) return '<span style="color:var(--gray-300)">—</span>';
+
+  const chk = conferidoPorPedido[p.id];
+  const falta = precisaConferir(p);
+  // Conferido e desatualizado e' um terceiro estado: a caixinha volta a ficar
+  // vazia (ele PRECISA olhar de novo), mas o aviso explica por que ela
+  // desmarcou sozinha — senao pareceria que o sistema esqueceu.
+  const mudou = !!chk && falta;
+
+  const nota = chk?.notes
+    ? `<div style="font-size:10px;color:var(--gray-500);margin-top:1px;max-width:130px;white-space:normal" title="${escapeHtml(chk.notes)}">${escapeHtml(chk.notes)}</div>`
+    : '';
+  const quando = chk && !falta
+    ? `<div style="font-size:9px;color:var(--gray-400);margin-top:1px">${fmtDataHoraCurta(chk.checked_at)}</div>`
+    : '';
+  const aviso = mudou
+    ? `<div style="font-size:9px;color:var(--orange);margin-top:1px" title="Você já tinha conferido, mas o pedido mudou depois disso">mudou depois</div>`
+    : '';
+  const lapis = chk
+    ? ` <span onclick="anotarConferencia('${p.id}')" style="cursor:pointer" title="${chk.notes ? 'Editar anotação' : 'Anotar algo sobre este pagamento'}">${chk.notes ? '📝' : '🖊️'}</span>`
+    : '';
+
+  return `<input type="checkbox" class="conf-chk" ${falta ? '' : 'checked'}
+            onchange="marcarConferido('${p.id}', this.checked)"
+            title="${falta ? 'Marcar como conferido no extrato' : 'Conferido — clique para desmarcar'}">${lapis}${quando}${aviso}${nota}`;
+}
+
+function atualizarCelulaConferencia(orderId) {
+  const p  = pedidosCache.find(x => x.id === orderId);
+  const td = document.getElementById('conf-td-' + orderId);
+  if (p && td) td.innerHTML = celulaConferencia(p);
+}
+
+// Marcar nao redesenha a tabela: com o filtro "falta conferir" ligado, a
+// linha sumiria debaixo do dedo no meio de uma sequencia de cliques. So' a
+// celula e o painel de cima se atualizam.
+window.marcarConferido = async function (orderId, marcado) {
+  const antes = conferidoPorPedido[orderId];
+  try {
+    if (marcado) {
+      const { data: sess } = await supabase.auth.getSession();
+      const linha = {
+        order_id: orderId,
+        checked_at: new Date().toISOString(),
+        notes: antes?.notes || null,
+        checked_by: sess?.session?.user?.id || null,
+      };
+      conferidoPorPedido[orderId] = linha;
+      atualizarCelulaConferencia(orderId);
+      const { error } = await supabase.from('order_checks').upsert(linha, { onConflict: 'order_id' });
+      if (error) throw error;
+    } else {
+      delete conferidoPorPedido[orderId];
+      atualizarCelulaConferencia(orderId);
+      const { error } = await supabase.from('order_checks').delete().eq('order_id', orderId);
+      if (error) throw error;
+    }
+  } catch (e) {
+    // Desfaz: tela dizendo "conferido" sem ter gravado e' exatamente o tipo de
+    // engano que esta conferencia existe pra evitar.
+    if (antes) conferidoPorPedido[orderId] = antes; else delete conferidoPorPedido[orderId];
+    atualizarCelulaConferencia(orderId);
+    console.error('marcarConferido:', e.message || e);
+    toast('Não consegui salvar a conferência. Tente de novo.', 'error');
+  }
+  atualizarPainelConferencia();   // so' os totais; a tabela fica onde esta'
+};
+
+// Anotacao curta do caso estranho ("PIX veio no nome da avó", "cobrei de novo
+// dia 12"). So' existe depois de conferido — e' nota sobre a conferencia.
+window.anotarConferencia = async function (orderId) {
+  const chk = conferidoPorPedido[orderId];
+  if (!chk) return;
+  const nota = prompt('Anotação sobre este pagamento (ex: "PIX veio no nome da avó"):', chk.notes || '');
+  if (nota === null) return;
+  const texto = nota.trim() || null;
+  const antes = chk.notes;
+  chk.notes = texto;
+  atualizarCelulaConferencia(orderId);
+  const { error } = await supabase.from('order_checks').update({ notes: texto }).eq('order_id', orderId);
+  if (error) {
+    chk.notes = antes;
+    atualizarCelulaConferencia(orderId);
+    toast('Não consegui salvar a anotação.', 'error');
+  }
+};
+
+// O painel olha o mesmo recorte de busca/escola/status da tabela, mas IGNORA
+// os filtros de pilha e de conferencia — senao, ao clicar numa pilha, ele
+// passaria a mostrar so' aquela, e o total de controle sumiria justamente
+// quando voce esta' trabalhando dentro dela.
+function atualizarPainelConferencia() {
+  const busca = (document.getElementById('pd-busca')?.value || '').toLowerCase().trim();
+  const fesc  = document.getElementById('pd-fesc')?.value || '';
+  const fst   = document.getElementById('pd-fst')?.value || '';
+  renderConferencia(pedidosCache.filter(p => {
+    if (busca && !(p.student?.name || '').toLowerCase().includes(busca)) return false;
+    if (fesc && p.school?.id !== fesc) return false;
+    if (fst && p.payment_status !== fst) return false;
+    return true;
+  }), document.getElementById('pd-fpilha')?.value || '');
+}
+
+function renderConferencia(lista, pilhaAtiva) {
+  const el = document.getElementById('pd-conf-pilhas');
+  if (!el) return;
+
+  const doCaixa = lista.filter(p => pilhaDoPedido(p));
+  const faltam  = doCaixa.filter(precisaConferir).length;
+  const resumo  = document.getElementById('pd-conf-resumo');
+  if (resumo) {
+    resumo.textContent = doCaixa.length
+      ? `${doCaixa.length - faltam} de ${doCaixa.length} conferidos` + (faltam ? ` · ${faltam} a conferir` : ' · tudo em dia ✓')
+      : 'nenhum pedido a conferir';
+  }
+
+  el.innerHTML = Object.keys(PILHA_INFO).map(k => {
+    const info = PILHA_INFO[k];
+    const desta = doCaixa.filter(p => pilhaDoPedido(p) === k);
+    // Valor pelo que saiu do bolso do responsavel — e' esse que aparece no
+    // extrato. O liquido (ja' sem tarifa) mora no card la' de cima.
+    const valor = desta.reduce((s, p) => s + Number(p.amount_charged ?? p.total_amount ?? 0), 0);
+    const falta = desta.filter(precisaConferir).length;
+    return `<div class="conf-pilha ${pilhaAtiva === k ? 'ativa' : ''}" style="border-left-color:${info.cor}"
+                 onclick="filtrarPorPilha('${k}')"
+                 title="${pilhaAtiva === k ? 'Clique para tirar o filtro' : info.dica}">
+      <div class="conf-pilha-nome">${info.nome}${pilhaAtiva === k
+        ? ` <span style="font-weight:700;color:${info.cor};font-size:10px">● filtrando · clique pra sair</span>` : ''}</div>
+      <div class="conf-pilha-val" style="color:${info.cor}">${fmtMoney(valor)}</div>
+      <div class="conf-pilha-sub">${desta.length} pedido${desta.length === 1 ? '' : 's'} ·
+        ${falta ? `<span class="conf-pilha-falta" style="color:${info.cor}">${falta} a conferir</span>`
+                : '<span style="color:var(--green)">conferido ✓</span>'}
+        <br>${info.dica}</div>
+    </div>`;
+  }).join('');
+}
+
+// Clicar na pilha filtra; clicar de novo na mesma tira o filtro.
+window.filtrarPorPilha = function (k) {
+  const sel = document.getElementById('pd-fpilha');
+  sel.value = sel.value === k ? '' : k;
+  filtrarPedidos();
+};
+
+window.toggleConferencia = function () {
+  const corpo = document.getElementById('pd-conf-corpo');
+  const seta  = document.getElementById('pd-conf-seta');
+  const abrir = corpo.style.display === 'none';
+  corpo.style.display = abrir ? '' : 'none';
+  seta.textContent = abrir ? '▴' : '▾';
+  try { localStorage.setItem('confAberta', abrir ? '1' : '0'); } catch {}
+};
+
+function pilhaDoPedido(p) {
+  if (p.payment_status === 'pending') return 'pendente';
+  if (p.payment_status !== 'paid') return null;
+  if (p.gateway !== 'asaas') return 'mao';
+  return p.credited_at ? 'caiu' : 'aguardando';
+}
+
+const PILHA_INFO = {
+  caiu:       { nome: '💵 Caiu pelo Asaas',      cor: 'var(--green)',  dica: 'Bata o total com o extrato do Asaas' },
+  aguardando: { nome: '⏳ Confirmado, não caiu', cor: 'var(--orange)', dica: 'Cartão confirmado — acompanhe até creditar' },
+  mao:        { nome: '✋ Pago na mão',           cor: 'var(--blue)',   dica: 'Confira no extrato do banco, um a um' },
+  pendente:   { nome: '⌛ Pendente',              cor: 'var(--gray-400)', dica: 'Pagou e você não viu?' },
+};
+
+// Precisa conferir quando nunca foi conferido OU quando o pedido mudou depois
+// da conferencia. A segunda metade e' o que faz um "conferi: realmente nao
+// pagou" voltar pra fila assim que o pagamento entrar — sem ela, o pedido
+// ficaria conferido pra sempre com uma resposta que deixou de ser verdade.
+// (So' funciona porque a marca mora em outra tabela: se fosse coluna de
+// orders, a trigger de updated_at empataria as duas datas. Ver migration_044.)
+function precisaConferir(p) {
+  const chk = conferidoPorPedido[p.id];
+  if (!chk) return true;
+  if (!p.updated_at) return false;
+  return new Date(chk.checked_at) < new Date(p.updated_at);
+}
 let pedidosAutoRefreshTimer = null;
 
 // Atualiza a lista sozinha a cada 30s enquanto a tela de Pedidos estiver
@@ -3015,7 +3250,7 @@ function avisoCredito(p) {
 
 async function loadPedidos() {
   const tb = document.getElementById('pd-tab');
-  tb.innerHTML = '<tr><td colspan="9" class="loading"><span class="spinner"></span>Carregando pedidos…</td></tr>';
+  tb.innerHTML = '<tr><td colspan="11" class="loading"><span class="spinner"></span>Carregando pedidos…</td></tr>';
   try {
     // Popula filtro de escolas (uma vez)
     const fesc = document.getElementById('pd-fesc');
@@ -3034,7 +3269,7 @@ async function loadPedidos() {
         id, order_number, kit_type, total_amount, payment_method, payment_status,
         payment_proof_url, paid_at, created_at, source, notes,
         gateway, gateway_status, installments, amount_charged, surcharge_amount,
-        net_amount, gateway_fee, credit_expected_date, credited_at,
+        net_amount, gateway_fee, credit_expected_date, credited_at, updated_at,
         delivery_method, delivery_fee, delivery_address,
         student:students(id, name, duplicate_of_student_id),
         school:schools(id, name, slug)
@@ -3043,6 +3278,20 @@ async function loadPedidos() {
     if (error) throw error;
 
     pedidosCache = data || [];
+
+    // Conferencia de caixa (migration_044). Tabela pequena — traz tudo de uma
+    // vez em vez de filtrar por pedido, que exigiria montar uma lista de ids
+    // longa a cada carregamento.
+    conferidoPorPedido = {};
+    {
+      const { data: chks, error: chkErr } = await supabase
+        .from('order_checks')
+        .select('order_id, checked_at, notes');
+      // Sem o historico a tela ainda serve, entao nao derruba — mas registra,
+      // pra "nada fica marcado" nao virar misterio se a migracao nao rodou.
+      if (chkErr) console.error('order_checks:', chkErr.message);
+      (chks || []).forEach(c => { conferidoPorPedido[c.order_id] = c; });
+    }
 
     // Duplicidade de cadastro (migration_035): mapa student_id -> pedido
     // pago do OUTRO lado do vinculo, nos dois sentidos. So' precisa olhar
@@ -3066,10 +3315,19 @@ async function loadPedidos() {
       }
     });
 
+    // Painel de conferencia: lembra se estava aberto neste navegador. Fechado
+    // por padrao — quem nao esta conferindo caixa nao precisa dele na frente.
+    try {
+      if (localStorage.getItem('confAberta') === '1') {
+        document.getElementById('pd-conf-corpo').style.display = '';
+        document.getElementById('pd-conf-seta').textContent = '▴';
+      }
+    } catch {}
+
     filtrarPedidos();
   } catch (err) {
     handleError(err, 'loadPedidos');
-    tb.innerHTML = '<tr><td colspan="9" class="empty" style="color:var(--red)">Erro ao carregar pedidos. Veja o console (F12).</td></tr>';
+    tb.innerHTML = '<tr><td colspan="11" class="empty" style="color:var(--red)">Erro ao carregar pedidos. Veja o console (F12).</td></tr>';
   }
 }
 
@@ -3078,12 +3336,20 @@ function filtrarPedidos() {
   const fesc = document.getElementById('pd-fesc').value;
   const fst  = document.getElementById('pd-fst').value;
 
+  const fpilha = document.getElementById('pd-fpilha')?.value || '';
+  const fconf  = document.getElementById('pd-fconf')?.value || '';
+
   const lista = pedidosCache.filter(p => {
     if (busca && !(p.student?.name || '').toLowerCase().includes(busca)) return false;
     if (fesc && p.school?.id !== fesc) return false;
     if (fst && p.payment_status !== fst) return false;
+    if (fpilha && pilhaDoPedido(p) !== fpilha) return false;
+    if (fconf === 'falta' && !precisaConferir(p)) return false;
+    if (fconf === 'ok' && precisaConferir(p)) return false;
     return true;
   });
+
+  atualizarPainelConferencia();
 
   // Stats
   document.getElementById('pd-total').textContent = lista.length;
@@ -3134,7 +3400,7 @@ function filtrarPedidos() {
   // Tabela
   const tb = document.getElementById('pd-tab');
   if (lista.length === 0) {
-    tb.innerHTML = '<tr><td colspan="10" class="empty">Nenhum pedido encontrado.</td></tr>';
+    tb.innerHTML = '<tr><td colspan="11" class="empty">Nenhum pedido encontrado.</td></tr>';
     atualizarBtnExcluirPedidos();
     return;
   }
@@ -3185,6 +3451,7 @@ function filtrarPedidos() {
       <td>${metBadge}</td>
       <td style="font-size:12px;color:var(--gray-500)">${data}</td>
       <td>${stBadge}</td>
+      <td class="conf-td" id="conf-td-${p.id}" onclick="event.stopPropagation()">${celulaConferencia(p)}</td>
       <td style="display:flex;gap:4px">${acoes}</td>
     </tr>`;
   }).join('');
