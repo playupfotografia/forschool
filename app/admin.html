@@ -8914,21 +8914,24 @@ body{font-family:'DM Sans',Arial,sans-serif;background:#fff;color:#111}
 @media screen{body{padding:12px;max-width:210mm;margin:0 auto}
   .btn-print{display:block;margin:0 auto 16px;padding:8px 20px;background:#4B6BFB;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-family:inherit}}
 @media print{.btn-print{display:none}}
-.tcard{height:calc((297mm - 20mm) / 2);border:3px solid #111;border-radius:10px;padding:10mm;
-  display:flex;flex-direction:column;justify-content:space-between;break-inside:avoid;margin-bottom:6mm}
+/* 3 por folha. A altura ja' desconta a margem da @page — NAO somar
+   margin-bottom aqui: 3 x (altura + margem) estoura os 277mm uteis e joga o
+   ultimo cartao pra pagina seguinte. A borda de cada cartao ja' separa. */
+.tcard{height:calc((297mm - 21mm) / 3);border:3px solid #111;border-radius:10px;padding:6mm 7mm;
+  display:flex;flex-direction:column;justify-content:space-between;break-inside:avoid;overflow:hidden}
 .tcard-topo{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
-.tcard-escola{font-size:15px;color:#555;font-weight:600}
-.tcard-tag{background:#111;color:#fff;font-size:12px;font-weight:800;letter-spacing:1px;padding:4px 12px;border-radius:20px;
-  -webkit-print-color-adjust:exact;print-color-adjust:exact}
-.tcard-meio{display:flex;align-items:center;gap:10mm;flex:1}
+.tcard-escola{font-size:12px;color:#555;font-weight:600}
+.tcard-tag{background:#111;color:#fff;font-size:10px;font-weight:800;letter-spacing:1px;padding:3px 10px;border-radius:20px;
+  white-space:nowrap;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.tcard-meio{display:flex;align-items:center;gap:7mm;flex:1;min-height:0}
 .tcard-texto{flex:1;min-width:0}
-.tcard-ano{font-size:40px;font-weight:800;line-height:1.05;letter-spacing:-1px}
-.tcard-turma{font-size:62px;font-weight:800;line-height:1;letter-spacing:-1.5px}
-.tcard-periodo{display:inline-block;margin-top:7px;border:3px solid #111;border-radius:8px;
-  padding:3px 14px;font-size:26px;font-weight:800;letter-spacing:1px}
-.tcard-data{font-size:17px;color:#555;margin-top:7px}
-.tcard-qr{width:62mm;height:62mm;flex-shrink:0;image-rendering:pixelated}
-.tcard-rodape{border-top:1px solid #ddd;padding-top:5px;font-size:13px;color:#666;text-align:center}
+.tcard-ano{font-size:27px;font-weight:800;line-height:1.05;letter-spacing:-.5px}
+.tcard-turma{font-size:42px;font-weight:800;line-height:1;letter-spacing:-1px}
+.tcard-periodo{display:inline-block;margin-top:5px;border:2.5px solid #111;border-radius:7px;
+  padding:2px 11px;font-size:18px;font-weight:800;letter-spacing:1px}
+.tcard-data{font-size:13px;color:#555;margin-top:5px}
+.tcard-qr{width:44mm;height:44mm;flex-shrink:0;image-rendering:pixelated}
+.tcard-rodape{border-top:1px solid #ddd;padding-top:4px;font-size:11px;color:#666;text-align:center}
 </style>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"><\/script>
@@ -8942,7 +8945,7 @@ ${cardsHtml}
     Object.entries(payloads).forEach(([id, data]) => {
       const canvas = document.getElementById('qr-' + id);
       if (!canvas) return;
-      QRCode.toCanvas(canvas, data, { width: Math.round(canvas.offsetWidth || 120), margin: 1,
+      QRCode.toCanvas(canvas, data, { width: Math.round(canvas.offsetWidth || 166), margin: 1,
         color: { dark: '#000000', light: '#ffffff' } }, function(err){ if(err) console.warn(err); });
     });
   }
