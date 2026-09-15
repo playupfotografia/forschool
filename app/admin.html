@@ -1564,6 +1564,12 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
         </select>
       </div>
 
+      <label class="chk-inline" id="fs-incluir-wrap" style="display:none;align-items:center;gap:8px;background:var(--gray-50);border-radius:var(--radius);padding:9px 11px"
+             title="Leva ficha de quem ainda não respondeu a autorização, marcada com tarja de aviso">
+        <input type="checkbox" id="fs-incluir-sem-aut" onchange="fsRecalcular()">
+        <span style="font-size:13px">Incluir quem ainda <b>não autorizou</b> <span style="color:var(--gray-500)">— sai com tarja de aviso; quem recusou nunca entra</span></span>
+      </label>
+
       <div id="fs-atalhos" style="display:none;gap:6px;flex-wrap:wrap">
         <button type="button" class="btn btn-sm btn-secondary" onclick="fsMarcar('todas')">Marcar todas</button>
         <button type="button" class="btn btn-sm btn-secondary" onclick="fsMarcar('manhã')">Só manhã</button>
@@ -2338,6 +2344,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
       <div class="stat-chip" style="color:var(--green)"><span id="drill-st-pagos">—</span><small>pagos</small></div>
       <div class="stat-chip" style="color:var(--orange)"><span id="drill-st-pend">—</span><small>pendentes</small></div>
       <div class="stat-chip" style="color:var(--blue)"><span id="drill-st-rec">—</span><small>receita confirmada</small></div>
+      <div class="stat-chip" id="drill-st-semaut-chip" style="color:var(--red);cursor:pointer" onclick="filtrarSemAutorizacao()" title="Clique para ver só quem ainda não autorizou"><span id="drill-st-semaut">—</span><small>sem autorização</small></div>
     </div>
     <!-- Body scrollable -->
     <div style="flex:1;overflow-y:auto;padding:16px 20px">
@@ -2350,6 +2357,13 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           <option value="sem_pedido">Sem pedido</option>
           <option value="pending">Pendentes</option>
           <option value="paid">Pagos</option>
+        </select>
+        <select class="form-select" style="width:175px" id="drill-al-faut" onchange="filtrarDrillAlunos()">
+          <option value="">Toda autorização</option>
+          <option value="sem">Sem autorização</option>
+          <option value="pendente">Não respondeu</option>
+          <option value="recusou">Recusou</option>
+          <option value="ok">Autorizados</option>
         </select>
         <label class="chk-inline" style="align-self:center;white-space:nowrap" title="Esconde quem você já chamou no WhatsApp neste projeto">
           <input type="checkbox" id="drill-al-fcont" onchange="filtrarDrillAlunos()">
@@ -6699,6 +6713,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
     document.getElementById('drill-al-busca').value = '';
     document.getElementById('drill-al-ftur').value  = '';
     document.getElementById('drill-al-fst').value   = '';
+    document.getElementById('drill-al-faut').value  = '';
     document.getElementById('drill-al-fcont').checked = false;
     document.getElementById('mod-drill-proj').classList.add('open');
   }
@@ -6742,6 +6757,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
         .select(`
           id, name, photo_seq_number, user_id, duplicate_of_student_id,
           guardian2_name, guardian2_phone,
+          authorization_date, authorize_individual, authorize_class,
           class:school_classes(id, name, year:school_years(id, name)),
           responsible:users(id, name, phone)
         `)
@@ -6755,6 +6771,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
         .select(`
           id, name, photo_seq_number, user_id, duplicate_of_student_id,
           guardian2_name, guardian2_phone,
+          authorization_date, authorize_individual, authorize_class,
           class:school_classes(id, name, year:school_years(id, name)),
           responsible:users(id, name, phone)
         `)
@@ -6848,6 +6865,11 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       responsible_phone: a.responsible?.phone || a.guardian2_phone || '',
       guardian2_name: a.guardian2_name || '',
       sibling: a.user_id && userIdCount[a.user_id] > 1,
+      // 'ok' autorizou | 'recusou' respondeu que nao | 'pendente' nem respondeu.
+      // Quem nao esta 'ok' nao e' fotografado e nao gera ficha — e' a fila de
+      // WhatsApp antes do dia da sessao.
+      autorizacao: !a.authorization_date ? 'pendente'
+                 : (a.authorize_individual || a.authorize_class) ? 'ok' : 'recusou',
       order: pedidosPorAluno[a.id] || null,
       contato: contatoPorAluno[a.id] || null,
       duplicadoPago: duplicadoPagoPorAluno[a.id] || null,
@@ -6894,7 +6916,21 @@ function renderDrillStats() {
   document.getElementById('drill-st-pagos').textContent     = pagos.length;
   document.getElementById('drill-st-pend').textContent      = pend.length;
   document.getElementById('drill-st-rec').textContent       = fmtMoney(rec);
+
+  // Sem autorizacao = nao respondeu + recusou. Sao os que nao podem ser
+  // fotografados e nao entram na ficha — chip some quando esta zerado.
+  const semAut = drillAlunosData.filter(a => a.autorizacao !== 'ok').length;
+  document.getElementById('drill-st-semaut').textContent = semAut;
+  document.getElementById('drill-st-semaut-chip').style.display = semAut ? '' : 'none';
 }
+
+// Atalho do chip "sem autorizacao": joga o filtro pra essa fila de uma vez.
+window.filtrarSemAutorizacao = function () {
+  document.getElementById('drill-al-faut').value = 'sem';
+  document.getElementById('drill-al-busca').value = '';
+  document.getElementById('drill-al-fst').value = '';
+  filtrarDrillAlunos();
+};
 
 // ---------------------------------------------------------------------------
 // PEDIDO MANUAL — pro responsavel que nao consegue fazer o pedido sozinho
@@ -7162,6 +7198,10 @@ function filtrarDrillAlunos() {
   if (fst === 'sem_pedido') lista = lista.filter(a => !a.order);
   else if (fst) lista = lista.filter(a => a.order?.payment_status === fst);
 
+  const faut = document.getElementById('drill-al-faut')?.value;
+  if (faut === 'sem') lista = lista.filter(a => a.autorizacao !== 'ok');
+  else if (faut) lista = lista.filter(a => a.autorizacao === faut);
+
   // "Ainda nao contatados" cruza com o filtro de situacao em vez de substituir:
   // o uso real e' "sem pedido E que eu ainda nao chamei".
   if (document.getElementById('drill-al-fcont')?.checked) {
@@ -7242,8 +7282,16 @@ function filtrarDrillAlunos() {
       }
     }
 
+    // Sem autorizacao o aluno nao e' fotografado — precisa saltar aos olhos na
+    // linha, nao so' quando o filtro esta ligado. Quem autorizou nao mostra
+    // nada: e' o normal, e marcar todo mundo viraria ruido.
+    const avisoAut = a.autorizacao === 'ok' ? '' :
+      `<div style="font-size:11px;font-weight:600;color:var(--red);margin-top:2px">
+         ${a.autorizacao === 'recusou' ? '✖ Recusou a autorização' : '⏳ Sem autorização'}
+       </div>`;
+
     return `<tr style="cursor:pointer" onclick="editarAluno('${a.id}')">
-      <td style="font-weight:500">${escapeHtml(a.name)}</td>
+      <td style="font-weight:500">${escapeHtml(a.name)}${avisoAut}</td>
       <td>${escapeHtml(a.year_name && a.year_name !== '—' ? a.year_name + ' — ' + a.class_name : a.class_name)}</td>
       <td style="font-size:13px">${escapeHtml(a.responsible_name)}</td>
       <td>${irmao}</td>
@@ -7717,6 +7765,11 @@ function montarFichaCard(a, ped, todosTemas = []) {
   // Payload do QR — lido pelo organizador_fotos.py no dia da foto
   const qrPayload = JSON.stringify({ id: a.id, n: a.name, t: turma, a: ano, e: escola });
 
+  // Ficha de quem ainda nao respondeu a autorizacao sai com tarja, pra dar pra
+  // levar todo mundo pro dia da sessao sem arriscar fotografar sem permissao.
+  // Quem recusou nao chega aqui — e' filtrado antes de montar a ficha.
+  const semAutorizacao = !a.authorization_date;
+
   const badge = comprou
     ? `<div class="ficha-badge ficha-badge-comprou">✅ COMPROU</div>`
     : `<div class="ficha-badge ficha-badge-autorizou">📷 SÓ AUTORIZOU</div>`;
@@ -7725,13 +7778,14 @@ function montarFichaCard(a, ped, todosTemas = []) {
     ? `<div class="ficha-tema">📸 Fotografar: ${escapeHtml([...temasNecessarios].join(' + '))}</div>`
     : '';
 
-  const html = `<div class="ficha">
+  const html = `<div class="ficha${semAutorizacao ? ' ficha-alerta' : ''}">
   <div class="ficha-body">
     <div class="ficha-header">
       <div class="ficha-seq">${a.photo_seq_number ? 'Ficha #' + a.photo_seq_number : ''}</div>
       <div class="ficha-escola">${escapeHtml(escola)}</div>
     </div>
-    ${badge}
+    ${semAutorizacao ? '<div class="ficha-sem-aut">⚠ SEM AUTORIZAÇÃO — conferir antes de fotografar</div>' : ''}
+    ${semAutorizacao ? '' : badge}
     ${temaBadge}
     <div class="ficha-nome">${escapeHtml(a.name)}</div>
     <div class="ficha-info">
@@ -7775,6 +7829,8 @@ body{font-family:'DM Sans',Arial,sans-serif;background:#fff;color:#111}
 .ficha-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;margin-bottom:2px;width:fit-content}
 .ficha-badge-comprou{background:#d1fae5;color:#065f46}
 .ficha-badge-autorizou{background:#fef3c7;color:#92400e}
+.ficha-alerta{border:2px solid #dc2626}
+.ficha-sem-aut{background:#dc2626;color:#fff;font-size:11px;font-weight:700;letter-spacing:.3px;padding:3px 7px;border-radius:4px;align-self:flex-start;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .ficha-tema{display:inline-block;padding:3px 10px;border:2px solid #7c3aed;border-radius:6px;font-size:13px;font-weight:800;color:#5b21b6;margin-bottom:2px;width:fit-content}
 .ficha-nome{font-size:52px;font-weight:800;line-height:1.05;color:#111;letter-spacing:-.5px;text-align:center}
 .ficha-info{display:flex;gap:16px;font-size:14px;color:#444;flex-wrap:wrap}
@@ -8056,6 +8112,8 @@ async function abrirModalFichasSessao() {
     (projs || []).map(p => `<option value="${p.id}" data-escola="${p.school_id}">${escapeHtml(p.name)}${p.school ? ' — ' + escapeHtml(p.school.name) : ''}</option>`).join('');
   fsTurmas = [];
   document.getElementById('fs-turmas').innerHTML = '<div style="font-size:13px;color:var(--gray-400);padding:8px 0">Selecione o projeto primeiro…</div>';
+  document.getElementById('fs-incluir-sem-aut').checked = false;
+  document.getElementById('fs-incluir-wrap').style.display = 'none';
   document.getElementById('fs-atalhos').style.display = 'none';
   document.getElementById('fs-total').textContent = '';
   document.getElementById('mod-fichas-sessao').classList.add('open');
@@ -8069,6 +8127,7 @@ async function onFichasSessaoProjeto() {
   fsTurmas = [];
   document.getElementById('fs-total').textContent = '';
   document.getElementById('fs-atalhos').style.display = 'none';
+  document.getElementById('fs-incluir-wrap').style.display = 'none';
   if (!projId) { cont.innerHTML = '<div style="font-size:13px;color:var(--gray-400);padding:8px 0">Selecione o projeto primeiro…</div>'; return; }
   cont.innerHTML = '<div class="loading" style="padding:14px"><span class="spinner"></span>Carregando turmas…</div>';
 
@@ -8079,8 +8138,10 @@ async function onFichasSessaoProjeto() {
         .eq('school_id', escolaId).order('sort_order'),
       supabase.from('project_sessions').select('id, photo_date, period, classes:project_session_classes(school_class_id)')
         .eq('project_id', projId).order('photo_date'),
-      supabase.from('students').select('class_id, authorize_individual, authorize_class')
-        .eq('school_id', escolaId).not('authorization_date', 'is', null).limit(5000),
+      // Traz tambem quem nao respondeu (authorization_date null) — a contagem
+      // mostra os dois numeros, e o checkbox decide quem entra na impressao.
+      supabase.from('students').select('class_id, authorization_date, authorize_individual, authorize_class')
+        .eq('school_id', escolaId).limit(5000),
     ]);
     if (anosResp.error) throw anosResp.error;
     if (sessResp.error) throw sessResp.error;
@@ -8095,23 +8156,30 @@ async function onFichasSessaoProjeto() {
       });
     });
 
-    const autorizadosPorClasse = {};
+    const porClasse = {};   // class_id -> { ok, pendente }
     (alunosResp.data || []).forEach(a => {
       if (!a.class_id) return;
-      if (!a.authorize_individual && !a.authorize_class) return;
-      autorizadosPorClasse[a.class_id] = (autorizadosPorClasse[a.class_id] || 0) + 1;
+      const c = porClasse[a.class_id] = porClasse[a.class_id] || { ok: 0, pendente: 0 };
+      if (!a.authorization_date) c.pendente++;                         // nem respondeu
+      else if (a.authorize_individual || a.authorize_class) c.ok++;    // autorizou
+      // recusou: nao entra em nenhuma das duas contas — nao se fotografa
     });
+
+    const incluirSemAut = document.getElementById('fs-incluir-sem-aut')?.checked;
 
     (anosResp.data || []).forEach(ano => {
       (ano.classes || []).sort((x, y) => (x.name || '').localeCompare(y.name || '', 'pt-BR')).forEach(t => {
         const s = sessaoPorClasse[t.id];
+        const c = porClasse[t.id] || { ok: 0, pendente: 0 };
         fsTurmas.push({
           id: t.id,
           turma: t.name,
           ano: ano.name,
           periodo: s?.period || '',
           dataBR: s?.photo_date ? new Date(s.photo_date + 'T12:00:00').toLocaleDateString('pt-BR') : '',
-          qtd: autorizadosPorClasse[t.id] || 0,
+          qtdOk: c.ok,
+          qtdPendente: c.pendente,
+          qtd: c.ok + (incluirSemAut ? c.pendente : 0),
         });
       });
     });
@@ -8119,28 +8187,48 @@ async function onFichasSessaoProjeto() {
     if (!fsTurmas.length) { cont.innerHTML = '<div style="font-size:13px;color:var(--gray-400);padding:8px 0">Essa escola não tem turmas cadastradas.</div>'; return; }
     renderFsTurmas();
     document.getElementById('fs-atalhos').style.display = 'flex';
+    document.getElementById('fs-incluir-wrap').style.display = 'flex';
   } catch (err) {
     cont.innerHTML = `<div style="font-size:13px;color:var(--red);padding:8px 0">Erro ao carregar turmas: ${escapeHtml(err.message)}</div>`;
   }
 }
 
 function renderFsTurmas() {
+  // Preserva o que ja estava marcado — trocar o checkbox de "incluir quem nao
+  // autorizou" redesenha a lista, e perder a selecao no meio seria irritante.
+  const marcados = new Set([...document.querySelectorAll('#fs-turmas input:checked')]
+    .map(cb => fsTurmas[cb.dataset.i]?.id));
+
   let html = '', anoAtual = null;
   fsTurmas.forEach((t, i) => {
     if (t.ano !== anoAtual) { anoAtual = t.ano; html += `<div class="fs-ano">${escapeHtml(t.ano)}</div>`; }
     const quando = t.periodo || t.dataBR
       ? `<span class="fs-turma-sessao">${escapeHtml([t.dataBR, t.periodo].filter(Boolean).join(' · '))}</span>`
       : `<span class="fs-turma-sessao sem">sem sessão</span>`;
+    // Quantos vao sair de quantos existem — a diferenca e' quem ainda nao
+    // respondeu a autorizacao, que e' exatamente a fila de WhatsApp.
+    const total = t.qtdOk + t.qtdPendente;
+    const detalhe = t.qtdPendente
+      ? `<span class="fs-turma-qtd" title="${t.qtdPendente} ainda não autorizaram">${t.qtd} de ${total}</span>`
+      : `<span class="fs-turma-qtd">${t.qtd} ficha${t.qtd === 1 ? '' : 's'}</span>`;
     html += `<label class="fs-turma${t.qtd ? '' : ' vazia'}">
-      <input type="checkbox" data-i="${i}" onchange="fsAtualizarTotal()"${t.qtd ? '' : ' disabled'}>
+      <input type="checkbox" data-i="${i}" onchange="fsAtualizarTotal()"${t.qtd ? '' : ' disabled'}${marcados.has(t.id) && t.qtd ? ' checked' : ''}>
       <span class="fs-turma-nome">${escapeHtml(t.turma)}</span>
       ${quando}
-      <span class="fs-turma-qtd">${t.qtd} ficha${t.qtd === 1 ? '' : 's'}</span>
+      ${detalhe}
     </label>`;
   });
   document.getElementById('fs-turmas').innerHTML = html;
   fsAtualizarTotal();
 }
+
+// Só o checkbox "incluir quem não autorizou" mudou: recalcula as quantidades
+// sem refazer as consultas nem perder as turmas marcadas.
+window.fsRecalcular = function () {
+  const incluir = document.getElementById('fs-incluir-sem-aut').checked;
+  fsTurmas.forEach(t => { t.qtd = t.qtdOk + (incluir ? t.qtdPendente : 0); });
+  renderFsTurmas();
+};
 
 window.fsMarcar = function (modo) {
   document.querySelectorAll('#fs-turmas input[type=checkbox]').forEach(cb => {
@@ -8181,20 +8269,25 @@ async function imprimirFichasSessao() {
     const ordemTurma = {};
     marcadas.forEach((t, i) => { ordemTurma[t.id] = i; });
 
-    // Alunos autorizados nessas turmas
-    const { data: alunos, error: alunosErr } = await supabase
+    const incluirSemAut = document.getElementById('fs-incluir-sem-aut').checked;
+
+    let q = supabase
       .from('students')
       .select(`id, name, class_id, photo_seq_number, authorize_individual, authorize_class, authorization_date,
         school_class:school_classes(name, year:school_years(name)),
         school:schools(name),
         user:users(id, name, phone)`)
       .in('class_id', classIds)
-      .not('authorization_date', 'is', null)
       .order('name');
+    // Sem o "incluir", nem traz do banco quem nao respondeu.
+    if (!incluirSemAut) q = q.not('authorization_date', 'is', null);
+    const { data: alunos, error: alunosErr } = await q;
     if (alunosErr) throw alunosErr;
 
+    // Quem RECUSOU nunca entra — respondeu que nao quer, reimprimir ficha dele
+    // so' criaria chance de fotografar por engano.
     const autorizados = (alunos || [])
-      .filter(a => a.authorize_individual || a.authorize_class)
+      .filter(a => !a.authorization_date ? incluirSemAut : (a.authorize_individual || a.authorize_class))
       .sort((x, y) => (ordemTurma[x.class_id] - ordemTurma[y.class_id])
         || (x.name || '').localeCompare(y.name || '', 'pt-BR'));
     if (!autorizados.length) { toast('Nenhum aluno autorizado nas turmas marcadas.', 'error'); return; }
