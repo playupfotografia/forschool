@@ -1,0 +1,6 @@
+@echo off
+echo Instalando qrcode e Pillow...
+pip install qrcode[pil] Pillow -q
+echo.
+echo Gerando fotos de teste...
+python "%~dp0gerar_teste.py"

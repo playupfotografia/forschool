@@ -8,6 +8,32 @@ For School Asaas.txt
 *credenciais*
 *chaves*
 
+# Organizador de fotos — NENHUMA imagem dessa pasta sobe.
+# O repo e' publico e as pastas de saida do organizador contem foto de
+# criança. A regra e' por extensao, nao por nome de pasta, porque o nome da
+# pasta de saida muda a cada sessao ("te", "Organizado_2026-09-15"...).
+organizador_fotos/**/*.jpg
+organizador_fotos/**/*.jpeg
+organizador_fotos/**/*.JPG
+organizador_fotos/**/*.JPEG
+organizador_fotos/**/*.png
+organizador_fotos/**/*.PNG
+organizador_fotos/**/*.cr2
+organizador_fotos/**/*.CR2
+organizador_fotos/**/*.cr3
+organizador_fotos/**/*.CR3
+organizador_fotos/**/*.nef
+organizador_fotos/**/*.NEF
+organizador_fotos/**/*.arw
+organizador_fotos/**/*.ARW
+# Saidas do organizador (listas de alunos, relatorios)
+organizador_fotos/**/_indice_alunos.json
+organizador_fotos/**/_RELATORIO_IMPRESSAO.txt
+
+# Python
+__pycache__/
+*.pyc
+
 # Dependências
 node_modules/
 
