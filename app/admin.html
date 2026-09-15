@@ -134,6 +134,16 @@ td{padding:10px 13px;font-size:13px;color:var(--gray-700);border-bottom:1px soli
 .conf-chk{width:19px;height:19px;cursor:pointer;accent-color:var(--green);vertical-align:middle}
 .conf-chk:disabled{cursor:not-allowed;opacity:.35}
 .conf-td{text-align:center;white-space:nowrap}
+/* Presenca na sessao: um botao so', tres estados, ciclando no clique —
+   vazio -> fotografado -> faltou -> vazio. */
+.pres-btn{width:24px;height:22px;border:1.5px solid var(--gray-300);border-radius:5px;background:#fff;
+  cursor:pointer;font-size:13px;font-weight:700;line-height:1;color:var(--gray-300);padding:0}
+.pres-btn:hover{border-color:var(--gray-500)}
+.pres-btn.foto{border-color:var(--green);background:var(--green-light);color:var(--green)}
+.pres-btn.faltou{border-color:var(--red);background:var(--red-light);color:var(--red)}
+.pres-btn:disabled{cursor:not-allowed;opacity:.6;border-style:dashed;background:var(--gray-50);color:var(--gray-400)}
+.pres-data{font-size:9px;color:var(--gray-400);margin-top:1px}
+.pres-faltou{font-size:9px;font-weight:700;color:var(--red);margin-top:1px}
 /* Pilhas da conferencia de caixa: cada uma e' um destino de conferencia
    diferente (Asaas, extrato do banco, nada a fazer). Clicaveis. */
 .conf-pilhas{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:9px}
@@ -2405,6 +2415,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
       <div class="stat-chip" style="color:var(--blue)"><span id="drill-st-rec">—</span><small>receita confirmada</small></div>
       <div class="stat-chip" id="drill-st-semaut-chip" style="color:var(--red);cursor:pointer" onclick="filtrarSemAutorizacao()" title="Clique para ver só quem ainda não autorizou"><span id="drill-st-semaut">—</span><small>sem autorização</small></div>
       <div class="stat-chip" style="color:var(--purple);cursor:pointer" onclick="filtrarFaltaFoto()" title="Clique para ver só quem autorizou e ainda não foi fotografado"><span id="drill-st-foto">—</span><small>fotografados</small></div>
+      <div class="stat-chip" id="drill-st-faltou-chip" style="color:var(--red);cursor:pointer;display:none" onclick="filtrarFaltaram()" title="Alunos que não compareceram na sessão"><span id="drill-st-faltou">—</span><small>faltaram</small></div>
     </div>
     <!-- Body scrollable -->
     <div style="flex:1;overflow-y:auto;padding:16px 20px">
@@ -2429,6 +2440,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           <option value="">📷 Foto: todos</option>
           <option value="falta">Falta fotografar</option>
           <option value="feito">Já fotografados</option>
+          <option value="faltou">Faltaram</option>
         </select>
         <label class="chk-inline" style="align-self:center;white-space:nowrap" title="Esconde quem você já chamou no WhatsApp neste projeto">
           <input type="checkbox" id="drill-al-fcont" onchange="filtrarDrillAlunos()">
@@ -7251,13 +7263,17 @@ async function abrirDrillProjeto(projectId, opts = {}) {
     if (alunoIds.length) {
       const { data: fts, error: ftErr } = await supabase
         .from('photo_taken')
-        .select('student_id, taken_at')
+        .select('student_id, taken_at, status')
         .eq('project_id', projectId);
       // Mesma escolha do historico de contato: sem isso a tela ainda serve,
       // entao nao derruba — mas registra, pra "nao marca nada" nao virar
       // misterio se a migration_042 nao tiver sido rodada.
       if (ftErr) console.error('photo_taken:', ftErr.message);
-      (fts || []).forEach(f => { fotoPorAluno[f.student_id] = f.taken_at; });
+      // status pode vir vazio em base sem a migration_045 — ali toda marcacao
+      // era "fotografado", que e' justamente o default da coluna nova.
+      (fts || []).forEach(f => {
+        fotoPorAluno[f.student_id] = { em: f.taken_at, status: f.status || 'foto' };
+      });
     }
 
     // 5. Montar drillAlunosData
@@ -7303,7 +7319,8 @@ async function abrirDrillProjeto(projectId, opts = {}) {
                  : (a.authorize_individual || a.authorize_class) ? 'ok' : 'recusou',
       order: pedidosPorAluno[a.id] || null,
       contato: contatoPorAluno[a.id] || null,
-      fotoEm: fotoPorAluno[a.id] || null,   // null = ainda nao fotografado
+      fotoEm:     fotoPorAluno[a.id]?.em || null,
+      fotoStatus: fotoPorAluno[a.id]?.status || null,   // 'foto' | 'faltou' | null
       duplicadoPago: duplicadoPagoPorAluno[a.id] || null,
       };
     });
@@ -7356,11 +7373,16 @@ function renderDrillStats() {
   document.getElementById('drill-st-semaut-chip').style.display = semAut ? '' : 'none';
 
   // Fotografados / quem PODE ser fotografado. O de baixo e' so' quem
-  // autorizou: contar contra o total da escola daria um numero que nunca
-  // fecha, e no fim do dia o que importa e' "falta alguem?".
-  const podeFoto = drillAlunosData.filter(a => a.autorizacao === 'ok').length;
-  const comFoto  = drillAlunosData.filter(a => a.autorizacao === 'ok' && a.fotoEm).length;
-  document.getElementById('drill-st-foto').textContent = `${comFoto} de ${podeFoto}`;
+  // autorizou, MENOS quem faltou: contar contra o total da escola daria um
+  // numero que nunca fecha, e no fim do dia o que importa e' "falta alguem?".
+  // Com os faltantes fora, chegar em "18 de 18" e' possivel de verdade.
+  const autorizados = drillAlunosData.filter(a => a.autorizacao === 'ok');
+  const faltaram = autorizados.filter(a => a.fotoStatus === 'faltou').length;
+  const comFoto  = autorizados.filter(a => a.fotoStatus === 'foto').length;
+  document.getElementById('drill-st-foto').textContent = `${comFoto} de ${autorizados.length - faltaram}`;
+
+  document.getElementById('drill-st-faltou').textContent = faltaram;
+  document.getElementById('drill-st-faltou-chip').style.display = faltaram ? '' : 'none';
 }
 
 // Atalho do chip "sem autorizacao": joga o filtro pra essa fila de uma vez.
@@ -7377,6 +7399,15 @@ window.filtrarSemAutorizacao = function () {
 window.filtrarFaltaFoto = function () {
   document.getElementById('drill-al-ffoto').value = 'falta';
   document.getElementById('drill-al-faut').value = 'ok';
+  document.getElementById('drill-al-busca').value = '';
+  document.getElementById('drill-al-fst').value = '';
+  filtrarDrillAlunos();
+};
+
+// Quem faltou: serve pra remarcar com a escola, ou pra avisar o responsavel.
+window.filtrarFaltaram = function () {
+  document.getElementById('drill-al-ffoto').value = 'faltou';
+  document.getElementById('drill-al-faut').value = '';
   document.getElementById('drill-al-busca').value = '';
   document.getElementById('drill-al-fst').value = '';
   filtrarDrillAlunos();
@@ -7652,9 +7683,12 @@ function filtrarDrillAlunos() {
   if (faut === 'sem') lista = lista.filter(a => a.autorizacao !== 'ok');
   else if (faut) lista = lista.filter(a => a.autorizacao === faut);
 
+  // Quem faltou sai de "falta fotografar": ja' esta' resolvido, so' nao da'
+  // pra fotografar. Deixar na fila faria a lista nunca zerar.
   const ffoto = document.getElementById('drill-al-ffoto')?.value;
-  if (ffoto === 'falta') lista = lista.filter(a => !a.fotoEm);
-  else if (ffoto === 'feito') lista = lista.filter(a => !!a.fotoEm);
+  if (ffoto === 'falta') lista = lista.filter(a => !a.fotoStatus);
+  else if (ffoto === 'feito')  lista = lista.filter(a => a.fotoStatus === 'foto');
+  else if (ffoto === 'faltou') lista = lista.filter(a => a.fotoStatus === 'faltou');
 
   // "Ainda nao contatados" cruza com o filtro de situacao em vez de substituir:
   // o uso real e' "sem pedido E que eu ainda nao chamei".
@@ -7776,12 +7810,23 @@ function filtrarDrillAlunos() {
 // ---------------------------------------------------------------------------
 function celulaFoto(a) {
   const trava = a.autorizacao === 'recusou';
-  const titulo = trava   ? 'Recusou a autorização — não é fotografado'
-               : a.fotoEm ? 'Fotografado em ' + fmtDataHoraCurta(a.fotoEm) + ' — clique para desmarcar'
-                          : 'Marcar como fotografado';
-  return `<input type="checkbox" class="conf-chk" ${a.fotoEm ? 'checked' : ''} ${trava ? 'disabled' : ''}
-            onchange="marcarFoto('${a.id}', this.checked)" title="${titulo}">`
-    + (a.fotoEm ? `<div style="font-size:9px;color:var(--gray-400);margin-top:1px">${fmtDataHoraCurta(a.fotoEm)}</div>` : '');
+  const st = a.fotoStatus || null;   // 'foto' | 'faltou' | null
+
+  const titulo = trava ? 'Recusou a autorização — não é fotografado'
+    : st === 'foto'   ? `Fotografado em ${fmtDataHoraCurta(a.fotoEm)}. Clique: marcar que FALTOU`
+    : st === 'faltou' ? `Faltou em ${fmtDataHoraCurta(a.fotoEm)}. Clique: limpar`
+    : 'Clique: fotografado. De novo: faltou. De novo: limpa';
+
+  // Tracejado com '–' pra nao parecer uma caixa vazia esperando clique: quem
+  // recusou nao entra na fila de fotografar, e' outra coisa.
+  const cara = trava ? '–' : st === 'foto' ? '✓' : st === 'faltou' ? 'F' : '';
+  const btn = `<button class="pres-btn ${st || ''}" ${trava ? 'disabled' : ''}
+      onclick="ciclarPresenca('${a.id}')" title="${titulo}">${cara}</button>`;
+
+  if (st === 'faltou') {
+    return btn + `<div class="pres-faltou">faltou</div><div class="pres-data">${fmtDataHoraCurta(a.fotoEm)}</div>`;
+  }
+  return btn + (st === 'foto' ? `<div class="pres-data">${fmtDataHoraCurta(a.fotoEm)}</div>` : '');
 }
 
 // Redesenha so' a celula da foto. Nao re-renderiza a tabela inteira de
@@ -7793,21 +7838,34 @@ function atualizarCelulaFoto(studentId) {
   if (a && td) td.innerHTML = celulaFoto(a);
 }
 
-window.marcarFoto = async function (studentId, marcado) {
+// Um clique anda um passo: vazio -> fotografado -> faltou -> vazio.
+// "Faltou" (migration_045) precisa existir porque aluno que nao veio nao e'
+// um "ainda nao fotografei": e' caso resolvido, e sem isso ele ficaria pra
+// sempre na fila de quem falta chamar.
+const PROXIMA_PRESENCA = { null: 'foto', foto: 'faltou', faltou: null };
+
+window.ciclarPresenca = function (studentId) {
+  const a = drillAlunosData.find(x => x.id === studentId);
+  if (!a) return;
+  salvarPresenca(studentId, PROXIMA_PRESENCA[a.fotoStatus || 'null'] ?? null);
+};
+
+async function salvarPresenca(studentId, status) {
   const a = drillAlunosData.find(x => x.id === studentId);
   if (!a || !drillProjetoId) return;
 
-  // Marca na tela primeiro (a caixinha ja' respondeu ao clique) e desfaz se o
+  // Marca na tela primeiro (o botao ja' respondeu ao clique) e desfaz se o
   // banco recusar — tela dizendo "ok" sem ter gravado e' pior que erro.
-  const antes = a.fotoEm;
-  a.fotoEm = marcado ? new Date().toISOString() : null;
+  const antesStatus = a.fotoStatus, antesEm = a.fotoEm;
+  a.fotoStatus = status;
+  a.fotoEm = status ? new Date().toISOString() : null;
   atualizarCelulaFoto(studentId);
   renderDrillStats();
 
   try {
-    if (marcado) {
+    if (status) {
       const { error } = await supabase.from('photo_taken').upsert(
-        { student_id: studentId, project_id: drillProjetoId, taken_at: a.fotoEm },
+        { student_id: studentId, project_id: drillProjetoId, taken_at: a.fotoEm, status },
         { onConflict: 'student_id,project_id' });
       if (error) throw error;
     } else {
@@ -7816,13 +7874,14 @@ window.marcarFoto = async function (studentId, marcado) {
       if (error) throw error;
     }
   } catch (e) {
-    a.fotoEm = antes;
+    a.fotoStatus = antesStatus;
+    a.fotoEm = antesEm;
     atualizarCelulaFoto(studentId);
     renderDrillStats();
-    console.error('marcarFoto:', e.message || e);
-    toast('Não consegui salvar a marcação de foto. Tente de novo.', 'error');
+    console.error('salvarPresenca:', e.message || e);
+    toast('Não consegui salvar. Tente de novo.', 'error');
   }
-};
+}
 
 // ---------------------------------------------------------------------------
 // Coluna de contato: botao de WhatsApp + quando foi contatado.

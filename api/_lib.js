@@ -161,8 +161,48 @@ async function resumoFinanceiro(pag) {
     parcelas = r.data;
   }
 
+  // --- Antecipacao, parcela por parcela ------------------------------------
+  // Confirmado na pratica em 15/09/2026, com o P0090:
+  //   /anticipations?installment=<id>  -> 0 resultados
+  //   /anticipations?payment=<id>      -> 1 resultado   <- este e' o caminho
+  // Entao perguntamos POR PARCELA. Sao poucas (1 ou 2), nao pesa.
+  const antecipacaoDe = {};
+  const tentativas = [];
+  await Promise.all(parcelas.map(async (p) => {
+    try {
+      const r = await asaas(`/anticipations?payment=${encodeURIComponent(p.id)}&limit=10`);
+      const lista = r?.data || [];
+      tentativas.push({ parcela: p.id, qtd: lista.length });
+      antecipacaoDe[p.id] =
+        lista.find(a => ANTECIPACAO_CREDITADA.has(String(a.status || '').toUpperCase())) || null;
+    } catch (e) {
+      tentativas.push({ parcela: p.id, erro: e.message });
+      antecipacaoDe[p.id] = null;
+    }
+  }));
+
+  // --- Quanto cai por parcela ----------------------------------------------
+  // A ordem importa, e foi aprendida na marra:
+  //   1. Antecipacao CREDITED -> o netValue DELA e' o valor final. Ja' esta'
+  //      sem a tarifa do cartao E sem a taxa da antecipacao. No P0090:
+  //      totalValue 74,83 -> value 72,73 (menos cartao) -> netValue 71,49.
+  //   2. Sem antecipacao, mas cobranca RECEIVED -> o netValue da cobranca vale,
+  //      porque nessa altura o Asaas ja' calculou.
+  //   3. Cobranca so' CONFIRMED e sem antecipacao -> NAO SE SABE. O netValue
+  //      vem igual ao value (sem tarifa nenhuma descontada), e usa-lo seria
+  //      dizer que o Asaas trabalha de graca.
+  const liquidoDe = (p) => {
+    const a = antecipacaoDe[p.id];
+    if (a && Number(a.netValue) > 0) return Number(a.netValue);
+    if (RECEBIDO.has(p.status) && Number(p.netValue) > 0) return Number(p.netValue);
+    return null;
+  };
+
   const pagas = parcelas.filter(p => PAGO_OU_RECEBIDO.has(p.status));
-  const liquido = pagas.reduce((s, p) => s + (Number(p.netValue) || 0), 0);
+  const valores = pagas.map(liquidoDe);
+  // Uma parcela sem valor confiavel invalida a soma inteira: meio liquido e'
+  // pior que nenhum, porque parece um numero completo.
+  const liquido = valores.some(v => v === null) ? 0 : valores.reduce((s, v) => s + v, 0);
 
   // Previsao do pedido INTEIRO = a ultima parcela a cair.
   // ⚠️ E' a data da liquidacao NORMAL, SEM antecipacao. Nao mostre como
@@ -178,49 +218,25 @@ async function resumoFinanceiro(pag) {
     ? (parcelas.map(p => p.creditDate || p.paymentDate).filter(Boolean).sort().pop() || null)
     : null;
 
-  // Defensivo de proposito: se este endpoint mudar ou responder diferente, a
-  // conferencia perde a data da antecipacao, nunca a confirmacao do pedido.
+  // Com a antecipacao, o dinheiro entra ANTES e por fora da cobranca — que
+  // segue CONFIRMED com data la' na frente. So' conta como "caiu" se TODAS as
+  // parcelas foram antecipadas e creditadas: metade antecipada e' dinheiro
+  // pela metade.
   //
-  // ⚠️ O filtro certo aqui ainda NAO esta confirmado: em 15/09/2026 uma
-  // consulta com `installment=` num pedido 2x antecipado devolveu ZERO
-  // antecipacoes. Por isso tentamos mais de uma forma e guardamos o que cada
-  // uma respondeu — a resposta certa sai do diagnostico do resync, nao de
-  // deducao.
+  // A antecipacao nao traz um campo de "creditado em"; anticipationDate e' o
+  // mais proximo disso (no P0090 veio igual ao dia da confirmacao). O Asaas
+  // promete o credito em ate' 2 dias uteis, entao a data pode sair um ou dois
+  // dias antes do extrato — e' referencia, nao carimbo do banco.
+  const antecipacoes = parcelas.map(p => antecipacaoDe[p.id]).filter(Boolean);
   let antecipadoEm = null;
-  let antecipacoes = [];
-  const tentativas = [];
-  if (!caiuEm) {
-    const filtros = pag.installment
-      ? [`installment=${encodeURIComponent(pag.installment)}`, `payment=${encodeURIComponent(pag.id)}`]
-      : [`payment=${encodeURIComponent(pag.id)}`];
-    for (const f of filtros) {
-      try {
-        const ant = await asaas(`/anticipations?${f}&limit=100`);
-        const achou = ant?.data || [];
-        tentativas.push({ filtro: f, qtd: achou.length });
-        if (achou.length && !antecipacoes.length) antecipacoes = achou;
-      } catch (e) {
-        tentativas.push({ filtro: f, erro: e.message });
-      }
-    }
-    const creditadas = antecipacoes.filter(a => ANTECIPACAO_CREDITADA.has(String(a.status || '').toUpperCase()));
-    // So' conta como "ja' caiu" se TODAS as parcelas foram antecipadas e
-    // creditadas — metade antecipada e' dinheiro pela metade.
-    if (creditadas.length && creditadas.length >= parcelas.length) {
-      antecipadoEm = creditadas
-        .map(a => a.creditDate || a.anticipationDate || a.requestDate)
-        .filter(Boolean).sort().pop() || null;
-      caiuEm = antecipadoEm;
-    }
+  if (!caiuEm && antecipacoes.length >= parcelas.length && parcelas.length > 0) {
+    antecipadoEm = antecipacoes
+      .map(a => a.anticipationDate || a.requestDate)
+      .filter(Boolean).sort().pop() || null;
+    caiuEm = antecipadoEm;
   }
 
-  // ⚠️ O liquido so' e' gravado se for CRIVEL. Em 15/09/2026 a soma das
-  // parcelas de um pedido em 2x deu exatamente o valor cobrado — tarifa zero,
-  // o que nao existe em cartao. Ou o Asaas ainda nao calculou o liquido nessa
-  // altura (cobranca CONFIRMED, nao creditada), ou netValue ali significa
-  // outra coisa. Nos dois casos, gravar seria estampar numero falso no caixa:
-  // "nao sei" e' melhor que "sei errado", e quem le' a tela precisa poder
-  // confiar no que esta escrito.
+  // ⚠️ O liquido so' e' gravado se for CRIVEL — ver liquidoCrivel abaixo.
   const liq = Math.round(liquido * 100) / 100;
 
   return {
