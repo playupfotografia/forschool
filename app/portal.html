@@ -2889,8 +2889,16 @@ async function loadCatalogo(user) {
   document.getElementById('cat-info').textContent = `${escola.name} · ${anoNome}${turmaNome ? ' / Turma ' + turmaNome : ''}`;
   const prazo = escola.order_deadline ? new Date(escola.order_deadline + 'T00:00:00').toLocaleDateString('pt-BR') : '';
   document.getElementById('cat-prazo').textContent = prazo ? `⏰ Pedidos até ${prazo}` : '';
+  // Com irmaos, o botao troca de filho; com um filho so', ele oferece
+  // cadastrar outro. Escondido, o responsavel de um filho so' ficava sem saida
+  // nenhuma aqui — o catalogo e' onde ele cai quando ainda nao tem pedido.
   const btnTrocar = document.getElementById('cat-trocar-filho');
-  if (btnTrocar) btnTrocar.style.display = _todosFilhos.length > 1 ? 'inline-block' : 'none';
+  if (btnTrocar) {
+    const temIrmaos = _todosFilhos.length > 1;
+    btnTrocar.textContent = temIrmaos ? '👨‍👧‍👦 Trocar de filho' : '+ Cadastrar outro filho';
+    btnTrocar.onclick = temIrmaos ? verMeusFilhos : irAdicionarFilho;
+    btnTrocar.style.display = 'inline-block';
+  }
 
   // Buscar kits + items + produtos — prefere nível de projeto, cai para escola
   const projId = projeto?.id;
