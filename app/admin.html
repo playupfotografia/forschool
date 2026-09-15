@@ -1400,6 +1400,11 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
             <label class="form-label">Pedido feito, pagamento pendente</label>
             <textarea class="form-input" id="cfg-msg-pendente" rows="7" style="font-size:13px"></textarea>
           </div>
+          <div class="form-group">
+            <label class="form-label">Sem autorização de imagem</label>
+            <div class="hint" style="margin-bottom:5px">Usada antes de qualquer conversa sobre compra — sem autorização o aluno não é fotografado.</div>
+            <textarea class="form-input" id="cfg-msg-sem-autorizacao" rows="7" style="font-size:13px"></textarea>
+          </div>
         </div>
       </div>
 
@@ -3586,6 +3591,7 @@ async function loadConfig() {
     document.getElementById('cfg-wpp-msg').value       = data.whatsapp_message || '';
     document.getElementById('cfg-msg-sem-pedido').value = data.contact_msg_sem_pedido || '';
     document.getElementById('cfg-msg-pendente').value   = data.contact_msg_pendente || '';
+    document.getElementById('cfg-msg-sem-autorizacao').value = data.contact_msg_sem_autorizacao || '';
     document.getElementById('cfg-paylink-url').value   = data.payment_link_url || '';
     document.getElementById('cfg-paylink-label').value = data.payment_link_label || '';
     document.getElementById('cfg-min-installment').value  = data.min_installment_value ?? 40;
@@ -3713,6 +3719,7 @@ document.getElementById('btn-salvar-config').addEventListener('click', async () 
     whatsapp_message: document.getElementById('cfg-wpp-msg').value.trim() || null,
     contact_msg_sem_pedido: document.getElementById('cfg-msg-sem-pedido').value.trim() || null,
     contact_msg_pendente:   document.getElementById('cfg-msg-pendente').value.trim() || null,
+    contact_msg_sem_autorizacao: document.getElementById('cfg-msg-sem-autorizacao').value.trim() || null,
     payment_link_url:   document.getElementById('cfg-paylink-url').value.trim() || null,
     payment_link_label: document.getElementById('cfg-paylink-label').value.trim() || null,
     min_installment_value: parseFloat(document.getElementById('cfg-min-installment').value) || 40,
@@ -7316,7 +7323,15 @@ function filtrarDrillAlunos() {
 // ---------------------------------------------------------------------------
 function celulaContato(a) {
   const pago = a.order?.payment_status === 'paid';
-  const tipo = !a.order ? 'sem_pedido' : (a.order.payment_status === 'pending' ? 'pendente' : null);
+  // Falta de autorizacao vem antes de qualquer conversa sobre compra: sem ela
+  // nao ha' foto, mesmo pra quem ja' pagou. Quem RECUSOU nao entra — ja'
+  // respondeu que nao quer, insistir seria constrangimento.
+  // Quem RECUSOU nao recebe botao nenhum: nao vai ser fotografado, entao
+  // oferecer pacote e' oferecer o que ele nao pode comprar.
+  const tipo = a.autorizacao === 'recusou'  ? null
+             : a.autorizacao === 'pendente' ? 'sem_autorizacao'
+             : !a.order ? 'sem_pedido'
+             : (a.order.payment_status === 'pending' ? 'pendente' : null);
 
   // Nota livre sobre a resposta do pai (ex: "disse que compra dia 30") —
   // so' faz sentido depois que ja existe um contato pra pendurar nele.
@@ -7337,7 +7352,11 @@ function celulaContato(a) {
     ? `<div style="font-size:10px;color:var(--gray-400);margin-top:3px">✓ ${new Date(a.contato.contacted_at).toLocaleDateString('pt-BR')}${notaBtn}</div>${notaTxt}${lembreteTxt}`
     : '';
 
-  if (pago || !tipo) return quando || '<span style="color:var(--gray-300)">—</span>';
+  // Pagou = nao precisa mais de cobranca; mas se esta sem autorizar, ainda
+  // precisa ser chamado, senao paga e nao e' fotografado.
+  if ((pago && tipo !== 'sem_autorizacao') || !tipo) {
+    return quando || '<span style="color:var(--gray-300)">—</span>';
+  }
 
   const fone = apenasDigitosWpp(a.responsible_phone);
   if (!fone) {
@@ -7488,7 +7507,7 @@ window.contatarResponsavel = async function (studentId, tipo) {
     if (!contatoMsgCache) {
       const { data, error } = await supabase
         .from('app_settings')
-        .select(`contact_msg_sem_pedido, contact_msg_pendente, pix_key, pix_key_type,
+        .select(`contact_msg_sem_pedido, contact_msg_pendente, contact_msg_sem_autorizacao, pix_key, pix_key_type,
                  surcharge_mode, card_fee_percent, card_fee_percent_installment, card_fee_fixed,
                  anticipation_enabled, anticipation_fee_percent, anticipation_fee_percent_installment,
                  min_installment_value, max_installments`)
@@ -7497,9 +7516,9 @@ window.contatarResponsavel = async function (studentId, tipo) {
       contatoMsgCache = data || {};
     }
 
-    const modelo = tipo === 'pendente'
-      ? contatoMsgCache.contact_msg_pendente
-      : contatoMsgCache.contact_msg_sem_pedido;
+    const modelo = tipo === 'sem_autorizacao' ? contatoMsgCache.contact_msg_sem_autorizacao
+                 : tipo === 'pendente'        ? contatoMsgCache.contact_msg_pendente
+                 : contatoMsgCache.contact_msg_sem_pedido;
     if (!modelo) {
       toast('Escreva a mensagem em Configurações antes de usar.', 'warn');
       return;
