@@ -1874,6 +1874,18 @@ async function loadEscola() {
   }
 }
 
+// Numero da ficha do aluno (o que sai impresso e vira QR no dia da foto).
+//
+// Vem do banco, nao daqui: pra calcular o proximo numero e' preciso saber o
+// maior numero JA' USADO NA ESCOLA INTEIRA — e o responsavel nao pode ver
+// aluno de outra familia so' por causa disso (migration_039/040). A funcao
+// roda com privilegio proprio no banco e devolve so' o numero.
+async function proximoNumeroFicha() {
+  const { data, error } = await supabase.rpc('proximo_numero_ficha', { p_school_id: escola.id });
+  if (error) throw error;
+  return Number(data) || 1;
+}
+
 // Substitui {{placeholder}} pelos valores do contexto
 function renderTermPlaceholders(text, vars) {
   if (!text) return '';
@@ -2079,15 +2091,7 @@ document.getElementById('form-cadastro').addEventListener('submit', async e => {
     if (!user) throw new Error('Cadastro feito, mas não conseguimos entrar. Tente fazer login na aba "Já tenho cadastro".');
 
     // 3. Criar student com número de ficha auto-gerado
-    const { data: maxRow } = await supabase
-      .from('students')
-      .select('photo_seq_number')
-      .eq('school_id', escola.id)
-      .not('photo_seq_number', 'is', null)
-      .order('photo_seq_number', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const nextSeq = ((maxRow?.photo_seq_number) || 0) + 1;
+    const nextSeq = await proximoNumeroFicha();
 
     const g2Nome = document.getElementById('cad-g2-nome').value.trim();
     const g2Tel  = document.getElementById('cad-g2-tel').value.trim();
@@ -2218,15 +2222,7 @@ document.getElementById('form-add-filho').addEventListener('submit', async e => 
   }
   try {
     const user = await getCurrentUser();
-    const { data: maxRow } = await supabase
-      .from('students')
-      .select('photo_seq_number')
-      .eq('school_id', escola.id)
-      .not('photo_seq_number', 'is', null)
-      .order('photo_seq_number', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const nextSeq = ((maxRow?.photo_seq_number) || 0) + 1;
+    const nextSeq = await proximoNumeroFicha();
     const { error: stErr } = await supabase.from('students').insert({
       name: alNome,
       birth_date: nasc || null,
