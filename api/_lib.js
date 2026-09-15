@@ -232,6 +232,107 @@ async function avisarVenda(pedido) {
 }
 
 // ---------------------------------------------------------------------------
+// Aviso de PAGAMENTO DESFEITO — o oposto do aviso de venda.
+//
+// Caso real que motivou isto (15/09/2026): o cartao e' confirmado na hora,
+// mas o banco do cliente ainda pode pedir autorizacao a ele, e a analise de
+// risco do Asaas ainda pode reprovar depois. Quando isso acontece o pedido
+// volta pra pendente — e ate' agora voltava CALADO. O Daniel so' descobriria
+// conferindo extrato, dias depois, com o aluno ja' fotografado.
+//
+// Vai pelos dois canais (e-mail e Telegram), porque este e' mais urgente que
+// o de venda: e' dinheiro que sumiu, nao que entrou.
+// ---------------------------------------------------------------------------
+const MOTIVO_DESFEITO = {
+  PAYMENT_REPROVED_BY_RISK_ANALYSIS: 'Reprovado na análise de risco do Asaas',
+  PAYMENT_CREDIT_CARD_CAPTURE_REFUSED: 'O banco recusou a captura do cartão',
+  PAYMENT_CHARGEBACK_REQUESTED: 'Chargeback solicitado pelo titular do cartão',
+  PAYMENT_CHARGEBACK_DISPUTE: 'Chargeback em disputa',
+  PAYMENT_REFUNDED: 'Pagamento estornado',
+  PAYMENT_REVERSED: 'Pagamento revertido',
+  PAYMENT_DELETED: 'Cobrança apagada no Asaas',
+};
+
+function linhasDoDesfeito(pedido, evento) {
+  const l = [
+    ['Motivo', MOTIVO_DESFEITO[evento] || evento || '—'],
+    ['Pedido', pedido.order_number || '—'],
+    ['Aluno', pedido.student?.name || '—'],
+    ['Escola', pedido.school?.name || '—'],
+    ['Responsável', pedido.user?.name || '—'],
+    ['Pagamento', METODO_LABEL[pedido.payment_method] || pedido.payment_method || '—'],
+    ['Valor', moeda(pedido.amount_charged ?? pedido.total_amount)],
+    ['Situação agora', pedido.payment_status === 'refunded' ? 'Estornado' : 'Voltou para pendente'],
+  ];
+  if (pedido.user?.phone) l.push(['WhatsApp do responsável', pedido.user.phone]);
+  return l;
+}
+
+async function avisarDesfeitoTelegram(pedido, evento) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chat = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chat) return { canal: 'telegram', enviado: false, motivo: 'nao configurado' };
+
+  const corpo = linhasDoDesfeito(pedido, evento).map(([k, v]) => `<b>${k}:</b> ${v}`).join('\n');
+  const texto = `⚠️ <b>Pagamento desfeito</b>\n\n${corpo}`;
+  const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chat, text: texto, parse_mode: 'HTML' }),
+  });
+  if (!r.ok) throw new Error('Telegram HTTP ' + r.status + ': ' + (await r.text()).slice(0, 200));
+  return { canal: 'telegram', enviado: true };
+}
+
+async function avisarDesfeitoEmail(pedido, evento) {
+  const key = process.env.RESEND_API_KEY;
+  const para = process.env.ALERTA_EMAIL;
+  if (!key || !para) return { canal: 'email', enviado: false, motivo: 'nao configurado' };
+
+  const de = process.env.ALERTA_EMAIL_FROM || 'For School <onboarding@resend.dev>';
+  const linhas = linhasDoDesfeito(pedido, evento)
+    .map(([k, v]) => `<tr><td style="padding:6px 12px 6px 0;color:#666">${k}</td><td style="padding:6px 0;font-weight:600">${v}</td></tr>`)
+    .join('');
+  const html = `<div style="font-family:system-ui,Arial,sans-serif;max-width:480px">
+    <h2 style="color:#E74C3C;margin:0 0 4px">⚠️ Pagamento desfeito</h2>
+    <p style="color:#666;margin:0 0 16px;font-size:14px">
+      Um pedido que estava pago deixou de estar. Confira no painel do Asaas e
+      fale com o responsável antes de entregar as fotos.
+    </p>
+    <table style="border-collapse:collapse;font-size:14px">${linhas}</table>
+  </div>`;
+
+  const r = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: de,
+      to: para.split(',').map((e) => e.trim()).filter(Boolean),
+      subject: [
+        '⚠️ Pagamento desfeito',
+        pedido.school?.name,
+        moeda(pedido.amount_charged ?? pedido.total_amount),
+        pedido.order_number ? `(${pedido.order_number})` : null,
+      ].filter(Boolean).join(' — '),
+      html,
+    }),
+  });
+  if (!r.ok) throw new Error('Resend HTTP ' + r.status + ': ' + (await r.text()).slice(0, 200));
+  return { canal: 'email', enviado: true };
+}
+
+async function avisarPagamentoDesfeito(pedido, evento) {
+  const res = await Promise.allSettled([
+    avisarDesfeitoTelegram(pedido, evento),
+    avisarDesfeitoEmail(pedido, evento),
+  ]);
+  res.forEach((r) => {
+    if (r.status === 'rejected') console.error('aviso de pagamento desfeito falhou:', r.reason?.message || r.reason);
+    else if (!r.value.enviado) console.log(`aviso ${r.value.canal}: ${r.value.motivo}`);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Aviso de pedido novo, ainda pendente (so' e-mail por enquanto).
 //
 // Existe pra cobrir o PIX manual: diferente do cartao pelo Asaas, o PIX
@@ -300,4 +401,4 @@ async function avisarPedidoPendente(pedido) {
   });
 }
 
-module.exports = { env, asaas, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, avisarVenda, avisarPedidoPendente };
+module.exports = { env, asaas, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, avisarVenda, avisarPedidoPendente, avisarPagamentoDesfeito };

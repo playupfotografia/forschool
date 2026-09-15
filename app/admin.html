@@ -129,6 +129,11 @@ td{padding:10px 13px;font-size:13px;color:var(--gray-700);border-bottom:1px soli
    linhas numa tela grande (TV) sem precisar rolar tanto. */
 .drill-tbl th{padding:5px 10px;font-size:10px}
 .drill-tbl td{padding:4px 10px;font-size:12px}
+/* Caixinhas de conferencia do dia da sessao (foto tirada / pagamento).
+   Grandes de proposito: sao clicadas em sequencia, muitas vezes seguidas. */
+.conf-chk{width:19px;height:19px;cursor:pointer;accent-color:var(--green);vertical-align:middle}
+.conf-chk:disabled{cursor:not-allowed;opacity:.35}
+.conf-td{text-align:center;white-space:nowrap}
 tr:last-child td{border-bottom:none}
 tr:hover td{background:var(--gray-50)}
 .td-name{font-weight:500;color:var(--gray-900)}
@@ -2358,6 +2363,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
       <div class="stat-chip" style="color:var(--orange)"><span id="drill-st-pend">—</span><small>pendentes</small></div>
       <div class="stat-chip" style="color:var(--blue)"><span id="drill-st-rec">—</span><small>receita confirmada</small></div>
       <div class="stat-chip" id="drill-st-semaut-chip" style="color:var(--red);cursor:pointer" onclick="filtrarSemAutorizacao()" title="Clique para ver só quem ainda não autorizou"><span id="drill-st-semaut">—</span><small>sem autorização</small></div>
+      <div class="stat-chip" style="color:var(--purple);cursor:pointer" onclick="filtrarFaltaFoto()" title="Clique para ver só quem autorizou e ainda não foi fotografado"><span id="drill-st-foto">—</span><small>fotografados</small></div>
     </div>
     <!-- Body scrollable -->
     <div style="flex:1;overflow-y:auto;padding:16px 20px">
@@ -2378,6 +2384,11 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           <option value="recusou">Recusou</option>
           <option value="ok">Autorizados</option>
         </select>
+        <select class="form-select" style="width:165px" id="drill-al-ffoto" onchange="filtrarDrillAlunos()" title="Conferência do dia da sessão">
+          <option value="">📷 Foto: todos</option>
+          <option value="falta">Falta fotografar</option>
+          <option value="feito">Já fotografados</option>
+        </select>
         <label class="chk-inline" style="align-self:center;white-space:nowrap" title="Esconde quem você já chamou no WhatsApp neste projeto">
           <input type="checkbox" id="drill-al-fcont" onchange="filtrarDrillAlunos()">
           <span style="font-size:12px">Só não contatados</span>
@@ -2386,8 +2397,8 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
       </div>
       <div class="table-wrap">
         <table class="drill-tbl">
-          <thead><tr><th>Aluno</th><th>Turma</th><th>Responsável</th><th>Irmão</th><th>Nº</th><th>Quando</th><th>Pedido</th><th>Total</th><th>Status</th><th>Contato</th></tr></thead>
-          <tbody id="drill-al-tab"><tr><td colspan="10" class="loading"><span class="spinner"></span></td></tr></tbody>
+          <thead><tr><th>Aluno</th><th title="Marque depois de fotografar o aluno">📷 Foto</th><th>Turma</th><th>Responsável</th><th>Irmão</th><th>Nº</th><th>Quando</th><th>Pedido</th><th>Total</th><th>Status</th><th>Contato</th></tr></thead>
+          <tbody id="drill-al-tab"><tr><td colspan="11" class="loading"><span class="spinner"></span></td></tr></tbody>
         </table>
       </div>
     </div>
@@ -2971,6 +2982,37 @@ function rotuloMetodo(p) {
   return `<span style="font-size:12px;color:var(--gray-700)">${escapeHtml(nome)}</span>${auto}`;
 }
 
+// ---------------------------------------------------------------------------
+// "Pago" nem sempre e' "caiu na conta" (migration_043).
+//
+// No cartao, o Asaas confirma na hora (CONFIRMED) mas so' credita na
+// liquidacao — e nesse meio tempo o banco do cliente ainda pode pedir a
+// autorizacao a ele, e a analise de risco ainda pode reprovar. Ou seja:
+// pedido pago sem credited_at e' dinheiro PROMETIDO, nao dinheiro recebido.
+// Esta etiqueta e' o que deixa isso visivel na hora de conferir extrato.
+//
+// Pedido pago na mao (sem gateway) nao mostra nada: quem confirmou foi voce,
+// olhando o extrato — nao ha' previsao nenhuma a informar.
+// ---------------------------------------------------------------------------
+function avisoCredito(p) {
+  if (!p || p.payment_status !== 'paid' || p.gateway !== 'asaas') return '';
+
+  if (p.credited_at) {
+    return `<div style="font-size:10px;color:var(--green);margin-top:2px" title="O dinheiro está na conta do Asaas">💵 caiu ${fmtDataBR(p.credited_at)}</div>`;
+  }
+
+  // ⚠️ credit_expected_date e' a data da liquidacao SEM antecipacao. Como a
+  // antecipacao automatica esta ligada, o dinheiro costuma cair bem antes e o
+  // Asaas nao reescreve essa data. Anunciar "cai em 18/11" seria assustar a
+  // toa'; a data vai pro title, como referencia, e a tela diz so' o que se
+  // sabe: foi confirmado e ainda nao apareceu como creditado.
+  const ref = p.credit_expected_date
+    ? ` Sem antecipação, o Asaas liquidaria em ${fmtDataBR(p.credit_expected_date)}.`
+    : '';
+  return `<div style="font-size:10px;color:var(--orange);margin-top:2px"
+       title="O cartão foi confirmado, mas ainda não consta como creditado.${ref} Confira o extrato do Asaas.">⏳ aguardando crédito</div>`;
+}
+
 async function loadPedidos() {
   const tb = document.getElementById('pd-tab');
   tb.innerHTML = '<tr><td colspan="9" class="loading"><span class="spinner"></span>Carregando pedidos…</td></tr>';
@@ -2992,7 +3034,8 @@ async function loadPedidos() {
         id, order_number, kit_type, total_amount, payment_method, payment_status,
         payment_proof_url, paid_at, created_at, source, notes,
         gateway, gateway_status, installments, amount_charged, surcharge_amount,
-        net_amount, gateway_fee, delivery_method, delivery_fee, delivery_address,
+        net_amount, gateway_fee, credit_expected_date, credited_at,
+        delivery_method, delivery_fee, delivery_address,
         student:students(id, name, duplicate_of_student_id),
         school:schools(id, name, slug)
       `)
@@ -3052,20 +3095,38 @@ function filtrarPedidos() {
   // centavo com a soma dos pedidos pagos (R$ 28,90 aparecia como R$ 29).
   document.getElementById('pd-rec').textContent   = fmtMoney(receita);
 
-  // Liquido: o que o Asaas realmente creditou, ja' sem a tarifa dele. So'
-  // existe em pedido pago pelo gateway — pagamento manual nao tem tarifa.
+  // Liquido: o que o Asaas creditou, ja' sem a tarifa dele. So' existe em
+  // pedido pago pelo gateway — pagamento manual nao tem tarifa.
+  //
+  // "Caiu" agora quer dizer CAIU MESMO (migration_043). Cartao confirmado
+  // ainda nao e' dinheiro na conta: fica separado, na linha de baixo, com a
+  // data prevista. Misturar os dois era o que fazia este card parecer saldo
+  // disponivel quando na verdade tinha valor programado pra dali a 30 ou 60
+  // dias.
   const comLiquido = pagos.filter(p => p.net_amount != null);
-  const liquido = comLiquido.reduce((s, p) => s + Number(p.net_amount || 0), 0);
-  const tarifas = comLiquido.reduce((s, p) => s + Number(p.gateway_fee || 0), 0);
+  const caiu      = comLiquido.filter(p => p.credited_at);
+  const aCaminho  = comLiquido.filter(p => !p.credited_at);
+  const soma      = arr => arr.reduce((s, p) => s + Number(p.net_amount || 0), 0);
+  const tarifas   = comLiquido.reduce((s, p) => s + Number(p.gateway_fee || 0), 0);
+
   const elLiq = document.getElementById('pd-liq');
   const elLiqSub = document.getElementById('pd-liq-sub');
   if (elLiq) {
-    if (comLiquido.length) {
-      elLiq.textContent = fmtMoney(liquido);
-      if (elLiqSub) elLiqSub.textContent = `${fmtMoney(tarifas)} de tarifas em ${comLiquido.length} pedido${comLiquido.length === 1 ? '' : 's'}`;
-    } else {
+    if (!comLiquido.length) {
       elLiq.textContent = '—';
       if (elLiqSub) elLiqSub.textContent = 'nenhum pedido pago pelo gateway ainda';
+    } else {
+      elLiq.textContent = fmtMoney(soma(caiu));
+      if (elLiqSub) {
+        // Sem data na linha: com a antecipacao ligada, a previsao que o Asaas
+        // manda e' a da liquidacao SEM antecipacao (novembro pra venda de
+        // setembro). Botar isso aqui assustaria a' toa — fica no title.
+        const tarifasTxt = `${fmtMoney(tarifas)} de tarifas em ${comLiquido.length} pedido${comLiquido.length === 1 ? '' : 's'}`;
+        elLiqSub.innerHTML = aCaminho.length
+          ? `<span style="color:var(--orange)" title="Cartão confirmado que ainda não consta como creditado. Com a antecipação automática costuma cair em ~2 dias úteis.">`
+            + `+ ${fmtMoney(soma(aCaminho))} aguardando crédito</span><br>${tarifasTxt}`
+          : tarifasTxt;
+      }
     }
   }
   document.getElementById('pd-count').textContent = lista.length + ' pedido' + (lista.length === 1 ? '' : 's');
@@ -3084,7 +3145,7 @@ function filtrarPedidos() {
   tb.innerHTML = lista.map(p => {
     const data = p.created_at ? new Date(p.created_at).toLocaleDateString('pt-BR') : '—';
     const dupPago = p.payment_status === 'pending' ? duplicadoPagoPorAlunoPedidos[p.student?.id] : null;
-    const stBadge = p.payment_status === 'paid'    ? '<span class="badge badge-green">Pago</span>'
+    const stBadge = p.payment_status === 'paid'    ? '<span class="badge badge-green">Pago</span>' + avisoCredito(p)
                   : dupPago ? `<span class="badge badge-blue" title="Mesma criança, cadastro diferente — pedido lá: ${escapeHtml(dupPago.order_number || '')}, pago">🔗 Duplicado ✓ Pago</span>`
                   : p.payment_status === 'pending' ? '<span class="badge badge-yellow">Pendente</span>'
                   : p.payment_status === 'refunded' ? '<span class="badge badge-gray">Reembolsado</span>'
@@ -3339,7 +3400,10 @@ async function abrirDetalhesPedido(id) {
                   <div style="margin-top:2px">Receita (preço de tabela): <b>${fmtMoney(ped.total_amount)}</b></div>
                   ${ped.net_amount != null ? `
                     <div style="margin-top:2px">Tarifa do Asaas: ${fmtMoney(ped.gateway_fee ?? 0)}</div>
-                    <div style="margin-top:2px;color:var(--green);font-weight:600">Caiu na conta: ${fmtMoney(ped.net_amount)}</div>
+                    ${ped.credited_at
+                      ? `<div style="margin-top:2px;color:var(--green);font-weight:600">💵 Caiu na conta em ${fmtDataBR(ped.credited_at)}: ${fmtMoney(ped.net_amount)}</div>`
+                      : `<div style="margin-top:2px;color:var(--orange);font-weight:600">⏳ A receber: ${fmtMoney(ped.net_amount)}</div>
+                         <div style="margin-top:2px;color:var(--gray-500);font-size:11px">O cartão foi confirmado, mas ainda não consta como creditado.${ped.credit_expected_date ? ` Sem antecipação, o Asaas liquidaria em ${fmtDataBR(ped.credit_expected_date)}.` : ''}</div>`}
                   ` : ''}
                   ${Number(ped.installments) > 1 ? `<div style="margin-top:2px">Parcelas: ${ped.installments}×</div>` : ''}
                   ${ped.gateway_status ? `<div style="margin-top:2px;color:var(--gray-400)">Status no Asaas: ${escapeHtml(ped.gateway_status)}</div>` : ''}
@@ -6724,11 +6788,12 @@ async function abrirDrillProjeto(projectId, opts = {}) {
     drillProjeto = proj || null;   // usado pelas mensagens de contato
     document.getElementById('drill-proj-title').textContent = proj ? proj.name : 'Alunos & Pedidos';
     document.getElementById('drill-proj-sub').textContent  = proj ? (proj.school?.name || '') : '';
-    document.getElementById('drill-al-tab').innerHTML  = '<tr><td colspan="10" class="loading"><span class="spinner"></span>Carregando…</td></tr>';
+    document.getElementById('drill-al-tab').innerHTML  = '<tr><td colspan="11" class="loading"><span class="spinner"></span>Carregando…</td></tr>';
     document.getElementById('drill-al-busca').value = '';
     document.getElementById('drill-al-ftur').value  = '';
     document.getElementById('drill-al-fst').value   = '';
     document.getElementById('drill-al-faut').value  = '';
+    document.getElementById('drill-al-ffoto').value = '';
     document.getElementById('drill-al-fcont').checked = false;
     document.getElementById('mod-drill-proj').classList.add('open');
   }
@@ -6812,6 +6877,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
         .from('orders')
         .select(`
           id, order_number, kit_type, total_amount, payment_status, payment_proof_url, paid_at, created_at,
+          gateway, credit_expected_date, credited_at,
           student_id,
           items:order_items(id, quantity, unit_price, variant_name, product:products(id, name))
         `)
@@ -6842,6 +6908,22 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       (cts || []).forEach(c => {
         if (!contatoPorAluno[c.student_id]) contatoPorAluno[c.student_id] = c;  // o mais recente
       });
+    }
+
+    // 4c. Quem ja' foi fotografado NESTE projeto (migration_042). Marcacao
+    // manual do Daniel na conferencia — nao tem nada a ver com arquivo de
+    // foto; e' so' o "ja' passou pela camera".
+    const fotoPorAluno = {};
+    if (alunoIds.length) {
+      const { data: fts, error: ftErr } = await supabase
+        .from('photo_taken')
+        .select('student_id, taken_at')
+        .eq('project_id', projectId);
+      // Mesma escolha do historico de contato: sem isso a tela ainda serve,
+      // entao nao derruba — mas registra, pra "nao marca nada" nao virar
+      // misterio se a migration_042 nao tiver sido rodada.
+      if (ftErr) console.error('photo_taken:', ftErr.message);
+      (fts || []).forEach(f => { fotoPorAluno[f.student_id] = f.taken_at; });
     }
 
     // 5. Montar drillAlunosData
@@ -6887,6 +6969,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
                  : (a.authorize_individual || a.authorize_class) ? 'ok' : 'recusou',
       order: pedidosPorAluno[a.id] || null,
       contato: contatoPorAluno[a.id] || null,
+      fotoEm: fotoPorAluno[a.id] || null,   // null = ainda nao fotografado
       duplicadoPago: duplicadoPagoPorAluno[a.id] || null,
       };
     });
@@ -6937,11 +7020,29 @@ function renderDrillStats() {
   const semAut = drillAlunosData.filter(a => a.autorizacao !== 'ok').length;
   document.getElementById('drill-st-semaut').textContent = semAut;
   document.getElementById('drill-st-semaut-chip').style.display = semAut ? '' : 'none';
+
+  // Fotografados / quem PODE ser fotografado. O de baixo e' so' quem
+  // autorizou: contar contra o total da escola daria um numero que nunca
+  // fecha, e no fim do dia o que importa e' "falta alguem?".
+  const podeFoto = drillAlunosData.filter(a => a.autorizacao === 'ok').length;
+  const comFoto  = drillAlunosData.filter(a => a.autorizacao === 'ok' && a.fotoEm).length;
+  document.getElementById('drill-st-foto').textContent = `${comFoto} de ${podeFoto}`;
 }
 
 // Atalho do chip "sem autorizacao": joga o filtro pra essa fila de uma vez.
 window.filtrarSemAutorizacao = function () {
   document.getElementById('drill-al-faut').value = 'sem';
+  document.getElementById('drill-al-busca').value = '';
+  document.getElementById('drill-al-fst').value = '';
+  document.getElementById('drill-al-ffoto').value = '';
+  filtrarDrillAlunos();
+};
+
+// Atalho do chip "fotografados": mostra quem autorizou e ainda nao passou
+// pela camera — a lista que importa antes de encerrar o dia.
+window.filtrarFaltaFoto = function () {
+  document.getElementById('drill-al-ffoto').value = 'falta';
+  document.getElementById('drill-al-faut').value = 'ok';
   document.getElementById('drill-al-busca').value = '';
   document.getElementById('drill-al-fst').value = '';
   filtrarDrillAlunos();
@@ -7217,6 +7318,10 @@ function filtrarDrillAlunos() {
   if (faut === 'sem') lista = lista.filter(a => a.autorizacao !== 'ok');
   else if (faut) lista = lista.filter(a => a.autorizacao === faut);
 
+  const ffoto = document.getElementById('drill-al-ffoto')?.value;
+  if (ffoto === 'falta') lista = lista.filter(a => !a.fotoEm);
+  else if (ffoto === 'feito') lista = lista.filter(a => !!a.fotoEm);
+
   // "Ainda nao contatados" cruza com o filtro de situacao em vez de substituir:
   // o uso real e' "sem pedido E que eu ainda nao chamei".
   if (document.getElementById('drill-al-fcont')?.checked) {
@@ -7230,7 +7335,7 @@ function filtrarDrillAlunos() {
 
   const tb = document.getElementById('drill-al-tab');
   if (!lista.length) {
-    tb.innerHTML = '<tr><td colspan="10" class="empty">Nenhum aluno encontrado.</td></tr>';
+    tb.innerHTML = '<tr><td colspan="11" class="empty">Nenhum aluno encontrado.</td></tr>';
     return;
   }
 
@@ -7280,7 +7385,8 @@ function filtrarDrillAlunos() {
       totCell = `<span style="font-weight:600">${fmtMoney(Number(o.total_amount || 0))}</span>`;
 
       if (o.payment_status === 'paid') {
-        stCell = `<button class="btn btn-sm badge-green" style="border:none;cursor:pointer;font-weight:600" onclick="drillMarcarPendente('${o.id}')" title="Clique para reverter para pendente">✓ Pago</button>`;
+        stCell = `<button class="btn btn-sm badge-green" style="border:none;cursor:pointer;font-weight:600" onclick="drillMarcarPendente('${o.id}')" title="Clique para reverter para pendente">✓ Pago</button>`
+               + avisoCredito(o);
       } else if (o.payment_status === 'pending' && a.duplicadoPago) {
         // Duplicidade de cadastro vinculada (migration_035): o pedido lá do
         // outro cadastro do mesmo aluno ja esta' pago — nao e' mais um
@@ -7305,8 +7411,12 @@ function filtrarDrillAlunos() {
          ${a.autorizacao === 'recusou' ? '✖ Recusou a autorização' : '⏳ Sem autorização'}
        </div>`;
 
+    // --- Conferencia do dia: 📷 tirou foto / 💰 pagamento entrou ---------
+    // Quem RECUSOU a autorizacao nao e' fotografado — a caixinha fica
+    // travada em vez de convidar a marcar por engano.
     return `<tr style="cursor:pointer" onclick="editarAluno('${a.id}')">
       <td style="font-weight:500">${escapeHtml(a.name)}${avisoAut}</td>
+      <td class="conf-td" id="foto-td-${a.id}" onclick="event.stopPropagation()">${celulaFoto(a)}</td>
       <td>${escapeHtml(a.year_name && a.year_name !== '—' ? a.year_name + ' — ' + a.class_name : a.class_name)}</td>
       <td style="font-size:13px">${escapeHtml(a.responsible_name)}</td>
       <td>${irmao}</td>
@@ -7319,6 +7429,66 @@ function filtrarDrillAlunos() {
     </tr>`;
   }).join('');
 }
+
+// ---------------------------------------------------------------------------
+// Conferencia: 📷 "ja' fotografei este" (migration_042).
+//
+// E' marcacao manual do fotografo, nao tem arquivo por tras — serve pra no
+// fim do dia saber se ficou alguem de fora, coisa que ate' agora dependia de
+// memoria ou de papel.
+//
+// Quem RECUSOU a autorizacao nao e' fotografado: a caixinha fica travada, em
+// vez de convidar a marcar por engano.
+// ---------------------------------------------------------------------------
+function celulaFoto(a) {
+  const trava = a.autorizacao === 'recusou';
+  const titulo = trava   ? 'Recusou a autorização — não é fotografado'
+               : a.fotoEm ? 'Fotografado em ' + fmtDataHoraCurta(a.fotoEm) + ' — clique para desmarcar'
+                          : 'Marcar como fotografado';
+  return `<input type="checkbox" class="conf-chk" ${a.fotoEm ? 'checked' : ''} ${trava ? 'disabled' : ''}
+            onchange="marcarFoto('${a.id}', this.checked)" title="${titulo}">`
+    + (a.fotoEm ? `<div style="font-size:9px;color:var(--gray-400);margin-top:1px">${fmtDataHoraCurta(a.fotoEm)}</div>` : '');
+}
+
+// Redesenha so' a celula da foto. Nao re-renderiza a tabela inteira de
+// proposito: com o filtro "falta fotografar" ligado, a linha sumiria debaixo
+// do dedo no meio de uma sequencia de cliques.
+function atualizarCelulaFoto(studentId) {
+  const a  = drillAlunosData.find(x => x.id === studentId);
+  const td = document.getElementById('foto-td-' + studentId);
+  if (a && td) td.innerHTML = celulaFoto(a);
+}
+
+window.marcarFoto = async function (studentId, marcado) {
+  const a = drillAlunosData.find(x => x.id === studentId);
+  if (!a || !drillProjetoId) return;
+
+  // Marca na tela primeiro (a caixinha ja' respondeu ao clique) e desfaz se o
+  // banco recusar — tela dizendo "ok" sem ter gravado e' pior que erro.
+  const antes = a.fotoEm;
+  a.fotoEm = marcado ? new Date().toISOString() : null;
+  atualizarCelulaFoto(studentId);
+  renderDrillStats();
+
+  try {
+    if (marcado) {
+      const { error } = await supabase.from('photo_taken').upsert(
+        { student_id: studentId, project_id: drillProjetoId, taken_at: a.fotoEm },
+        { onConflict: 'student_id,project_id' });
+      if (error) throw error;
+    } else {
+      const { error } = await supabase.from('photo_taken')
+        .delete().eq('student_id', studentId).eq('project_id', drillProjetoId);
+      if (error) throw error;
+    }
+  } catch (e) {
+    a.fotoEm = antes;
+    atualizarCelulaFoto(studentId);
+    renderDrillStats();
+    console.error('marcarFoto:', e.message || e);
+    toast('Não consegui salvar a marcação de foto. Tente de novo.', 'error');
+  }
+};
 
 // ---------------------------------------------------------------------------
 // Coluna de contato: botao de WhatsApp + quando foi contatado.
@@ -7596,7 +7766,10 @@ async function drillMarcarPago(orderId) {
   const idx = drillPedidosData.findIndex(p => p.id === orderId);
   if (idx !== -1) { drillPedidosData[idx].payment_status = 'paid'; drillPedidosData[idx].paid_at = new Date().toISOString(); }
   const aidx = drillAlunosData.findIndex(a => a.order?.id === orderId);
-  if (aidx !== -1 && drillAlunosData[aidx].order) drillAlunosData[aidx].order.payment_status = 'paid';
+  if (aidx !== -1 && drillAlunosData[aidx].order) {
+    drillAlunosData[aidx].order.payment_status = 'paid';
+    drillAlunosData[aidx].order.paid_at = new Date().toISOString();
+  }
   toast('Pedido marcado como pago!', 'success');
   renderDrillStats();
   filtrarDrillAlunos();
@@ -7608,7 +7781,10 @@ async function drillMarcarPendente(orderId) {
   const idx = drillPedidosData.findIndex(p => p.id === orderId);
   if (idx !== -1) { drillPedidosData[idx].payment_status = 'pending'; drillPedidosData[idx].paid_at = null; }
   const aidx = drillAlunosData.findIndex(a => a.order?.id === orderId);
-  if (aidx !== -1 && drillAlunosData[aidx].order) drillAlunosData[aidx].order.payment_status = 'pending';
+  if (aidx !== -1 && drillAlunosData[aidx].order) {
+    drillAlunosData[aidx].order.payment_status = 'pending';
+    drillAlunosData[aidx].order.paid_at = null;
+  }
   toast('Pedido revertido para pendente.', 'success');
   renderDrillStats();
   filtrarDrillAlunos();
