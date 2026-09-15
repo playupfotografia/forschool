@@ -1569,6 +1569,12 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
         </select>
       </div>
 
+      <label class="chk-inline" id="fs-faltantes-wrap" style="display:none;align-items:center;gap:8px;background:#ECFDF5;border:1px solid #A7F3D0;border-radius:var(--radius);padding:9px 11px"
+             title="Pula quem já recebeu ficha, exceto se o pedido mudou depois da impressão">
+        <input type="checkbox" id="fs-so-faltantes" onchange="onFichasSessaoProjeto()" checked>
+        <span style="font-size:13px">Só quem <b>ainda não tem ficha atualizada</b> <span style="color:var(--gray-500)">— quem fez ou mudou pedido depois de impressa volta pra lista</span></span>
+      </label>
+
       <label class="chk-inline" id="fs-incluir-wrap" style="display:none;align-items:center;gap:8px;background:var(--gray-50);border-radius:var(--radius);padding:9px 11px"
              title="Leva ficha de quem ainda não respondeu a autorização, marcada com tarja de aviso">
         <input type="checkbox" id="fs-incluir-sem-aut" onchange="fsRecalcular()">
@@ -1580,6 +1586,8 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
         <button type="button" class="btn btn-sm btn-secondary" onclick="fsMarcar('manhã')">Só manhã</button>
         <button type="button" class="btn btn-sm btn-secondary" onclick="fsMarcar('tarde')">Só tarde</button>
         <button type="button" class="btn btn-sm btn-secondary" onclick="fsMarcar('nenhuma')">Limpar</button>
+        <button type="button" class="btn btn-sm btn-secondary" onclick="fsDesmarcarImpressas()"
+                title="Se a impressão falhou (travou papel, fechou a janela), volta as turmas marcadas pra fila">↩ Desmarcar impressas</button>
       </div>
 
       <div id="fs-turmas" style="display:flex;flex-direction:column;gap:2px;max-height:46vh;overflow-y:auto">
@@ -8122,6 +8130,9 @@ ${paginasHtml}
 // na ordem em que aparecem na tela — e' essa ordem que agrupa as fichas na
 // impressao (todas do G3, depois G4...), em vez de misturar tudo por nome.
 let fsTurmas = [];
+// (alunoId) -> bool: nunca imprimiu, ou imprimiu antes de o pedido mudar.
+// Redefinida a cada carregamento de projeto (migration_041).
+let fsPrecisaImprimir = () => true;
 
 async function abrirModalFichasSessao() {
   const sel = document.getElementById('fs-projeto');
@@ -8132,7 +8143,9 @@ async function abrirModalFichasSessao() {
   fsTurmas = [];
   document.getElementById('fs-turmas').innerHTML = '<div style="font-size:13px;color:var(--gray-400);padding:8px 0">Selecione o projeto primeiro…</div>';
   document.getElementById('fs-incluir-sem-aut').checked = false;
+  document.getElementById('fs-so-faltantes').checked = true;
   document.getElementById('fs-incluir-wrap').style.display = 'none';
+  document.getElementById('fs-faltantes-wrap').style.display = 'none';
   document.getElementById('fs-atalhos').style.display = 'none';
   document.getElementById('fs-total').textContent = '';
   document.getElementById('mod-fichas-sessao').classList.add('open');
@@ -8147,24 +8160,46 @@ async function onFichasSessaoProjeto() {
   document.getElementById('fs-total').textContent = '';
   document.getElementById('fs-atalhos').style.display = 'none';
   document.getElementById('fs-incluir-wrap').style.display = 'none';
+  document.getElementById('fs-faltantes-wrap').style.display = 'none';
   if (!projId) { cont.innerHTML = '<div style="font-size:13px;color:var(--gray-400);padding:8px 0">Selecione o projeto primeiro…</div>'; return; }
   cont.innerHTML = '<div class="loading" style="padding:14px"><span class="spinner"></span>Carregando turmas…</div>';
 
   try {
     // Anos/turmas da escola + sessoes do projeto + alunos autorizados, em paralelo
-    const [anosResp, sessResp, alunosResp] = await Promise.all([
+    const [anosResp, sessResp, alunosResp, printsResp, pedidosResp] = await Promise.all([
       supabase.from('school_years').select('id, name, sort_order, classes:school_classes(id, name)')
         .eq('school_id', escolaId).order('sort_order'),
       supabase.from('project_sessions').select('id, photo_date, period, classes:project_session_classes(school_class_id)')
         .eq('project_id', projId).order('photo_date'),
       // Traz tambem quem nao respondeu (authorization_date null) — a contagem
       // mostra os dois numeros, e o checkbox decide quem entra na impressao.
-      supabase.from('students').select('class_id, authorization_date, authorize_individual, authorize_class')
+      supabase.from('students').select('id, class_id, authorization_date, authorize_individual, authorize_class')
         .eq('school_id', escolaId).limit(5000),
+      supabase.from('ficha_prints').select('student_id, printed_at').eq('project_id', projId),
+      // updated_at do pedido: ficha impressa ANTES da ultima mudanca esta'
+      // desatualizada (nao mostra o que o aluno comprou nem o tema).
+      supabase.from('orders').select('student_id, updated_at').eq('project_id', projId),
     ]);
     if (anosResp.error) throw anosResp.error;
     if (sessResp.error) throw sessResp.error;
     if (alunosResp.error) throw alunosResp.error;
+    if (printsResp.error) throw printsResp.error;
+    if (pedidosResp.error) throw pedidosResp.error;
+
+    const impressoEm = {};
+    (printsResp.data || []).forEach(p => { impressoEm[p.student_id] = p.printed_at; });
+    const pedidoMexidoEm = {};
+    (pedidosResp.data || []).forEach(o => {
+      const atual = pedidoMexidoEm[o.student_id];
+      if (!atual || o.updated_at > atual) pedidoMexidoEm[o.student_id] = o.updated_at;
+    });
+    // Precisa imprimir: nunca saiu, ou saiu antes do pedido mudar.
+    fsPrecisaImprimir = (alunoId) => {
+      const impresso = impressoEm[alunoId];
+      if (!impresso) return true;
+      const mexido = pedidoMexidoEm[alunoId];
+      return !!mexido && mexido > impresso;
+    };
 
     // Periodo/data vem da SESSAO, nao da turma — turma sem sessao vinculada
     // ainda aparece na lista, so' sem o horario.
@@ -8175,21 +8210,31 @@ async function onFichasSessaoProjeto() {
       });
     });
 
-    const porClasse = {};   // class_id -> { ok, pendente }
+    const porClasse = {};   // class_id -> { ok, pendente, faltaOk, faltaPendente }
     (alunosResp.data || []).forEach(a => {
       if (!a.class_id) return;
-      const c = porClasse[a.class_id] = porClasse[a.class_id] || { ok: 0, pendente: 0 };
-      if (!a.authorization_date) c.pendente++;                         // nem respondeu
-      else if (a.authorize_individual || a.authorize_class) c.ok++;    // autorizou
-      // recusou: nao entra em nenhuma das duas contas — nao se fotografa
+      const c = porClasse[a.class_id] = porClasse[a.class_id] ||
+        { ok: 0, pendente: 0, faltaOk: 0, faltaPendente: 0 };
+      const falta = fsPrecisaImprimir(a.id);
+      if (!a.authorization_date) {                                     // nem respondeu
+        c.pendente++;
+        if (falta) c.faltaPendente++;
+      } else if (a.authorize_individual || a.authorize_class) {        // autorizou
+        c.ok++;
+        if (falta) c.faltaOk++;
+      }
+      // recusou: nao entra em nenhuma das contas — nao se fotografa
     });
 
     const incluirSemAut = document.getElementById('fs-incluir-sem-aut')?.checked;
+    const soFaltantes   = document.getElementById('fs-so-faltantes')?.checked;
 
     (anosResp.data || []).forEach(ano => {
       (ano.classes || []).sort((x, y) => (x.name || '').localeCompare(y.name || '', 'pt-BR')).forEach(t => {
         const s = sessaoPorClasse[t.id];
-        const c = porClasse[t.id] || { ok: 0, pendente: 0 };
+        const c = porClasse[t.id] || { ok: 0, pendente: 0, faltaOk: 0, faltaPendente: 0 };
+        const total  = c.ok + (incluirSemAut ? c.pendente : 0);
+        const faltam = c.faltaOk + (incluirSemAut ? c.faltaPendente : 0);
         fsTurmas.push({
           id: t.id,
           turma: t.name,
@@ -8198,7 +8243,9 @@ async function onFichasSessaoProjeto() {
           dataBR: s?.photo_date ? new Date(s.photo_date + 'T12:00:00').toLocaleDateString('pt-BR') : '',
           qtdOk: c.ok,
           qtdPendente: c.pendente,
-          qtd: c.ok + (incluirSemAut ? c.pendente : 0),
+          qtdTotal: total,
+          qtdFaltam: faltam,
+          qtd: soFaltantes ? faltam : total,
         });
       });
     });
@@ -8207,6 +8254,7 @@ async function onFichasSessaoProjeto() {
     renderFsTurmas();
     document.getElementById('fs-atalhos').style.display = 'flex';
     document.getElementById('fs-incluir-wrap').style.display = 'flex';
+    document.getElementById('fs-faltantes-wrap').style.display = 'flex';
   } catch (err) {
     cont.innerHTML = `<div style="font-size:13px;color:var(--red);padding:8px 0">Erro ao carregar turmas: ${escapeHtml(err.message)}</div>`;
   }
@@ -8224,12 +8272,14 @@ function renderFsTurmas() {
     const quando = t.periodo || t.dataBR
       ? `<span class="fs-turma-sessao">${escapeHtml([t.dataBR, t.periodo].filter(Boolean).join(' · '))}</span>`
       : `<span class="fs-turma-sessao sem">sem sessão</span>`;
-    // Quantos vao sair de quantos existem — a diferenca e' quem ainda nao
-    // respondeu a autorizacao, que e' exatamente a fila de WhatsApp.
-    const total = t.qtdOk + t.qtdPendente;
-    const detalhe = t.qtdPendente
-      ? `<span class="fs-turma-qtd" title="${t.qtdPendente} ainda não autorizaram">${t.qtd} de ${total}</span>`
-      : `<span class="fs-turma-qtd">${t.qtd} ficha${t.qtd === 1 ? '' : 's'}</span>`;
+    // Quantos vao sair, e por que os numeros diferem: quem nao autorizou nao
+    // entra, e quem ja' tem ficha atualizada tambem nao.
+    const soFaltantes = document.getElementById('fs-so-faltantes')?.checked;
+    const detalhe = soFaltantes
+      ? `<span class="fs-turma-qtd" title="${t.qtdTotal - t.qtdFaltam} já com ficha atualizada">${t.qtdFaltam} de ${t.qtdTotal}</span>`
+      : (t.qtdPendente
+          ? `<span class="fs-turma-qtd" title="${t.qtdPendente} ainda não autorizaram">${t.qtd} de ${t.qtdOk + t.qtdPendente}</span>`
+          : `<span class="fs-turma-qtd">${t.qtd} ficha${t.qtd === 1 ? '' : 's'}</span>`);
     html += `<label class="fs-turma${t.qtd ? '' : ' vazia'}">
       <input type="checkbox" data-i="${i}" onchange="fsAtualizarTotal()"${t.qtd ? '' : ' disabled'}${marcados.has(t.id) && t.qtd ? ' checked' : ''}>
       <span class="fs-turma-nome">${escapeHtml(t.turma)}</span>
@@ -8240,6 +8290,34 @@ function renderFsTurmas() {
   document.getElementById('fs-turmas').innerHTML = html;
   fsAtualizarTotal();
 }
+
+// Papel travou, janela fechou sem imprimir: devolve as turmas marcadas pra
+// fila. So' apaga o registro de impressao — nao mexe em aluno nem pedido.
+window.fsDesmarcarImpressas = async function () {
+  const marcadas = [...document.querySelectorAll('#fs-turmas input[type=checkbox]:checked')]
+    .map(cb => fsTurmas[cb.dataset.i]);
+  if (!marcadas.length) { toast('Marque as turmas que precisa imprimir de novo.', 'warn'); return; }
+
+  const projId = document.getElementById('fs-projeto').value;
+  const nomes  = marcadas.map(t => `${t.ano} ${t.turma}`).join(', ');
+  if (!confirm(`Marcar as fichas como NÃO impressas em: ${nomes}?\n\nElas voltam pra fila de impressão. Nenhum aluno ou pedido é alterado.`)) return;
+
+  try {
+    const { data: alunos, error } = await supabase
+      .from('students').select('id').in('class_id', marcadas.map(t => t.id));
+    if (error) throw error;
+    const ids = (alunos || []).map(a => a.id);
+    if (ids.length) {
+      const { error: delErr } = await supabase
+        .from('ficha_prints').delete().eq('project_id', projId).in('student_id', ids);
+      if (delErr) throw delErr;
+    }
+    toast('Fichas dessas turmas voltaram pra fila.', 'ok');
+    onFichasSessaoProjeto();
+  } catch (err) {
+    toast('Erro ao desmarcar: ' + err.message, 'error');
+  }
+};
 
 // Só o checkbox "incluir quem não autorizou" mudou: recalcula as quantidades
 // sem refazer as consultas nem perder as turmas marcadas.
@@ -8283,6 +8361,7 @@ async function imprimirFichasSessao() {
   btn.disabled = true;
 
   try {
+    const projId = document.getElementById('fs-projeto').value;
     const classIds = marcadas.map(t => t.id);
     // Ordem de impressao: a mesma da tela (ano → turma), e nome dentro da turma
     const ordemTurma = {};
@@ -8305,11 +8384,18 @@ async function imprimirFichasSessao() {
 
     // Quem RECUSOU nunca entra — respondeu que nao quer, reimprimir ficha dele
     // so' criaria chance de fotografar por engano.
+    const soFaltantes = document.getElementById('fs-so-faltantes').checked;
     const autorizados = (alunos || [])
       .filter(a => !a.authorization_date ? incluirSemAut : (a.authorize_individual || a.authorize_class))
+      .filter(a => !soFaltantes || fsPrecisaImprimir(a.id))
       .sort((x, y) => (ordemTurma[x.class_id] - ordemTurma[y.class_id])
         || (x.name || '').localeCompare(y.name || '', 'pt-BR'));
-    if (!autorizados.length) { toast('Nenhum aluno autorizado nas turmas marcadas.', 'error'); return; }
+    if (!autorizados.length) {
+      toast(soFaltantes
+        ? 'Todo mundo dessas turmas já está com a ficha em dia.'
+        : 'Nenhum aluno autorizado nas turmas marcadas.', soFaltantes ? 'ok' : 'error');
+      return;
+    }
 
     // 3. Pedidos
     const alunoIds = autorizados.map(a => a.id);
@@ -8333,6 +8419,23 @@ async function imprimirFichasSessao() {
     }).join('');
 
     abrirJanelaFichas(fichasHtml, qrPayloads, autorizados.length);
+
+    // Marca como impresso (migration_041). Depois de abrir a janela: se a
+    // impressao falhar, o "Desmarcar" resolve — mas travar a impressao por
+    // erro de gravacao seria pior.
+    try {
+      await supabase.from('ficha_prints').upsert(
+        autorizados.map(a => ({
+          student_id: a.id,
+          project_id: projId,
+          printed_at: new Date().toISOString(),
+        })),
+        { onConflict: 'student_id,project_id' }
+      );
+    } catch (e) {
+      toast('Fichas geradas, mas não consegui marcar como impressas: ' + e.message, 'warn');
+    }
+
     document.getElementById('mod-fichas-sessao').classList.remove('open');
   } catch(err) {
     toast('Erro ao gerar fichas: ' + err.message, 'error');
