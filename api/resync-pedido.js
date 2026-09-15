@@ -19,7 +19,7 @@
 // So' admin.
 // ============================================================================
 
-const { asaas, sb, usuarioDoToken, resumoFinanceiro } = require('./_lib.js');
+const { asaas, sb, usuarioDoToken, resumoFinanceiro, liquidoCrivel } = require('./_lib.js');
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
@@ -68,10 +68,12 @@ module.exports = async (req, res) => {
       credit_expected_date: fin.previsto,
       credited_at: fin.caiuEm,
     };
-    if (fin.liquido > 0) {
-      patch.net_amount = fin.liquido;
-      if (cobrado > 0) patch.gateway_fee = Math.round((cobrado - fin.liquido) * 100) / 100;
-    }
+    // Liquido so' entra se fizer sentido. Se nao fizer, grava NULL: a tela
+    // sabe mostrar "sem dado", e isso e' honesto — ja' "R$ 0,00 de tarifa"
+    // seria mentira estampada no caixa (ver liquidoCrivel no _lib).
+    const crivel = liquidoCrivel(fin.liquido, cobrado);
+    patch.net_amount  = crivel ? fin.liquido : null;
+    patch.gateway_fee = crivel ? Math.round((cobrado - fin.liquido) * 100) / 100 : null;
 
     await sb(`/orders?id=eq.${encodeURIComponent(pedido.id)}`, {
       method: 'PATCH',
@@ -106,11 +108,18 @@ module.exports = async (req, res) => {
         credited_at: pedido.credited_at,
       },
       depois: {
-        net_amount: patch.net_amount ?? pedido.net_amount,
-        gateway_fee: patch.gateway_fee ?? pedido.gateway_fee,
+        net_amount: patch.net_amount,
+        gateway_fee: patch.gateway_fee,
         credit_expected_date: patch.credit_expected_date,
         credited_at: patch.credited_at,
       },
+      liquido_confiavel: crivel,
+      liquido_bruto_somado: fin.liquido,
+      // O acrescimo do cartao existe pra a tarifa sair de dentro do valor
+      // cobrado e sobrar o preco de tabela pra Play Up. Entao o liquido certo
+      // deste pedido tem que cair perto do total_amount — e' a referencia pra
+      // saber se as taxas configuradas estao batendo com as do Asaas.
+      esperado_aprox: Number(pedido.total_amount) || 0,
       divergencia,
       // Diagnostico: e' o que permite confirmar se a leitura das antecipacoes
       // esta' certa sem precisar do painel do Asaas aberto do lado. Devolve
@@ -118,11 +127,16 @@ module.exports = async (req, res) => {
       diagnostico: {
         status_cobranca: pag.status,
         parcelas: fin.parcelas,
-        status_parcelas: fin.statusParcelas,
+        // Valores crus de cada parcela — e' com isto que se descobre o que
+        // netValue significa de verdade nesta altura da cobranca.
+        parcelas_brutas: fin.parcelasBrutas,
+        // Cada filtro tentado no /anticipations e quantas voltaram. Se todos
+        // derem zero, o caminho e' outro (e nao adianta seguir deduzindo).
+        tentativas_antecipacao: fin.tentativasAntecipacao,
         antecipacoes: (fin.antecipacoes || []).map(a => ({
           status: a.status,
           ...Object.fromEntries(
-            Object.entries(a).filter(([k, v]) => /date/i.test(k) && v)
+            Object.entries(a).filter(([k, v]) => /date|value|fee/i.test(k) && v)
           ),
         })),
         campos_antecipacao: fin.antecipacoes?.[0] ? Object.keys(fin.antecipacoes[0]) : [],

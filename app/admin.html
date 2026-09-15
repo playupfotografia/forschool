@@ -3032,11 +3032,20 @@ window.resyncPedido = async function (orderId) {
           ${linha('Tarifa', `${dinheiro(d.antes.gateway_fee)} → ${dinheiro(d.depois.gateway_fee)}`)}
           ${linha('Caiu em', `${d.antes.credited_at ? fmtDataBR(d.antes.credited_at) : '—'} → ${d.depois.credited_at ? fmtDataBR(d.depois.credited_at) : '—'}`)}
         ` : ''}
+        ${d.liquido_confiavel === false ? `
+          <div style="margin-top:6px;color:var(--orange)">
+            ⚠️ O Asaas somou ${fmtMoney(d.liquido_bruto_somado)} de líquido — igual ou maior que o
+            cobrado, ou seja, <b>sem tarifa descontada</b>. Isso não existe em cartão, então o
+            líquido ficou <b>em branco</b> em vez de virar um número falso no caixa. Costuma ser o
+            Asaas ainda não ter calculado (cobrança confirmada, não creditada); quando creditar,
+            o valor certo entra sozinho — perto de ${fmtMoney(Number(d.esperado_aprox || 0))}.
+          </div>` : ''}
         ${d.divergencia ? `<div style="margin-top:6px;color:var(--orange)">⚠️ ${escapeHtml(d.divergencia)}</div>` : ''}
-        <div style="margin-top:6px;color:var(--gray-400);font-size:11px">
-          Asaas: ${escapeHtml(dg.status_cobranca || '—')} ·
-          ${dg.parcelas || 1} parcela(s) [${(dg.status_parcelas || []).join(', ')}] ·
+        <div style="margin-top:6px;color:var(--gray-400);font-size:11px;word-break:break-word">
+          Asaas: ${escapeHtml(dg.status_cobranca || '—')} · ${dg.parcelas || 1} parcela(s) ·
           ${(dg.antecipacoes || []).length} antecipação(ões)${dg.antecipado_em ? ` · antecipado em ${fmtDataBR(dg.antecipado_em)}` : ''}
+          <br>parcelas: ${escapeHtml(JSON.stringify(dg.parcelas_brutas || []))}
+          <br>antecipação tentada: ${escapeHtml(JSON.stringify(dg.tentativas_antecipacao || []))}
           ${(dg.antecipacoes || []).length ? `<br>antecipações: ${escapeHtml(JSON.stringify(dg.antecipacoes))}` : ''}
           ${dg.campos_antecipacao?.length ? `<br>campos: ${escapeHtml(dg.campos_antecipacao.join(', '))}` : ''}
         </div>

@@ -13,7 +13,7 @@
 // O admin continua podendo marcar como pago na mao; o webhook so' automatiza.
 // ============================================================================
 
-const { sb, env, avisarVenda, avisarPagamentoDesfeito, resumoFinanceiro } = require('./_lib.js');
+const { sb, env, avisarVenda, avisarPagamentoDesfeito, resumoFinanceiro, liquidoCrivel } = require('./_lib.js');
 
 // ---------------------------------------------------------------------------
 // ⚠️ CONFIRMED e RECEIVED NAO sao a mesma coisa no Asaas:
@@ -99,10 +99,15 @@ module.exports = async (req, res) => {
       // conferencia: se a taxa configurada estiver errada, a diferenca aparece.
       try {
         const fin = await resumoFinanceiro(pag);
-        if (fin.liquido > 0) {
-          const cobrado = Number(pedido.amount_charged ?? pedido.total_amount) || 0;
+        const cobrado = Number(pedido.amount_charged ?? pedido.total_amount) || 0;
+        // So' grava liquido que faz sentido (positivo e menor que o cobrado).
+        // Quando nao faz, deixa null — a tela mostra "sem dado", que e' a
+        // verdade, em vez de estampar tarifa zero no caixa.
+        if (liquidoCrivel(fin.liquido, cobrado)) {
           patch.net_amount = fin.liquido;
-          if (cobrado > 0) patch.gateway_fee = Math.round((cobrado - fin.liquido) * 100) / 100;
+          patch.gateway_fee = Math.round((cobrado - fin.liquido) * 100) / 100;
+        } else if (fin.liquido > 0) {
+          console.warn('liquido implausivel, nao gravado:', pedido.order_number, fin.liquido, 'cobrado', cobrado);
         }
         patch.credit_expected_date = fin.previsto;
         patch.credited_at = fin.caiuEm;

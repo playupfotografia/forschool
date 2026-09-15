@@ -180,31 +180,51 @@ async function resumoFinanceiro(pag) {
 
   // Defensivo de proposito: se este endpoint mudar ou responder diferente, a
   // conferencia perde a data da antecipacao, nunca a confirmacao do pedido.
+  //
+  // ⚠️ O filtro certo aqui ainda NAO esta confirmado: em 15/09/2026 uma
+  // consulta com `installment=` num pedido 2x antecipado devolveu ZERO
+  // antecipacoes. Por isso tentamos mais de uma forma e guardamos o que cada
+  // uma respondeu — a resposta certa sai do diagnostico do resync, nao de
+  // deducao.
   let antecipadoEm = null;
   let antecipacoes = [];
+  const tentativas = [];
   if (!caiuEm) {
-    try {
-      const filtro = pag.installment
-        ? `installment=${encodeURIComponent(pag.installment)}`
-        : `payment=${encodeURIComponent(pag.id)}`;
-      const ant = await asaas(`/anticipations?${filtro}&limit=100`);
-      antecipacoes = ant?.data || [];
-      const creditadas = antecipacoes.filter(a => ANTECIPACAO_CREDITADA.has(String(a.status || '').toUpperCase()));
-      // So' conta como "ja' caiu" se TODAS as parcelas foram antecipadas e
-      // creditadas — metade antecipada e' dinheiro pela metade.
-      if (creditadas.length && creditadas.length >= parcelas.length) {
-        antecipadoEm = creditadas
-          .map(a => a.creditDate || a.anticipationDate || a.requestDate)
-          .filter(Boolean).sort().pop() || null;
-        caiuEm = antecipadoEm;
+    const filtros = pag.installment
+      ? [`installment=${encodeURIComponent(pag.installment)}`, `payment=${encodeURIComponent(pag.id)}`]
+      : [`payment=${encodeURIComponent(pag.id)}`];
+    for (const f of filtros) {
+      try {
+        const ant = await asaas(`/anticipations?${f}&limit=100`);
+        const achou = ant?.data || [];
+        tentativas.push({ filtro: f, qtd: achou.length });
+        if (achou.length && !antecipacoes.length) antecipacoes = achou;
+      } catch (e) {
+        tentativas.push({ filtro: f, erro: e.message });
       }
-    } catch (e) {
-      console.error('antecipacoes:', e.message);
+    }
+    const creditadas = antecipacoes.filter(a => ANTECIPACAO_CREDITADA.has(String(a.status || '').toUpperCase()));
+    // So' conta como "ja' caiu" se TODAS as parcelas foram antecipadas e
+    // creditadas — metade antecipada e' dinheiro pela metade.
+    if (creditadas.length && creditadas.length >= parcelas.length) {
+      antecipadoEm = creditadas
+        .map(a => a.creditDate || a.anticipationDate || a.requestDate)
+        .filter(Boolean).sort().pop() || null;
+      caiuEm = antecipadoEm;
     }
   }
 
+  // ⚠️ O liquido so' e' gravado se for CRIVEL. Em 15/09/2026 a soma das
+  // parcelas de um pedido em 2x deu exatamente o valor cobrado — tarifa zero,
+  // o que nao existe em cartao. Ou o Asaas ainda nao calculou o liquido nessa
+  // altura (cobranca CONFIRMED, nao creditada), ou netValue ali significa
+  // outra coisa. Nos dois casos, gravar seria estampar numero falso no caixa:
+  // "nao sei" e' melhor que "sei errado", e quem le' a tela precisa poder
+  // confiar no que esta escrito.
+  const liq = Math.round(liquido * 100) / 100;
+
   return {
-    liquido: Math.round(liquido * 100) / 100,
+    liquido: liq,
     previsto: previstas.length ? previstas[previstas.length - 1] : null,
     caiuEm,
     antecipadoEm,
@@ -213,7 +233,19 @@ async function resumoFinanceiro(pag) {
     // So' pra diagnostico (o resync mostra ao admin). O webhook ignora.
     statusParcelas: parcelas.map(p => p.status),
     antecipacoes,
+    tentativasAntecipacao: tentativas,
+    parcelasBrutas: parcelas.map(p => ({
+      id: p.id, status: p.status, value: p.value, netValue: p.netValue,
+      estimatedCreditDate: p.estimatedCreditDate, creditDate: p.creditDate,
+      confirmedDate: p.confirmedDate, paymentDate: p.paymentDate,
+    })),
   };
+}
+
+// O liquido faz sentido? Tem que ser positivo e MENOR que o cobrado — cartao
+// sem tarifa nao existe. Fora disso, nao gravamos nada (ver comentario acima).
+function liquidoCrivel(liquido, cobrado) {
+  return liquido > 0 && cobrado > 0 && liquido < cobrado;
 }
 
 // ---------------------------------------------------------------------------
@@ -488,4 +520,4 @@ async function avisarPedidoPendente(pedido) {
   });
 }
 
-module.exports = { env, asaas, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, resumoFinanceiro, avisarVenda, avisarPedidoPendente, avisarPagamentoDesfeito };
+module.exports = { env, asaas, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, resumoFinanceiro, liquidoCrivel, avisarVenda, avisarPedidoPendente, avisarPagamentoDesfeito };
