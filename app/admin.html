@@ -2996,6 +2996,59 @@ let conferidoPorPedido = {};             // order_id -> {checked_at, notes} (mig
 //   'pendente'   nao pagou — ou pagou e ninguem viu (o buraco do PIX manual).
 // Reembolsado/cancelado ficam de fora: nao ha' caixa a conferir.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Ressincronizar com o Asaas — relê a cobranca e conserta liquido, tarifa e
+// datas de credito. Nao muda status nem cria cobranca (ver api/resync-pedido).
+//
+// Mostra o diagnostico na tela de proposito: e' com ele que da' pra conferir
+// se a leitura das antecipacoes esta' certa, sem abrir o painel do Asaas do
+// lado nem ir atras do log da Vercel.
+// ---------------------------------------------------------------------------
+window.resyncPedido = async function (orderId) {
+  const saida = document.getElementById('resync-saida');
+  if (saida) saida.innerHTML = '<span class="spinner"></span> Lendo no Asaas…';
+  try {
+    const { data: sess } = await supabase.auth.getSession();
+    const r = await fetch('/api/resync-pedido', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(sess?.session?.access_token ? { Authorization: 'Bearer ' + sess.session.access_token } : {}),
+      },
+      body: JSON.stringify({ order_id: orderId }),
+    });
+    const d = await r.json();
+    if (!r.ok || !d.ok) throw new Error(d.erro || 'Não consegui ler no Asaas.');
+
+    const dg = d.diagnostico || {};
+    const linha = (k, v) => `<div><span style="color:var(--gray-500)">${k}:</span> <b>${v}</b></div>`;
+    const dinheiro = v => (v == null ? '—' : fmtMoney(Number(v)));
+
+    if (saida) {
+      saida.innerHTML = `<div style="border:1px solid var(--gray-100);border-radius:var(--radius);padding:10px;font-size:12px;line-height:1.6">
+        <div style="font-weight:600;margin-bottom:4px">${d.mudou.length ? '✅ Atualizado' : '✓ Já estava certo'} — ${escapeHtml(d.pedido || '')}</div>
+        ${d.mudou.length ? `
+          ${linha('Líquido', `${dinheiro(d.antes.net_amount)} → ${dinheiro(d.depois.net_amount)}`)}
+          ${linha('Tarifa', `${dinheiro(d.antes.gateway_fee)} → ${dinheiro(d.depois.gateway_fee)}`)}
+          ${linha('Caiu em', `${d.antes.credited_at ? fmtDataBR(d.antes.credited_at) : '—'} → ${d.depois.credited_at ? fmtDataBR(d.depois.credited_at) : '—'}`)}
+        ` : ''}
+        ${d.divergencia ? `<div style="margin-top:6px;color:var(--orange)">⚠️ ${escapeHtml(d.divergencia)}</div>` : ''}
+        <div style="margin-top:6px;color:var(--gray-400);font-size:11px">
+          Asaas: ${escapeHtml(dg.status_cobranca || '—')} ·
+          ${dg.parcelas || 1} parcela(s) [${(dg.status_parcelas || []).join(', ')}] ·
+          ${(dg.antecipacoes || []).length} antecipação(ões)${dg.antecipado_em ? ` · antecipado em ${fmtDataBR(dg.antecipado_em)}` : ''}
+          ${(dg.antecipacoes || []).length ? `<br>antecipações: ${escapeHtml(JSON.stringify(dg.antecipacoes))}` : ''}
+          ${dg.campos_antecipacao?.length ? `<br>campos: ${escapeHtml(dg.campos_antecipacao.join(', '))}` : ''}
+        </div>
+      </div>`;
+    }
+    if (d.mudou.length) { await loadPedidos(); }
+  } catch (e) {
+    if (saida) saida.innerHTML = `<div style="color:var(--red);font-size:12px">${escapeHtml(e.message || 'Erro')}</div>`;
+    console.error('resyncPedido:', e);
+  }
+};
+
 // A caixinha ✔ de cada linha. Pedido reembolsado/cancelado nao tem caixa a
 // conferir, entao nem ganha caixinha.
 function celulaConferencia(p) {
@@ -3676,7 +3729,12 @@ async function abrirDetalhesPedido(id) {
                   ${ped.gateway_status ? `<div style="margin-top:2px;color:var(--gray-400)">Status no Asaas: ${escapeHtml(ped.gateway_status)}</div>` : ''}
                   ${ped.gateway_id ? `<div style="margin-top:2px;color:var(--gray-400);font-family:monospace;font-size:11px">${escapeHtml(ped.gateway_id)}</div>` : ''}
                 </div>
-                ${ped.checkout_url ? `<div style="margin-top:8px"><a href="${escapeHtml(ped.checkout_url)}" target="_blank" class="btn btn-sm btn-secondary" style="text-decoration:none">🔗 Abrir cobrança no Asaas</a></div>` : ''}
+                <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+                  ${ped.checkout_url ? `<a href="${escapeHtml(ped.checkout_url)}" target="_blank" class="btn btn-sm btn-secondary" style="text-decoration:none">🔗 Abrir cobrança no Asaas</a>` : ''}
+                  ${ped.gateway_id ? `<button class="btn btn-sm btn-secondary" onclick="resyncPedido('${ped.id}')"
+                     title="Lê a cobrança de novo no Asaas e corrige líquido, tarifa e datas de crédito. Não altera o status nem cria cobrança.">🔄 Ressincronizar com o Asaas</button>` : ''}
+                </div>
+                <div id="resync-saida" style="margin-top:8px"></div>
               ` : ''}
               ${ped.payment_proof_url ? `
                 <div style="margin-top:9px">

@@ -130,6 +130,93 @@ function emDias(n) {
 }
 
 // ---------------------------------------------------------------------------
+// QUANTO ENTROU, E QUANDO CAI — usado pelo webhook e pelo resync.
+//
+// Duas armadilhas do Asaas moram aqui:
+//
+// 1. Pedido parcelado vira UMA cobranca POR PARCELA, cada uma com seu webhook
+//    e seu netValue. Gravar o netValue que chegou por ultimo dava o liquido de
+//    UMA parcela: pedido de R$ 149,66 aparecia com R$ 72,73 "na conta" e uma
+//    tarifa inventada de R$ 76,93 (bug real, achado nos dados de setembro de
+//    2026). Por isso, havendo parcelamento, pedimos TODAS as parcelas e
+//    somamos. Somar a partir da LISTA — em vez de acumular a cada webhook — e'
+//    o que torna isto idempotente: o Asaas reenvia evento quando respondemos
+//    erro, e reenvio nao pode dobrar valor.
+//
+// 2. Com a antecipacao automatica ligada (esta conta, desde 03/09/2026), o
+//    dinheiro entra por FORA da cobranca: ela continua CONFIRMED com data de
+//    credito la' na frente (D+32, D+64) enquanto o valor ja' caiu em ~2 dias
+//    uteis. Olhar so' a cobranca diria "aguardando" pra dinheiro que ja' esta
+//    na conta — por isso consultamos tambem as antecipacoes.
+// ---------------------------------------------------------------------------
+const RECEBIDO = new Set(['RECEIVED', 'RECEIVED_IN_CASH']);
+const PAGO_OU_RECEBIDO = new Set(['CONFIRMED', 'RECEIVED', 'RECEIVED_IN_CASH']);
+const ANTECIPACAO_CREDITADA = new Set(['CREDITED', 'DEBITED']);
+
+async function resumoFinanceiro(pag) {
+  let parcelas = [pag];
+  if (pag.installment) {
+    const r = await asaas(`/payments?installment=${encodeURIComponent(pag.installment)}&limit=100`);
+    if (!r?.data?.length) throw new Error('parcelamento sem parcelas na resposta do Asaas');
+    parcelas = r.data;
+  }
+
+  const pagas = parcelas.filter(p => PAGO_OU_RECEBIDO.has(p.status));
+  const liquido = pagas.reduce((s, p) => s + (Number(p.netValue) || 0), 0);
+
+  // Previsao do pedido INTEIRO = a ultima parcela a cair.
+  // ⚠️ E' a data da liquidacao NORMAL, SEM antecipacao. Nao mostre como
+  // "quando cai" sem antes olhar a antecipacao (ver ponto 2 acima).
+  const previstas = parcelas
+    .map(p => p.estimatedCreditDate || p.creditDate)
+    .filter(Boolean).sort();
+
+  // ⚠️ creditDate ja' vem preenchido em CONFIRMED, com a data PROGRAMADA —
+  // entao ele nao prova que caiu. Quem prova e' o status.
+  const todasCairam = parcelas.length > 0 && parcelas.every(p => RECEBIDO.has(p.status));
+  let caiuEm = todasCairam
+    ? (parcelas.map(p => p.creditDate || p.paymentDate).filter(Boolean).sort().pop() || null)
+    : null;
+
+  // Defensivo de proposito: se este endpoint mudar ou responder diferente, a
+  // conferencia perde a data da antecipacao, nunca a confirmacao do pedido.
+  let antecipadoEm = null;
+  let antecipacoes = [];
+  if (!caiuEm) {
+    try {
+      const filtro = pag.installment
+        ? `installment=${encodeURIComponent(pag.installment)}`
+        : `payment=${encodeURIComponent(pag.id)}`;
+      const ant = await asaas(`/anticipations?${filtro}&limit=100`);
+      antecipacoes = ant?.data || [];
+      const creditadas = antecipacoes.filter(a => ANTECIPACAO_CREDITADA.has(String(a.status || '').toUpperCase()));
+      // So' conta como "ja' caiu" se TODAS as parcelas foram antecipadas e
+      // creditadas — metade antecipada e' dinheiro pela metade.
+      if (creditadas.length && creditadas.length >= parcelas.length) {
+        antecipadoEm = creditadas
+          .map(a => a.creditDate || a.anticipationDate || a.requestDate)
+          .filter(Boolean).sort().pop() || null;
+        caiuEm = antecipadoEm;
+      }
+    } catch (e) {
+      console.error('antecipacoes:', e.message);
+    }
+  }
+
+  return {
+    liquido: Math.round(liquido * 100) / 100,
+    previsto: previstas.length ? previstas[previstas.length - 1] : null,
+    caiuEm,
+    antecipadoEm,
+    parcelas: parcelas.length,
+    parcelasPagas: pagas.length,
+    // So' pra diagnostico (o resync mostra ao admin). O webhook ignora.
+    statusParcelas: parcelas.map(p => p.status),
+    antecipacoes,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Aviso de venda (e-mail e/ou Telegram).
 //
 // Os dois canais sao opcionais e independentes: cada um so' dispara se as
@@ -401,4 +488,4 @@ async function avisarPedidoPendente(pedido) {
   });
 }
 
-module.exports = { env, asaas, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, avisarVenda, avisarPedidoPendente, avisarPagamentoDesfeito };
+module.exports = { env, asaas, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, resumoFinanceiro, avisarVenda, avisarPedidoPendente, avisarPagamentoDesfeito };

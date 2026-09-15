@@ -13,7 +13,7 @@
 // O admin continua podendo marcar como pago na mao; o webhook so' automatiza.
 // ============================================================================
 
-const { sb, asaas, env, avisarVenda, avisarPagamentoDesfeito } = require('./_lib.js');
+const { sb, env, avisarVenda, avisarPagamentoDesfeito, resumoFinanceiro } = require('./_lib.js');
 
 // ---------------------------------------------------------------------------
 // ⚠️ CONFIRMED e RECEIVED NAO sao a mesma coisa no Asaas:
@@ -40,97 +40,6 @@ const DESFEITOS = new Set([
   'PAYMENT_REVERSED', 'PAYMENT_CHARGEBACK_DISPUTE',
   'PAYMENT_REPROVED_BY_RISK_ANALYSIS', 'PAYMENT_CREDIT_CARD_CAPTURE_REFUSED',
 ]);
-
-// Status de cobranca (nao de evento) do proprio Asaas
-const RECEBIDO = new Set(['RECEIVED', 'RECEIVED_IN_CASH']);
-const PAGO_OU_RECEBIDO = new Set(['CONFIRMED', 'RECEIVED', 'RECEIVED_IN_CASH']);
-
-// ---------------------------------------------------------------------------
-// Quanto entrou, e quando cai.
-//
-// Pedido parcelado vira UMA cobranca POR PARCELA no Asaas, cada uma com seu
-// webhook e seu proprio netValue. Gravar o netValue que chegou por ultimo
-// dava o liquido de UMA parcela: pedido de R$ 149,66 aparecia com R$ 72,73
-// "na conta" e uma tarifa inventada de R$ 76,93 (bug real, encontrado nos
-// dados de setembro/2026). Por isso, havendo parcelamento, perguntamos TODAS
-// as parcelas ao Asaas e somamos.
-//
-// Somar a partir da lista — em vez de acumular a cada webhook — e' tambem o
-// que torna isto idempotente: o Asaas reenvia o evento quando respondemos
-// erro, e reenvio nao pode dobrar valor.
-// ---------------------------------------------------------------------------
-// Antecipacao ja' creditada. A automatica esta ligada nesta conta desde
-// 03/09/2026 (~2 dias uteis), e o resto dos status ainda esta a caminho.
-const ANTECIPACAO_CREDITADA = new Set(['CREDITED', 'DEBITED']);
-
-async function resumoFinanceiro(pag) {
-  let parcelas = [pag];
-  if (pag.installment) {
-    const r = await asaas(`/payments?installment=${encodeURIComponent(pag.installment)}&limit=100`);
-    if (!r?.data?.length) throw new Error('parcelamento sem parcelas na resposta do Asaas');
-    parcelas = r.data;
-  }
-
-  const pagas = parcelas.filter(p => PAGO_OU_RECEBIDO.has(p.status));
-  const liquido = pagas.reduce((s, p) => s + (Number(p.netValue) || 0), 0);
-
-  // Previsao do pedido INTEIRO = a ultima parcela a cair.
-  //
-  // ⚠️ Esta data e' a da liquidacao NORMAL, SEM antecipacao. Com a antecipacao
-  // automatica ligada o dinheiro cai muito antes (~2 dias uteis) e o Asaas
-  // NAO reescreve esta data — por isso cobranca de setembro aparece com
-  // credito previsto pra novembro. Nao mostre este numero como "quando cai"
-  // sem antes olhar a antecipacao logo abaixo.
-  const previstas = parcelas
-    .map(p => p.estimatedCreditDate || p.creditDate)
-    .filter(Boolean).sort();
-
-  // ⚠️ creditDate ja' vem preenchido em CONFIRMED, com a data PROGRAMADA —
-  // entao ele nao prova que caiu. Quem prova e' o status.
-  const todasCairam = parcelas.length > 0 && parcelas.every(p => RECEBIDO.has(p.status));
-  let caiuEm = todasCairam
-    ? (parcelas.map(p => p.creditDate || p.paymentDate).filter(Boolean).sort().pop() || null)
-    : null;
-
-  // --- Antecipacao ---------------------------------------------------------
-  // Com a antecipacao automatica, o dinheiro entra por FORA da cobranca: a
-  // cobranca continua CONFIRMED ate' a data original, mas o valor ja' caiu.
-  // Sem olhar aqui, a tela diria "aguardando" pra dinheiro que ja' esta' na
-  // conta — que e' o erro oposto ao que este arquivo veio consertar.
-  //
-  // Defensivo de proposito: se o endpoint mudar ou responder diferente, a
-  // conferencia perde a data da antecipacao, nunca a confirmacao do pedido.
-  let antecipadoEm = null;
-  if (!caiuEm) {
-    try {
-      const filtro = pag.installment
-        ? `installment=${encodeURIComponent(pag.installment)}`
-        : `payment=${encodeURIComponent(pag.id)}`;
-      const ant = await asaas(`/anticipations?${filtro}&limit=100`);
-      const lista = ant?.data || [];
-      const creditadas = lista.filter(a => ANTECIPACAO_CREDITADA.has(String(a.status || '').toUpperCase()));
-      // So' conta como "ja' caiu" se TODAS as parcelas foram antecipadas e
-      // creditadas — metade antecipada e' dinheiro pela metade.
-      if (creditadas.length && creditadas.length >= parcelas.length) {
-        antecipadoEm = creditadas
-          .map(a => a.creditDate || a.anticipationDate || a.requestDate)
-          .filter(Boolean).sort().pop() || null;
-        caiuEm = antecipadoEm;
-      }
-    } catch (e) {
-      console.error('antecipacoes:', e.message);
-    }
-  }
-
-  return {
-    liquido: Math.round(liquido * 100) / 100,
-    previsto: previstas.length ? previstas[previstas.length - 1] : null,
-    caiuEm,
-    antecipadoEm,
-    parcelas: parcelas.length,
-    parcelasPagas: pagas.length,
-  };
-}
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
