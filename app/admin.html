@@ -3054,6 +3054,61 @@ let conferidoPorPedido = {};             // order_id -> {checked_at, notes} (mig
 // Reembolsado/cancelado ficam de fora: nao ha' caixa a conferir.
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
+// Link publico de pagamento pra um pedido que JA' EXISTE (migration_037).
+//
+// Ate' hoje o link so' era gerado no "Criar pedido" manual. Mas quem mais
+// precisa dele e' o responsavel que se perdeu na tela de pagamento do portal
+// — foi o caso da mae do P0111, que escolheu cartao e ficou sem conseguir
+// voltar pro Pix. O link abre direto no Pix, sem login, e ignora a cobranca
+// que ja' existe no pedido.
+//
+// Reaproveita o token se ja' houver: gerar outro invalidaria um link que
+// talvez ja' esteja no WhatsApp de alguem.
+// ---------------------------------------------------------------------------
+window.gerarLinkPagamento = async function (orderId) {
+  const saida = document.getElementById('link-pag-saida');
+  if (saida) saida.innerHTML = '<span class="spinner"></span> Gerando…';
+  try {
+    const { data: ped, error } = await supabase
+      .from('orders').select('id, order_number, payment_link_token, total_amount')
+      .eq('id', orderId).single();
+    if (error) throw error;
+
+    let token = ped.payment_link_token;
+    if (!token) {
+      token = crypto.randomUUID();
+      const { error: e2 } = await supabase.from('orders')
+        .update({ payment_link_token: token }).eq('id', orderId);
+      if (e2) throw e2;
+    }
+    const link = `https://forschool.playupfotografia.com.br/pagar/${token}`;
+    if (saida) {
+      saida.innerHTML = `
+        <div style="font-size:12px;color:var(--gray-600);margin-bottom:5px">
+          Mande no WhatsApp. Abre direto no <b>Pix</b>, sem login, no valor de
+          <b>${fmtMoney(Number(ped.total_amount) || 0)}</b> (sem a taxa do cartão).
+        </div>
+        <div style="display:flex;gap:6px">
+          <input class="form-input" id="link-pag-input" readonly value="${escapeHtml(link)}" style="font-size:12px">
+          <button type="button" class="btn btn-sm btn-primary" onclick="copiarLinkPagamento()">Copiar</button>
+        </div>`;
+    }
+  } catch (e) {
+    if (saida) saida.innerHTML = `<div style="color:var(--red);font-size:12px">${escapeHtml(e.message || 'Erro ao gerar o link')}</div>`;
+    console.error('gerarLinkPagamento:', e);
+  }
+};
+
+window.copiarLinkPagamento = function () {
+  const el = document.getElementById('link-pag-input');
+  if (!el) return;
+  el.select();
+  navigator.clipboard.writeText(el.value)
+    .then(() => toast('Link copiado!', 'ok'))
+    .catch(() => toast('Selecione e copie manualmente.', 'warn'));
+};
+
+// ---------------------------------------------------------------------------
 // Ressincronizar com o Asaas — relê a cobranca e conserta liquido, tarifa e
 // datas de credito. Nao muda status nem cria cobranca (ver api/resync-pedido).
 //
@@ -3801,6 +3856,12 @@ async function abrirDetalhesPedido(id) {
                      title="Lê a cobrança de novo no Asaas e corrige líquido, tarifa e datas de crédito. Não altera o status nem cria cobrança.">🔄 Ressincronizar com o Asaas</button>` : ''}
                 </div>
                 <div id="resync-saida" style="margin-top:8px"></div>
+              ` : ''}
+              ${ped.payment_status === 'pending' ? `
+                <hr class="sep" style="margin:9px 0">
+                <button class="btn btn-sm btn-secondary" onclick="gerarLinkPagamento('${ped.id}')"
+                  title="Link público, sem login: abre direto no Pix, com QR e copia-e-cola. Serve pra quem se perdeu na tela de pagamento.">🔗 Gerar link de pagamento</button>
+                <div id="link-pag-saida" style="margin-top:8px"></div>
               ` : ''}
               ${ped.payment_proof_url ? `
                 <div style="margin-top:9px">
@@ -8910,14 +8971,18 @@ function abrirJanelaQrTurmas(cardsHtml, payloads, total) {
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',Arial,sans-serif;background:#fff;color:#111}
-@page{size:A4 portrait;margin:10mm}
+/* Mesma margem de pagina da ficha do aluno, que ja' sai 3 por folha nesta
+   impressora. */
+@page{size:A4 portrait;margin:8mm}
 @media screen{body{padding:12px;max-width:210mm;margin:0 auto}
   .btn-print{display:block;margin:0 auto 16px;padding:8px 20px;background:#4B6BFB;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-family:inherit}}
 @media print{.btn-print{display:none}}
-/* 3 por folha. A altura ja' desconta a margem da @page — NAO somar
-   margin-bottom aqui: 3 x (altura + margem) estoura os 277mm uteis e joga o
-   ultimo cartao pra pagina seguinte. A borda de cada cartao ja' separa. */
-.tcard{height:calc((297mm - 21mm) / 3);border:3px solid #111;border-radius:10px;padding:6mm 7mm;
+/* 3 por folha, com FOLGA de proposito: 8mm de margem deixa 281mm uteis e
+   3 x 89mm = 267mm. Encher a folha ate' o limite era o erro anterior — se a
+   impressora usa margem maior que a pedida (ou o navegador ignora a @page),
+   sobra menos espaco e o 3o cartao pula de pagina. Tambem nao pode haver
+   margem somada por fora: a borda de cada cartao ja' separa. */
+.tcard{height:89mm;margin:0;border:3px solid #111;border-radius:10px;padding:6mm 7mm;
   display:flex;flex-direction:column;justify-content:space-between;break-inside:avoid;overflow:hidden}
 .tcard-topo{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
 .tcard-escola{font-size:12px;color:#555;font-weight:600}

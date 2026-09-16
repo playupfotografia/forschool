@@ -46,7 +46,7 @@ module.exports = async (req, res) => {
     // ---- 1. Pedido + responsavel + aluno -----------------------------------
     const pedidos = await sb(
       `/orders?id=eq.${encodeURIComponent(orderId)}&select=` +
-      'id,order_number,total_amount,payment_status,gateway_id,student_id,' +
+      'id,order_number,total_amount,payment_status,gateway,gateway_id,student_id,' +
       'user_id,payment_link_token,users(name,email,cpf,phone),students(name)'
     );
     const pedido = pedidos?.[0];
@@ -171,6 +171,26 @@ module.exports = async (req, res) => {
         }
       }
       clienteId = novo.id;
+    }
+
+    // ---- 4b. Cancela a cobranca anterior, se houver -------------------------
+    // Caso real (15/09/2026): a mae clicou em cartao, se atrapalhou e quis
+    // voltar pro PIX. Sem cancelar, ela ficaria com DUAS cobrancas abertas do
+    // mesmo pedido — e podia acabar pagando as duas. Mesmo cuidado que o
+    // carrinho ja' tinha em salvar-pedido.js quando o valor muda.
+    //
+    // 404 e' esperado: cobranca ja' apagada, ou id que nao existe mais la'.
+    if (pedido.gateway === 'asaas' && pedido.gateway_id) {
+      try {
+        await asaas(`/payments/${pedido.gateway_id}`, { method: 'DELETE' });
+      } catch (e) {
+        if (e.status !== 404) {
+          console.error('cancelar cobranca anterior', e.message);
+          return res.status(502).json({
+            erro: 'Nao consegui cancelar a cobranca anterior. Tente de novo em instantes.',
+          });
+        }
+      }
     }
 
     // ---- 5. Cobranca --------------------------------------------------------

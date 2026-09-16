@@ -191,6 +191,12 @@ button,input,select,textarea{font-family:var(--font)}
 .pay-ok-valor{font-size:22px;font-weight:800;color:var(--gray-900);margin:5px 0 3px}
 .pay-ok-logo{height:80px;width:auto;margin:0 auto 12px;display:block;object-fit:contain}
 .pay-duvida{display:flex;align-items:center;justify-content:center;gap:7px;margin-top:12px;padding:9px 12px;border:1px solid #25D366;border-radius:9px;background:#F0FFF4;color:#166534;font-size:12.5px;font-weight:600;text-decoration:none}
+/* Discreto de proposito: e' a saida pra quem se atrapalhou, nao uma opcao que
+   compete com o pagamento que ja' esta' na tela. */
+.pay-trocar{display:block;width:100%;margin-top:10px;padding:9px 12px;border:1px solid var(--gray-200);
+  border-radius:9px;background:#fff;color:var(--gray-600);font-size:12.5px;font-weight:600;
+  font-family:inherit;cursor:pointer}
+.pay-trocar:hover{border-color:var(--gray-400);color:var(--gray-800)}
 .pay-duvida:hover{background:#DCFCE7}
 .ent-box{border:1px solid var(--gray-200);border-radius:10px;padding:11px;margin-bottom:12px;background:var(--gray-50)}
 .ent-tit{font-size:13px;font-weight:700;color:var(--gray-800);margin-bottom:3px}
@@ -1088,6 +1094,7 @@ let student = null;           // aluno do pai logado
 // Pedido pendente que o responsavel esta editando. Enquanto existe, o
 // carrinho E' esse pedido: finalizar reescreve ele em vez de criar outro.
 let pedidoAberto = null;       // { id, order_number }
+let _pedidoEmPagamento = null;  // pedido mostrado na tela de pagamento agora
 // Entrega individual: so' entra em cena quando o pedido e' de ultima hora e
 // nao alcanca mais o lote que vai pra escola.
 let entregaMetodo = null;      // 'retirada' | 'motoboy'
@@ -1362,6 +1369,9 @@ function renderPaymentMethods(pedido, el) {
   if (!el) el = document.getElementById('confirm-payment-methods');
   if (!el) return;
   const total = Number(pedido?.total_amount) || 0;
+  // Guardado pra "escolher outra forma de pagamento" poder remontar a tela de
+  // escolha sem ir buscar o pedido de novo no banco.
+  _pedidoEmPagamento = pedido;
 
   if (pedido?.pix_payload || pedido?.pix_qr_image || pedido?.checkout_url) {
     el.innerHTML = blocoCobranca(pedido);
@@ -1564,6 +1574,37 @@ function vigiarPagamento(orderId, container) {
   }, 4000);
 }
 
+// Saida da cobranca ja' gerada.
+//
+// Caso real (15/09/2026): a mae escolheu cartao, se atrapalhou e queria voltar
+// pro PIX — e nao tinha como. Assim que existe cobranca, renderPaymentMethods()
+// passa a mostrar SO' aquele bloco, e a tela virava beco sem saida. E' a mesma
+// falha do caso dos 8 cadastros do mesmo aluno: todo caminho do portal precisa
+// ter volta.
+//
+// Nada e' apagado aqui: so' volta pra tela de escolha. A cobranca antiga so'
+// e' cancelada la' no /api/criar-cobranca, se ela realmente escolher outra
+// forma — senao ela poderia ficar com duas cobrancas abertas do mesmo pedido.
+function botaoTrocarPagamento(pedido) {
+  if (!pedido?.id) return '';
+  return `<button type="button" class="pay-trocar" onclick="trocarFormaPagamento('${pedido.id}')">
+    ↩ Escolher outra forma de pagamento
+  </button>`;
+}
+
+window.trocarFormaPagamento = function (orderId) {
+  const el = document.getElementById('confirm-payment-methods');
+  if (!el) return;
+  pararVigia(orderId);
+  // Reaproveita o pedido inteiro que ja' esta' na tela (tem total_amount, que
+  // os blocos de escolha precisam pra mostrar os valores certos) e zera so' os
+  // campos de cobranca — e' o que faz renderPaymentMethods montar a tela de
+  // escolha de novo em vez de repetir o bloco da cobranca.
+  const base = (_pedidoEmPagamento && _pedidoEmPagamento.id === orderId)
+    ? _pedidoEmPagamento : { id: orderId };
+  renderPaymentMethods({ ...base, pix_payload: null, pix_qr_image: null, checkout_url: null }, el);
+};
+
 function blocoCobranca(pedido) {
   const valor = Number(pedido?.amount_charged ?? pedido?.total_amount) || 0;
 
@@ -1583,6 +1624,7 @@ function blocoCobranca(pedido) {
           </button>` : ''}
         <div class="pay-aguarda"><span class="dot"></span> Aguardando o pagamento… esta tela avisa sozinha</div>
         <div class="pay-box-nota">Assim que o pagamento cair, seu pedido é confirmado automaticamente — não precisa mandar comprovante.</div>
+        ${botaoTrocarPagamento(pedido)}
         ${botaoDuvida(pedido?.order_number)}
       </div>`;
   }
@@ -1598,6 +1640,7 @@ function blocoCobranca(pedido) {
       </a>
       <div class="pay-aguarda"><span class="dot"></span> Aguardando o pagamento… esta tela avisa sozinha</div>
       <div class="pay-box-nota">Você vai para a página segura do Asaas pra digitar os dados do cartão. A Play Up não armazena nada do seu cartão.</div>
+      ${botaoTrocarPagamento(pedido)}
       ${botaoDuvida(pedido?.order_number)}
     </div>`;
 }
