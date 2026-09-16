@@ -1034,7 +1034,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
     <div class="card">
       <div class="card-header" style="gap:8px;flex-wrap:wrap">
         <div style="display:flex;gap:7px;flex:1;flex-wrap:wrap">
-          <input class="form-input" style="width:190px" placeholder="Buscar aluno…" id="pd-busca" oninput="filtrarPedidos()">
+          <input class="form-input" style="width:240px" placeholder="Buscar por aluno, responsável ou nº do pedido…" id="pd-busca" oninput="filtrarPedidos()">
           <select class="form-select" style="width:170px" id="pd-fesc" onchange="filtrarPedidos()"><option value="">Todas as escolas</option></select>
           <select class="form-select" style="width:140px" id="pd-fst" onchange="filtrarPedidos()">
             <option value="">Todos status</option>
@@ -3269,7 +3269,14 @@ function atualizarPainelConferencia() {
   const fesc  = document.getElementById('pd-fesc')?.value || '';
   const fst   = document.getElementById('pd-fst')?.value || '';
   renderConferencia(pedidosCache.filter(p => {
-    if (busca && !(p.student?.name || '').toLowerCase().includes(busca)) return false;
+    // Mesma caixa busca aluno, responsavel OU numero do pedido (ex: "P0111"),
+    // igual a de Alunos & Pedidos — separar em campos diferentes so' pra isso
+    // seria mais coisa pra caber na barra.
+    if (busca && !(
+      (p.student?.name || '').toLowerCase().includes(busca) ||
+      (p.user?.name || '').toLowerCase().includes(busca) ||
+      (p.order_number || '').toLowerCase().includes(busca)
+    )) return false;
     if (fesc && p.school?.id !== fesc) return false;
     if (fst && p.payment_status !== fst) return false;
     return true;
@@ -3455,6 +3462,7 @@ async function loadPedidos() {
         net_amount, gateway_fee, credit_expected_date, credited_at, updated_at,
         delivery_method, delivery_fee, delivery_address,
         student:students(id, name, duplicate_of_student_id),
+        user:users(id, name),
         school:schools(id, name, slug)
       `)
       .order('created_at', { ascending: false });
@@ -3523,7 +3531,14 @@ function filtrarPedidos() {
   const fconf  = document.getElementById('pd-fconf')?.value || '';
 
   const lista = pedidosCache.filter(p => {
-    if (busca && !(p.student?.name || '').toLowerCase().includes(busca)) return false;
+    // Mesma caixa busca aluno, responsavel OU numero do pedido (ex: "P0111"),
+    // igual a de Alunos & Pedidos — separar em campos diferentes so' pra isso
+    // seria mais coisa pra caber na barra.
+    if (busca && !(
+      (p.student?.name || '').toLowerCase().includes(busca) ||
+      (p.user?.name || '').toLowerCase().includes(busca) ||
+      (p.order_number || '').toLowerCase().includes(busca)
+    )) return false;
     if (fesc && p.school?.id !== fesc) return false;
     if (fst && p.payment_status !== fst) return false;
     if (fpilha && pilhaDoPedido(p) !== fpilha) return false;
