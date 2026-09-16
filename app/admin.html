@@ -3326,11 +3326,20 @@ window.toggleConferencia = function () {
   try { localStorage.setItem('confAberta', abrir ? '1' : '0'); } catch {}
 };
 
+// ⚠️ "Tem cobranca no Asaas" NAO quer dizer "foi pago pelo Asaas". Caso real
+// (P0111, 15/09/2026): a mae gerou cobranca de cartao, se atrapalhou, pagou
+// por PIX manual na chave do Nubank e o Daniel marcou como pago na mao. O
+// pedido tem gateway='asaas', mas o dinheiro entrou por fora — mandar ele pra
+// "confirmado, nao caiu" o deixaria esperando pra sempre um credito que nunca
+// vem. Quem decide e' o STATUS DA COBRANCA la', nao a existencia dela.
+const STATUS_PAGO_NO_ASAAS = new Set(['CONFIRMED', 'RECEIVED', 'RECEIVED_IN_CASH']);
+
 function pilhaDoPedido(p) {
   if (p.payment_status === 'pending') return 'pendente';
   if (p.payment_status !== 'paid') return null;
-  if (p.gateway !== 'asaas') return 'mao';
-  return p.credited_at ? 'caiu' : 'aguardando';
+  if (p.credited_at) return 'caiu';
+  if (p.gateway === 'asaas' && STATUS_PAGO_NO_ASAAS.has(p.gateway_status)) return 'aguardando';
+  return 'mao';   // pago por fora: extrato do banco
 }
 
 const PILHA_INFO = {
