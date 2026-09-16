@@ -2495,8 +2495,8 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
       </div>
       <div class="table-wrap">
         <table class="drill-tbl">
-          <thead><tr><th>Aluno</th><th title="Marque depois de fotografar o aluno">📷 Foto</th><th>Turma</th><th>Responsável</th><th>Irmão</th><th>Nº</th><th>Quando</th><th>Pedido</th><th>Total</th><th>Status</th><th>Contato</th></tr></thead>
-          <tbody id="drill-al-tab"><tr><td colspan="11" class="loading"><span class="spinner"></span></td></tr></tbody>
+          <thead><tr><th>Aluno</th><th title="Marque depois de fotografar o aluno">📷 Foto</th><th>Turma</th><th>Responsável</th><th>Irmão</th><th>Nº</th><th>Quando</th><th>Pedido</th><th>Total</th><th>Forma</th><th>Status</th><th title="Marque depois de bater este pedido no extrato">✔ Conf.</th><th>Contato</th></tr></thead>
+          <tbody id="drill-al-tab"><tr><td colspan="13" class="loading"><span class="spinner"></span></td></tr></tbody>
         </table>
       </div>
     </div>
@@ -3200,10 +3200,20 @@ function celulaConferencia(p) {
             title="${falta ? 'Marcar como conferido no extrato' : 'Conferido — clique para desmarcar'}">${lapis}${quando}${aviso}${nota}`;
 }
 
+// O mesmo pedido aparece em duas tabelas (Pedidos e Alunos & Pedidos, que
+// abre por cima). Procurar por data-attribute em vez de id redesenha as duas
+// de uma vez — e evita id repetido no documento.
+function pedidoPorId(orderId) {
+  return pedidosCache.find(x => x.id === orderId)
+      || drillAlunosData.find(a => a.order?.id === orderId)?.order
+      || null;
+}
+
 function atualizarCelulaConferencia(orderId) {
-  const p  = pedidosCache.find(x => x.id === orderId);
-  const td = document.getElementById('conf-td-' + orderId);
-  if (p && td) td.innerHTML = celulaConferencia(p);
+  const p = pedidoPorId(orderId);
+  if (!p) return;
+  document.querySelectorAll(`[data-conf-order="${orderId}"]`)
+    .forEach(td => { td.innerHTML = celulaConferencia(p); });
 }
 
 // Marcar nao redesenha a tabela: com o filtro "falta conferir" ligado, a
@@ -3649,7 +3659,7 @@ function filtrarPedidos() {
       <td>${metBadge}</td>
       <td style="font-size:12px;color:var(--gray-500)">${data}</td>
       <td>${stBadge}</td>
-      <td class="conf-td" id="conf-td-${p.id}" onclick="event.stopPropagation()">${celulaConferencia(p)}</td>
+      <td class="conf-td" data-conf-order="${p.id}" onclick="event.stopPropagation()">${celulaConferencia(p)}</td>
       <td style="display:flex;gap:4px">${acoes}</td>
     </tr>`;
   }).join('');
@@ -7264,7 +7274,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
     drillProjeto = proj || null;   // usado pelas mensagens de contato
     document.getElementById('drill-proj-title').textContent = proj ? proj.name : 'Alunos & Pedidos';
     document.getElementById('drill-proj-sub').textContent  = proj ? (proj.school?.name || '') : '';
-    document.getElementById('drill-al-tab').innerHTML  = '<tr><td colspan="11" class="loading"><span class="spinner"></span>Carregando…</td></tr>';
+    document.getElementById('drill-al-tab').innerHTML  = '<tr><td colspan="13" class="loading"><span class="spinner"></span>Carregando…</td></tr>';
     document.getElementById('drill-al-busca').value = '';
     document.getElementById('drill-al-ftur').value  = '';
     document.getElementById('drill-al-fst').value   = '';
@@ -7353,7 +7363,8 @@ async function abrirDrillProjeto(projectId, opts = {}) {
         .from('orders')
         .select(`
           id, order_number, kit_type, total_amount, payment_status, payment_proof_url, paid_at, created_at,
-          gateway, credit_expected_date, credited_at,
+          gateway, gateway_status, credit_expected_date, credited_at, updated_at,
+          payment_method, installments, amount_charged,
           student_id,
           items:order_items(id, quantity, unit_price, variant_name, product:products(id, name))
         `)
@@ -7384,6 +7395,17 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       (cts || []).forEach(c => {
         if (!contatoPorAluno[c.student_id]) contatoPorAluno[c.student_id] = c;  // o mais recente
       });
+    }
+
+    // 4b-bis. Conferencia de caixa (migration_044). A tabela e' pequena, entao
+    // traz tudo — e' o mesmo mapa que a tela de Pedidos usa, o que mantem as
+    // duas telas dizendo a mesma coisa sobre o mesmo pedido.
+    {
+      const { data: chks, error: chkErr } = await supabase
+        .from('order_checks').select('order_id, checked_at, notes');
+      if (chkErr) console.error('order_checks:', chkErr.message);
+      conferidoPorPedido = {};
+      (chks || []).forEach(c => { conferidoPorPedido[c.order_id] = c; });
     }
 
     // 4c. Quem ja' foi fotografado NESTE projeto (migration_042). Marcacao
@@ -7833,7 +7855,7 @@ function filtrarDrillAlunos() {
 
   const tb = document.getElementById('drill-al-tab');
   if (!lista.length) {
-    tb.innerHTML = '<tr><td colspan="11" class="empty">Nenhum aluno encontrado.</td></tr>';
+    tb.innerHTML = '<tr><td colspan="13" class="empty">Nenhum aluno encontrado.</td></tr>';
     return;
   }
 
@@ -7852,6 +7874,10 @@ function filtrarDrillAlunos() {
                     title="${escapeHtml(todos.join(', '))}">${mostra}${resto}</div>`;
     }
 
+    // Forma de pagamento. Pedido sem cobranca ainda nao tem forma nenhuma —
+    // ela so' existe quando o responsavel escolhe. "—" ali e' a verdade, nao
+    // falta de dado.
+    let formaCell = '<span style="color:var(--gray-300)">—</span>';
     let numCell  = '<span style="color:var(--gray-300)">—</span>';
     let quandoCell = '<span style="color:var(--gray-300)">—</span>';
     let pedCell  = '<span style="color:var(--gray-400);font-size:11px">Sem pedido</span>';
@@ -7881,6 +7907,13 @@ function filtrarDrillAlunos() {
       pedCell = [kitBadge, avulsosSpan].filter(Boolean).join(' ') || '<span style="font-size:11px;color:var(--gray-400)">só avulsos</span>';
 
       totCell = `<span style="font-weight:600">${fmtMoney(Number(o.total_amount || 0))}</span>`;
+
+      // Mesmo rotulo da tela de Pedidos (com o selo AUTO/manual), pra as duas
+      // telas nao descreverem o mesmo pagamento de jeitos diferentes.
+      formaCell = rotuloMetodo(o)
+        + (Number(o.amount_charged) > Number(o.total_amount || 0)
+            ? `<div style="font-size:10px;color:var(--gray-500)">pagou ${fmtMoney(Number(o.amount_charged))}</div>`
+            : '');
 
       if (o.payment_status === 'paid') {
         stCell = `<button class="btn btn-sm badge-green" style="border:none;cursor:pointer;font-weight:600" onclick="drillMarcarPendente('${o.id}')" title="Clique para reverter para pendente">✓ Pago</button>`
@@ -7922,7 +7955,9 @@ function filtrarDrillAlunos() {
       <td style="white-space:nowrap">${quandoCell}</td>
       <td>${pedCell}</td>
       <td>${totCell}</td>
+      <td style="white-space:nowrap">${formaCell}</td>
       <td style="white-space:nowrap" onclick="event.stopPropagation()">${stCell}</td>
+      <td class="conf-td" ${a.order ? `data-conf-order="${a.order.id}"` : ''} onclick="event.stopPropagation()">${a.order ? celulaConferencia(a.order) : '<span style="color:var(--gray-300)">—</span>'}</td>
       <td style="white-space:nowrap" onclick="event.stopPropagation()">${celulaContato(a)}</td>
     </tr>`;
   }).join('');
@@ -8292,6 +8327,7 @@ async function drillMarcarPago(orderId) {
   if (aidx !== -1 && drillAlunosData[aidx].order) {
     drillAlunosData[aidx].order.payment_status = 'paid';
     drillAlunosData[aidx].order.paid_at = new Date().toISOString();
+    drillAlunosData[aidx].order.updated_at = new Date().toISOString();
   }
   toast('Pedido marcado como pago!', 'success');
   renderDrillStats();
@@ -8307,6 +8343,7 @@ async function drillMarcarPendente(orderId) {
   if (aidx !== -1 && drillAlunosData[aidx].order) {
     drillAlunosData[aidx].order.payment_status = 'pending';
     drillAlunosData[aidx].order.paid_at = null;
+    drillAlunosData[aidx].order.updated_at = new Date().toISOString();
   }
   toast('Pedido revertido para pendente.', 'success');
   renderDrillStats();
