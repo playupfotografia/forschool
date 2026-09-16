@@ -3281,12 +3281,8 @@ function atualizarPainelConferencia() {
   renderConferencia(pedidosCache.filter(p => {
     // Mesma caixa busca aluno, responsavel OU numero do pedido (ex: "P0111"),
     // igual a de Alunos & Pedidos — separar em campos diferentes so' pra isso
-    // seria mais coisa pra caber na barra.
-    if (busca && !(
-      (p.student?.name || '').toLowerCase().includes(busca) ||
-      (p.user?.name || '').toLowerCase().includes(busca) ||
-      (p.order_number || '').toLowerCase().includes(busca)
-    )) return false;
+    // seria mais coisa pra caber na barra. Acento nao conta (ver casaTexto).
+    if (!casaTexto(busca, p.student?.name, p.user?.name, p.order_number)) return false;
     if (fesc && p.school?.id !== fesc) return false;
     if (fst && p.payment_status !== fst) return false;
     return true;
@@ -3543,12 +3539,8 @@ function filtrarPedidos() {
   const lista = pedidosCache.filter(p => {
     // Mesma caixa busca aluno, responsavel OU numero do pedido (ex: "P0111"),
     // igual a de Alunos & Pedidos — separar em campos diferentes so' pra isso
-    // seria mais coisa pra caber na barra.
-    if (busca && !(
-      (p.student?.name || '').toLowerCase().includes(busca) ||
-      (p.user?.name || '').toLowerCase().includes(busca) ||
-      (p.order_number || '').toLowerCase().includes(busca)
-    )) return false;
+    // seria mais coisa pra caber na barra. Acento nao conta (ver casaTexto).
+    if (!casaTexto(busca, p.student?.name, p.user?.name, p.order_number)) return false;
     if (fesc && p.school?.id !== fesc) return false;
     if (fst && p.payment_status !== fst) return false;
     if (fpilha && pilhaDoPedido(p) !== fpilha) return false;
@@ -7132,6 +7124,16 @@ function normalizarNome(n) {
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
     .toLowerCase().replace(/\s+/g, ' ').trim();
 }
+// Busca que ignora acento e caixa: "juliao" acha "Julião", "luisa" acha
+// "Luísa". Reusa normalizarNome() — a mesma funcao da deteccao de nomes
+// repetidos, pra existir UMA definicao do que e' "mesmo texto" no admin.
+// Digitar COM acento tambem funciona: os dois lados passam pela mesma regra.
+function casaTexto(busca, ...campos) {
+  const alvo = normalizarNome(busca);
+  if (!alvo) return true;
+  return campos.some(c => normalizarNome(c).includes(alvo));
+}
+
 function distanciaEdicao(a, b) {
   if (a === b) return 0;
   let linha = Array.from({ length: b.length + 1 }, (_, i) => i);
@@ -7823,10 +7825,7 @@ function filtrarDrillAlunos() {
   // pra caber na barra, e o Daniel raramente confunde uma coisa com a outra
   // na hora de digitar.
   if (busca) lista = lista.filter(a =>
-    a.name.toLowerCase().includes(busca) ||
-    (a.responsible_name || '').toLowerCase().includes(busca) ||
-    (a.order?.order_number || '').toLowerCase().includes(busca)
-  );
+    casaTexto(busca, a.name, a.responsible_name, a.order?.order_number));
   if (ftur)  lista = lista.filter(a => a.class_id === ftur);
   if (fst === 'sem_pedido') lista = lista.filter(a => !a.order);
   else if (fst) lista = lista.filter(a => a.order?.payment_status === fst);
