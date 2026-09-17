@@ -145,17 +145,24 @@ td{padding:10px 13px;font-size:13px;color:var(--gray-700);border-bottom:1px soli
 .pres-btn:disabled{cursor:not-allowed;opacity:.6;border-style:dashed;background:var(--gray-50);color:var(--gray-400)}
 /* Pedido cancelado: a linha inteira fica vermelha — precisa saltar aos olhos
    na lista, nao so' a celula de status, senao passa despercebido no meio de
-   pendentes/pagos. Mesma ideia pra "precisa refazer a foto" (migration_047),
-   com cor diferente (amarelo/ambar) pra nao confundir os dois avisos ao
-   rolar a lista rapido — cancelado e' dinheiro, refazer e' producao. */
+   pendentes/pagos. Mesma ideia pra "precisa refazer a foto" (migration_047)
+   e pra "ja' fotografado" — cada uma com cor diferente de proposito, pra dar
+   pra saber so' de rolar o scroll qual e' qual: cancelado e' dinheiro
+   (vermelho), refazer e' producao pendente (amarelo/ambar), fotografado e'
+   "resolvido, pode seguir" (verde). */
 .drill-tbl tr.row-cancelado{background:var(--red-light)}
 .drill-tbl tr.row-cancelado:hover{background:#fbdcda}
 .drill-tbl tr.row-cancelado td{color:#9B1C1C}
 .drill-tbl tr.row-refazer{background:#FDE68A}
 .drill-tbl tr.row-refazer:hover{background:#FCD34D}
 .drill-tbl tr.row-refazer td{color:#78350F}
+.drill-tbl tr.row-foto{background:var(--green-light)}
+.drill-tbl tr.row-foto:hover{background:#d3f0dd}
+.drill-tbl tr.row-foto td{color:#1A6B3C}
 .pres-data{font-size:9px;color:var(--gray-400);margin-top:1px}
 .pres-faltou{font-size:9px;font-weight:700;color:var(--red);margin-top:1px}
+.pres-refazer-nota{font-size:9px;color:#78350F;margin-top:1px;cursor:pointer;max-width:110px;
+  white-space:normal;line-height:1.25;text-decoration:underline dotted}
 .pres-refazer{font-size:9px;font-weight:700;color:#B45309;margin-top:1px}
 /* Pilhas da conferencia de caixa: cada uma e' um destino de conferencia
    diferente (Asaas, extrato do banco, nada a fazer). Clicaveis. */
@@ -7582,7 +7589,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
     if (alunoIds.length) {
       const { data: fts, error: ftErr } = await supabase
         .from('photo_taken')
-        .select('student_id, taken_at, status')
+        .select('student_id, taken_at, status, note')
         .eq('project_id', projectId);
       // Mesma escolha do historico de contato: sem isso a tela ainda serve,
       // entao nao derruba — mas registra, pra "nao marca nada" nao virar
@@ -7591,7 +7598,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       // status pode vir vazio em base sem a migration_045 — ali toda marcacao
       // era "fotografado", que e' justamente o default da coluna nova.
       (fts || []).forEach(f => {
-        fotoPorAluno[f.student_id] = { em: f.taken_at, status: f.status || 'foto' };
+        fotoPorAluno[f.student_id] = { em: f.taken_at, status: f.status || 'foto', nota: f.note || null };
       });
     }
 
@@ -7641,6 +7648,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       contato: contatoPorAluno[a.id] || null,
       fotoEm:     fotoPorAluno[a.id]?.em || null,
       fotoStatus: fotoPorAluno[a.id]?.status || null,   // 'foto' | 'faltou' | 'refazer' | null
+      fotoNota:   fotoPorAluno[a.id]?.nota || null,     // o que falta refazer (so' com status 'refazer')
       duplicadoPago: duplicadoPagoPorAluno[a.id] || null,
       };
     });
@@ -8146,10 +8154,13 @@ function filtrarDrillAlunos() {
     // --- Conferencia do dia: 📷 tirou foto / 💰 pagamento entrou ---------
     // Quem RECUSOU a autorizacao nao e' fotografado — a caixinha fica
     // travada em vez de convidar a marcar por engano.
-    // Cancelado (dinheiro) vem antes de "precisa refazer" (producao) quando
-    // os dois coincidem — caso raro, mas o financeiro chama mais atencao.
+    // Prioridade quando mais de uma coisa e' verdade ao mesmo tempo (raro):
+    // cancelado (dinheiro) > precisa refazer (producao pendente) > fotografado
+    // (resolvido). "Faltou" fica de propositO sem cor de linha — so' o F
+    // vermelho no botao — e' um caso ja' encerrado, nao precisa gritar na tela.
     const rowCls = a.order?.payment_status === 'cancelled' ? ' class="row-cancelado"'
-      : a.fotoStatus === 'refazer' ? ' class="row-refazer"' : '';
+      : a.fotoStatus === 'refazer' ? ' class="row-refazer"'
+      : a.fotoStatus === 'foto' ? ' class="row-foto"' : '';
     return `<tr${rowCls} style="cursor:pointer" onclick="editarAluno('${a.id}')">
       <td onclick="event.stopPropagation()"><input type="checkbox" class="drill-ficha-chk" data-id="${a.id}" ${drillFichaSel.has(a.id) ? 'checked' : ''} onchange="toggleFichaSelDrill('${a.id}', this.checked)"></td>
       <td id="nome-td-${a.id}" style="font-weight:500">${celulaNomeAluno(a)}${avisoAut}</td>
@@ -8326,7 +8337,13 @@ function celulaFoto(a) {
     return btn + `<div class="pres-faltou">faltou</div><div class="pres-data">${fmtDataHoraCurta(a.fotoEm)}</div>`;
   }
   if (st === 'refazer') {
-    return btn + `<div class="pres-refazer">refazer</div><div class="pres-data">${fmtDataHoraCurta(a.fotoEm)}</div>`;
+    // A nota (o que precisa refazer) e' editavel a qualquer momento sem mexer
+    // no status — clicar no botao redondo continuaria o ciclo pra "vazio".
+    const nota = a.fotoNota ? escapeHtml(a.fotoNota) : '';
+    return btn + `<div class="pres-refazer">refazer</div>`
+      + `<div class="pres-refazer-nota" onclick="anotarRefazerNota('${a.id}')"
+           title="${nota ? 'Clique para editar a anotação' : 'Clique para anotar o que falta refazer'}">${nota || '✏️ anotar'}</div>`
+      + `<div class="pres-data">${fmtDataHoraCurta(a.fotoEm)}</div>`;
   }
   return btn + (st === 'foto' ? `<div class="pres-data">${fmtDataHoraCurta(a.fotoEm)}</div>` : '');
 }
@@ -8352,25 +8369,62 @@ const PROXIMA_PRESENCA = { null: 'foto', foto: 'faltou', faltou: 'refazer', refa
 window.ciclarPresenca = function (studentId) {
   const a = drillAlunosData.find(x => x.id === studentId);
   if (!a) return;
-  salvarPresenca(studentId, PROXIMA_PRESENCA[a.fotoStatus || 'null'] ?? null);
+  const proximo = PROXIMA_PRESENCA[a.fotoStatus || 'null'] ?? null;
+  // Entrando em "precisa refazer": pergunta na hora o que falta, pra nao
+  // depender de abrir o cadastro depois pra lembrar. Cancelar o prompt (Esc)
+  // ainda marca como refazer, so' sem anotacao — anota-se depois pelo ✏️.
+  if (proximo === 'refazer') {
+    const nota = prompt('O que precisa refazer? (produto, tema, o motivo)', '');
+    salvarPresenca(studentId, 'refazer', nota === null ? null : (nota.trim() || null));
+  } else {
+    salvarPresenca(studentId, proximo, null);
+  }
 };
 
-async function salvarPresenca(studentId, status) {
+// Editar a anotacao de "refazer" sem mexer no ciclo (o botao redondo
+// continuaria pra "vazio" se fosse ele) — chamado pelo ✏️ dentro da celula.
+window.anotarRefazerNota = async function (studentId) {
+  const a = drillAlunosData.find(x => x.id === studentId);
+  if (!a || a.fotoStatus !== 'refazer') return;
+  const nota = prompt('O que precisa refazer? (produto, tema, o motivo)', a.fotoNota || '');
+  if (nota === null) return;
+
+  const antes = a.fotoNota;
+  a.fotoNota = nota.trim() || null;
+  atualizarCelulaFoto(studentId);
+
+  try {
+    const { error } = await supabase.from('photo_taken')
+      .update({ note: a.fotoNota })
+      .eq('student_id', studentId).eq('project_id', drillProjetoId);
+    if (error) throw error;
+  } catch (e) {
+    a.fotoNota = antes;
+    atualizarCelulaFoto(studentId);
+    console.error('anotarRefazerNota:', e.message || e);
+    toast('Não consegui salvar a anotação. Tente de novo.', 'error');
+  }
+};
+
+async function salvarPresenca(studentId, status, nota) {
   const a = drillAlunosData.find(x => x.id === studentId);
   if (!a || !drillProjetoId) return;
 
   // Marca na tela primeiro (o botao ja' respondeu ao clique) e desfaz se o
   // banco recusar — tela dizendo "ok" sem ter gravado e' pior que erro.
-  const antesStatus = a.fotoStatus, antesEm = a.fotoEm;
+  const antesStatus = a.fotoStatus, antesEm = a.fotoEm, antesNota = a.fotoNota;
   a.fotoStatus = status;
   a.fotoEm = status ? new Date().toISOString() : null;
+  // Nota so' faz sentido junto de "refazer" — sair desse estado a descarta,
+  // senao um "refazer" antigo reapareceria se o ciclo voltar pra la' depois.
+  a.fotoNota = status === 'refazer' ? (nota || null) : null;
   atualizarCelulaFoto(studentId);
   renderDrillStats();
 
   try {
     if (status) {
       const { error } = await supabase.from('photo_taken').upsert(
-        { student_id: studentId, project_id: drillProjetoId, taken_at: a.fotoEm, status },
+        { student_id: studentId, project_id: drillProjetoId, taken_at: a.fotoEm, status, note: a.fotoNota },
         { onConflict: 'student_id,project_id' });
       if (error) throw error;
     } else {
@@ -8381,6 +8435,7 @@ async function salvarPresenca(studentId, status) {
   } catch (e) {
     a.fotoStatus = antesStatus;
     a.fotoEm = antesEm;
+    a.fotoNota = antesNota;
     atualizarCelulaFoto(studentId);
     renderDrillStats();
     console.error('salvarPresenca:', e.message || e);
