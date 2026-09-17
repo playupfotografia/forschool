@@ -729,6 +729,10 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><line x1="14" y1="14" x2="21" y2="14"/><line x1="14" y1="18" x2="21" y2="18"/><line x1="14" y1="21" x2="18" y2="21"/></svg>
           QR de foto de turma
         </button>
+        <button class="btn btn-secondary" onclick="abrirModalFichasAvulsas()" title="QR pré-impresso sem aluno, pra criança que chega sem cadastro no dia da sessão">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="8" r="3"/><path d="M4 21v-1a6 6 0 016-6h1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M15.5 17.5h4"/></svg>
+          Fichas avulsas
+        </button>
         <button class="btn btn-secondary" onclick="abrirModalAutorizacoes()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="12.5" y2="18"/><polyline points="12.5 18 15 13"/></svg>
           Imprimir autorizações
@@ -2491,12 +2495,18 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           <input type="checkbox" id="drill-al-fcont" onchange="filtrarDrillAlunos()">
           <span style="font-size:12px">Só não contatados</span>
         </label>
+        <select class="form-select" style="width:150px" id="drill-al-sort" onchange="filtrarDrillAlunos()" title="Ordem da lista">
+          <option value="recente">🕐 Mais recentes</option>
+          <option value="nome">Nome A-Z</option>
+        </select>
         <span id="drill-al-count" style="font-size:12px;color:var(--gray-400);align-self:center"></span>
+        <span id="drill-ficha-sel-count" style="font-size:12px;color:var(--blue);align-self:center;font-weight:600"></span>
+        <button class="btn btn-sm btn-primary" id="btn-drill-imprimir-fichas" onclick="imprimirFichasSelecionadasDrill()" disabled style="opacity:.45;cursor:not-allowed" title="Marque alunos na tabela pra imprimir as fichas deles">🖨 Imprimir fichas marcadas</button>
       </div>
       <div class="table-wrap">
         <table class="drill-tbl">
-          <thead><tr><th>Aluno</th><th title="Marque depois de fotografar o aluno">📷 Foto</th><th>Turma</th><th>Responsável</th><th>Irmão</th><th>Nº</th><th>Quando</th><th>Pedido</th><th>Total</th><th>Forma</th><th>Status</th><th title="Marque depois de bater este pedido no extrato">✔ Conf.</th><th>Contato</th></tr></thead>
-          <tbody id="drill-al-tab"><tr><td colspan="13" class="loading"><span class="spinner"></span></td></tr></tbody>
+          <thead><tr><th style="width:26px"><input type="checkbox" id="drill-ficha-sel-all" onclick="toggleSelecionarTodosFichasDrill(this)" title="Marcar/desmarcar todos os visíveis"></th><th>Aluno</th><th title="Marque depois de fotografar o aluno">📷 Foto</th><th>Turma</th><th>Responsável</th><th>Irmão</th><th>Nº</th><th>Quando</th><th>Pedido</th><th>Total</th><th>Forma</th><th>Status</th><th title="Marque depois de bater este pedido no extrato">✔ Conf.</th><th>Contato</th></tr></thead>
+          <tbody id="drill-al-tab"><tr><td colspan="14" class="loading"><span class="spinner"></span></td></tr></tbody>
         </table>
       </div>
     </div>
@@ -2536,6 +2546,98 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
     <div class="modal-footer">
       <button class="btn btn-secondary" data-close="mod-pedido-manual">Fechar</button>
       <button class="btn btn-primary" id="btn-salvar-pedido-manual" style="display:none">Criar pedido</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL FICHAS AVULSAS — QR pre-impresso sem aluno, pra crianca que chega
+     sem cadastro no dia da sessao (autorizacao confirmada por telefone). -->
+<div class="modal-overlay" id="mod-fichas-avulsas">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-header">
+      <div class="modal-title">🎫 Fichas avulsas (sem cadastro)</div>
+      <button class="modal-close" data-close="mod-fichas-avulsas">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="tab-row" style="display:flex;border-bottom:1px solid var(--gray-200);margin-bottom:14px">
+        <button class="tab-btn active" data-tab="fa-tab-gerar">Gerar lote novo</button>
+        <button class="tab-btn" data-tab="fa-tab-vincular">Vincular ficha usada</button>
+      </div>
+
+      <div id="fa-tab-gerar" class="tab-pane active">
+        <p style="font-size:12.5px;color:var(--gray-500);margin-bottom:12px;line-height:1.5">
+          Gera fichas com QR code em branco, sem aluno vinculado — pra ter em mãos
+          quando chega uma criança sem cadastro (ex: a escola confirmou por
+          telefone que os pais autorizam, mas não deu tempo de cadastrar). O
+          lote fica guardado <b>por escola</b> e serve pra qualquer sessão
+          futura — não precisa gerar de novo toda vez.
+        </p>
+        <div class="form-group">
+          <label class="form-label">Escola</label>
+          <select class="form-select" id="fa-gerar-escola"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Quantas fichas gerar</label>
+          <input class="form-input" type="number" id="fa-gerar-qtd" value="10" min="1" max="100">
+        </div>
+        <div id="fa-gerar-livres" style="font-size:12px;color:var(--gray-500);margin-bottom:12px"></div>
+        <button class="btn btn-primary" id="btn-fa-gerar" onclick="gerarFichasAvulsas()">🎫 Gerar e imprimir</button>
+      </div>
+
+      <div id="fa-tab-vincular" class="tab-pane">
+        <p style="font-size:12.5px;color:var(--gray-500);margin-bottom:12px;line-height:1.5">
+          Depois que a ficha avulsa foi usada no dia da sessão, vincule o
+          código dela a um aluno de verdade — isso cria o cadastro do aluno.
+        </p>
+        <div class="form-group">
+          <label class="form-label">Escola</label>
+          <select class="form-select" id="fa-vinc-escola" onchange="faCarregarLivres()"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Código (impresso embaixo do QR)</label>
+          <select class="form-select" id="fa-vinc-codigo"></select>
+        </div>
+        <div id="fa-vinc-form" style="display:none">
+          <hr style="border:none;border-top:1px solid var(--gray-100);margin:12px 0">
+          <div class="form-group">
+            <label class="form-label">Nome do aluno *</label>
+            <input class="form-input" id="fa-vinc-nome">
+          </div>
+          <div class="fg2" style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
+            <div class="form-group">
+              <label class="form-label">Ano *</label>
+              <select class="form-select" id="fa-vinc-ano" onchange="faOnAnoVinc()"><option value="">— Selecione —</option></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Turma *</label>
+              <select class="form-select" id="fa-vinc-turma"><option value="">— Selecione —</option></select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Data de nascimento</label>
+            <input class="form-input" type="date" id="fa-vinc-nasc">
+          </div>
+          <div class="fg2" style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
+            <div class="form-group">
+              <label class="form-label">Responsável (nome)</label>
+              <input class="form-input" id="fa-vinc-resp-nome">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Responsável (telefone)</label>
+              <input class="form-input" id="fa-vinc-resp-tel">
+            </div>
+          </div>
+          <label class="chk-inline" style="margin:10px 0 6px;display:flex">
+            <input type="checkbox" id="fa-vinc-autorizado" checked>
+            <span>Autorização confirmada — marcar como autorizado (individual + turma)</span>
+          </label>
+          <div class="form-group">
+            <label class="form-label">Quem confirmou / observação</label>
+            <input class="form-input" id="fa-vinc-obs" placeholder='Ex: "Coordenação confirmou com a mãe por telefone"'>
+          </div>
+          <button class="btn btn-primary" id="btn-fa-vincular" onclick="vincularFichaAvulsa()">Cadastrar e vincular</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -2657,6 +2759,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           <div style="font-size:11px;color:var(--gray-500);margin-bottom:4px">Histórico de decisões</div>
           <div id="al-auth-log" style="font-size:12px;display:flex;flex-direction:column;gap:4px"></div>
         </div>
+        <button type="button" class="btn btn-secondary" id="btn-al-imprimir-auth" style="display:none;margin-top:10px;margin-right:8px;font-size:12px" onclick="imprimirAutorizacaoAluno(editAlunoId)">🖨 Imprimir autorização</button>
         <button type="button" class="btn btn-secondary" id="btn-al-reset-auth" style="display:none;margin-top:10px;font-size:12px">↺ Resetar autorização</button>
         <div id="al-auth-reset-hint" style="display:none;font-size:11px;color:var(--gray-500);margin-top:4px">Reseta a decisão: na próxima vez que o responsável entrar no portal, o termo de autorização será exibido novamente.</div>
       </div>
@@ -7276,13 +7379,18 @@ async function abrirDrillProjeto(projectId, opts = {}) {
     drillProjeto = proj || null;   // usado pelas mensagens de contato
     document.getElementById('drill-proj-title').textContent = proj ? proj.name : 'Alunos & Pedidos';
     document.getElementById('drill-proj-sub').textContent  = proj ? (proj.school?.name || '') : '';
-    document.getElementById('drill-al-tab').innerHTML  = '<tr><td colspan="13" class="loading"><span class="spinner"></span>Carregando…</td></tr>';
+    document.getElementById('drill-al-tab').innerHTML  = '<tr><td colspan="14" class="loading"><span class="spinner"></span>Carregando…</td></tr>';
     document.getElementById('drill-al-busca').value = '';
     document.getElementById('drill-al-ftur').value  = '';
     document.getElementById('drill-al-fst').value   = '';
     document.getElementById('drill-al-faut').value  = '';
     document.getElementById('drill-al-ffoto').value = '';
     document.getElementById('drill-al-fcont').checked = false;
+    document.getElementById('drill-al-sort').value = 'recente';
+    // Selecao de fichas nao sobrevive a reabrir a tela — evita imprimir por
+    // engano uma marcacao esquecida de dias atras.
+    drillFichaSel = new Set();
+    atualizarBtnFichasDrill();
     document.getElementById('mod-drill-proj').classList.add('open');
   }
 
@@ -7323,7 +7431,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       const { data } = await supabase
         .from('students')
         .select(`
-          id, name, photo_seq_number, user_id, duplicate_of_student_id,
+          id, name, photo_seq_number, user_id, duplicate_of_student_id, notes,
           guardian2_name, guardian2_phone,
           authorization_date, authorize_individual, authorize_class,
           class:school_classes(id, name, year:school_years(id, name)),
@@ -7337,7 +7445,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       const { data } = await supabase
         .from('students')
         .select(`
-          id, name, photo_seq_number, user_id, duplicate_of_student_id,
+          id, name, photo_seq_number, user_id, duplicate_of_student_id, notes,
           guardian2_name, guardian2_phone,
           authorization_date, authorize_individual, authorize_class,
           class:school_classes(id, name, year:school_years(id, name)),
@@ -7455,6 +7563,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       return {
       id: a.id,
       name: a.name,
+      notes: a.notes || null,
       irmaos,
       duplicataSuspeita: irmaos.some(n => nomesQuaseIguais(n, a.name)),
       class_id: a.class?.id || null,
@@ -7847,6 +7956,19 @@ function filtrarDrillAlunos() {
     lista = lista.filter(a => !a.contato && a.order?.payment_status !== 'paid');
   }
 
+  // Ordem da lista: por padrao, quem tem pedido mais recente sobe pro topo —
+  // e' o que interessa acompanhando ao vivo. Quem nao tem pedido nenhum fica
+  // no final, por nome (nao ha' "quando" pra ordenar). "Nome A-Z" existe pra
+  // quem prefere achar um aluno especifico com a lista alfabetica.
+  const sortMode = document.getElementById('drill-al-sort')?.value || 'recente';
+  lista = [...lista].sort((a, b) => {
+    if (sortMode === 'nome') return a.name.localeCompare(b.name, 'pt-BR');
+    const ta = a.order?.created_at ? new Date(a.order.created_at).getTime() : -Infinity;
+    const tb = b.order?.created_at ? new Date(b.order.created_at).getTime() : -Infinity;
+    if (ta !== tb) return tb - ta;
+    return a.name.localeCompare(b.name, 'pt-BR');
+  });
+
   document.getElementById('drill-al-count').textContent = lista.length + ' aluno(s)';
 
   const kitMap   = { basico: 'Básico', inter: 'Intermediário', promo: 'Promocional' };
@@ -7854,7 +7976,7 @@ function filtrarDrillAlunos() {
 
   const tb = document.getElementById('drill-al-tab');
   if (!lista.length) {
-    tb.innerHTML = '<tr><td colspan="13" class="empty">Nenhum aluno encontrado.</td></tr>';
+    tb.innerHTML = '<tr><td colspan="14" class="empty">Nenhum aluno encontrado.</td></tr>';
     return;
   }
 
@@ -7945,7 +8067,8 @@ function filtrarDrillAlunos() {
     // Quem RECUSOU a autorizacao nao e' fotografado — a caixinha fica
     // travada em vez de convidar a marcar por engano.
     return `<tr style="cursor:pointer" onclick="editarAluno('${a.id}')">
-      <td style="font-weight:500">${escapeHtml(a.name)}${avisoAut}</td>
+      <td onclick="event.stopPropagation()"><input type="checkbox" class="drill-ficha-chk" data-id="${a.id}" ${drillFichaSel.has(a.id) ? 'checked' : ''} onchange="toggleFichaSelDrill('${a.id}', this.checked)"></td>
+      <td id="nome-td-${a.id}" style="font-weight:500">${celulaNomeAluno(a)}${avisoAut}</td>
       <td class="conf-td" id="foto-td-${a.id}" onclick="event.stopPropagation()">${celulaFoto(a)}</td>
       <td>${escapeHtml(a.year_name && a.year_name !== '—' ? a.year_name + ' — ' + a.class_name : a.class_name)}</td>
       <td style="font-size:13px">${escapeHtml(a.responsible_name)}</td>
@@ -7961,6 +8084,133 @@ function filtrarDrillAlunos() {
     </tr>`;
   }).join('');
 }
+
+// ---------------------------------------------------------------------------
+// Observação livre por aluno (ex: "tirou a foto errada, refazer amanhã").
+// Fica em students.notes — o mesmo campo que a aba Alunos ja edita no modal
+// completo; aqui e' so' um atalho rapido de dentro da lista, no mesmo padrao
+// de anotarContato/anotarConferencia (prompt + redesenha so' a celula).
+// ---------------------------------------------------------------------------
+function celulaNomeAluno(a) {
+  const icone = a.notes ? '📝' : '🖊️';
+  const titulo = a.notes ? `Editar observação: ${a.notes}` : 'Adicionar observação sobre este aluno';
+  const gatilho = `<span onclick="event.stopPropagation();anotarAlunoObs('${a.id}')" style="cursor:pointer;margin-left:5px" title="${escapeHtml(titulo)}">${icone}</span>`;
+  const preview = a.notes
+    ? `<div style="font-size:11px;color:#92400e;background:#FEF3C7;border-radius:4px;padding:1px 6px;margin-top:2px;display:inline-block;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(a.notes)}">📝 ${escapeHtml(a.notes)}</div>`
+    : '';
+  return `${escapeHtml(a.name)}${gatilho}${preview}`;
+}
+
+function atualizarCelulaNome(studentId) {
+  const a  = drillAlunosData.find(x => x.id === studentId);
+  const td = document.getElementById('nome-td-' + studentId);
+  if (!a || !td) return;
+  const avisoAut = a.autorizacao === 'ok' ? '' :
+    `<div style="font-size:11px;font-weight:600;color:var(--red);margin-top:2px">
+       ${a.autorizacao === 'recusou' ? '✖ Recusou a autorização' : '⏳ Sem autorização'}
+     </div>`;
+  td.innerHTML = celulaNomeAluno(a) + avisoAut;
+}
+
+window.anotarAlunoObs = async function (studentId) {
+  const a = drillAlunosData.find(x => x.id === studentId);
+  if (!a) return;
+  const nota = prompt('Observação sobre este aluno (ex: "tirou a foto errada, refazer amanhã"):', a.notes || '');
+  if (nota === null) return; // cancelou
+  const texto = nota.trim() || null;
+  const antes = a.notes;
+  a.notes = texto;
+  atualizarCelulaNome(studentId);
+  const { error } = await supabase.from('students').update({ notes: texto }).eq('id', studentId);
+  if (error) {
+    a.notes = antes;
+    atualizarCelulaNome(studentId);
+    toast('Erro ao salvar observação: ' + error.message, 'error');
+  } else {
+    toast(texto ? 'Observação salva.' : 'Observação removida.', 'ok');
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Selecionar alunos espalhados (busca um, marca, busca outro, marca de novo)
+// e imprimir as fichas so' dos marcados — util pra pedido/crianca que chega
+// na hora, sem precisar reimprimir a turma inteira. A marcacao sobrevive a
+// filtrar/buscar de novo porque mora num Set, nao no estado dos checkboxes
+// (que sao recriados a cada re-render da tabela).
+// ---------------------------------------------------------------------------
+let drillFichaSel = new Set();
+
+window.toggleFichaSelDrill = function (id, checked) {
+  if (checked) drillFichaSel.add(id); else drillFichaSel.delete(id);
+  atualizarBtnFichasDrill();
+};
+
+window.toggleSelecionarTodosFichasDrill = function (cb) {
+  document.querySelectorAll('#drill-al-tab .drill-ficha-chk').forEach(c => {
+    c.checked = cb.checked;
+    if (cb.checked) drillFichaSel.add(c.dataset.id); else drillFichaSel.delete(c.dataset.id);
+  });
+  atualizarBtnFichasDrill();
+};
+
+function atualizarBtnFichasDrill() {
+  const n = drillFichaSel.size;
+  const btn = document.getElementById('btn-drill-imprimir-fichas');
+  const count = document.getElementById('drill-ficha-sel-count');
+  if (count) count.textContent = n ? `${n} marcado${n > 1 ? 's' : ''}` : '';
+  if (!btn) return;
+  btn.disabled = n === 0;
+  btn.style.opacity = n === 0 ? '.45' : '1';
+  btn.style.cursor = n === 0 ? 'not-allowed' : 'pointer';
+}
+
+async function imprimirFichasSelecionadasDrill() {
+  const ids = [...drillFichaSel];
+  if (!ids.length) return;
+  const btn = document.getElementById('btn-drill-imprimir-fichas');
+  const orig = btn.innerHTML;
+  btn.innerHTML = '<span class="spinner"></span> Carregando…';
+  btn.disabled = true;
+  try {
+    // Busca fresca por id — nao depende do formato dos dados ja' carregados
+    // no drill, so' precisa bater com o que montarFichaCard espera.
+    const { data: alunos, error: aErr } = await supabase
+      .from('students')
+      .select(`id, name, photo_seq_number, authorization_date,
+        school:schools(name), school_class:school_classes(name, year:school_years(name)),
+        user:users(name, phone)`)
+      .in('id', ids);
+    if (aErr) throw aErr;
+
+    const { data: pedidos, error: pedErr } = await supabase
+      .from('orders')
+      .select(`id, student_id,
+        items:order_items(quantity, product:products(name, photo_theme), variant:product_variants(photo_theme)),
+        kits:order_kits(quantity, kit:school_kits(name, kit_type, items:school_kit_items(quantity, product:products(name))))`)
+      .in('student_id', ids)
+      .order('created_at', { ascending: false });
+    if (pedErr) throw pedErr;
+
+    const pedidoMap = {};
+    (pedidos || []).forEach(p => { if (!pedidoMap[p.student_id]) pedidoMap[p.student_id] = p; });
+    const todosTemas = await buscarTodosTemasAtivos();
+
+    const qrPayloads = {};
+    const fichasHtml = (alunos || []).map(a => {
+      const { html, qrPayload } = montarFichaCard(a, pedidoMap[a.id], todosTemas);
+      qrPayloads[a.id] = qrPayload;
+      return html;
+    }).join('');
+
+    abrirJanelaFichas(fichasHtml, qrPayloads, (alunos || []).length);
+  } catch (err) {
+    toast('Erro ao gerar fichas: ' + err.message, 'error');
+  } finally {
+    btn.innerHTML = orig;
+    atualizarBtnFichasDrill();
+  }
+}
+window.imprimirFichasSelecionadasDrill = imprimirFichasSelecionadasDrill;
 
 // ---------------------------------------------------------------------------
 // Conferencia: 📷 "ja' fotografei este" (migration_042).
@@ -8681,6 +8931,112 @@ function renderTermoAdmin(text, vars) {
   });
 }
 
+// Monta o cartao impresso de UMA autorizacao (termo inteiro preenchido).
+// Extraido pra ser usado tanto pela impressao em lote por projeto
+// (imprimirAutorizacoes) quanto pela impressao individual de um so' aluno
+// (imprimirAutorizacaoAluno) — as duas telas tem que gerar exatamente o
+// mesmo cartao.
+function montarCardAutorizacao(a, termo, escolaNome) {
+  const vars = {
+    nome_responsavel: a.user?.name || '',
+    rg: a.user?.rg || '',
+    cpf: a.user?.cpf || '',
+    whatsapp: a.user?.phone || '',
+    grau_parentesco: a.user?.relationship || '',
+    nome_aluno: a.name || '',
+    ano: a.class?.year?.name || '',
+    turma: a.class?.name || '',
+    escola: escolaNome || '',
+    empresa: 'Play Up Fotografia',
+    data_hoje: a.authorization_date ? new Date(a.authorization_date).toLocaleDateString('pt-BR') : '',
+  };
+  const intro   = renderTermoAdmin(termo.intro_text, vars);
+  const body    = renderTermoAdmin(termo.body_html, vars);
+  const purpose = renderTermoAdmin(termo.purpose_text, vars);
+  const partes  = [intro, body, purpose ? `Para uso exclusivo de: ${purpose}` : ''].filter(Boolean);
+  const termoHtml = partes
+    .map(txt => txt.split(/\n+/).map(l => `<p>${escapeHtml(l)}</p>`).join(''))
+    .join('<hr class="au-sep">');
+
+  const tipo = a.authorize_individual && a.authorize_class ? 'Individual + Turma'
+             : a.authorize_individual ? 'Só individual'
+             : 'Só turma';
+  const dataAut = a.authorization_date ? new Date(a.authorization_date).toLocaleDateString('pt-BR') : '—';
+
+  return `<div class="au-card">
+    <div class="au-card-head">
+      <div class="au-aluno">${escapeHtml(a.name)}</div>
+      <div class="au-resp">Resp.: <b>${escapeHtml(vars.nome_responsavel || '—')}</b>${vars.grau_parentesco ? ' (' + escapeHtml(vars.grau_parentesco) + ')' : ''}</div>
+      <div class="au-badge">✅ ${escapeHtml(tipo)}</div>
+    </div>
+    <div class="au-termo">${termoHtml}</div>
+    <div class="au-foot">Autorizado em ${dataAut}</div>
+  </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Imprimir a autorizacao de UM aluno so', a partir do modal de edicao dele
+// (aba Alunos ou drill Alunos & Pedidos). O termo usado e' o do projeto ativo
+// daquela escola — prioriza o projeto aberto no drill (se for da mesma
+// escola do aluno), senao busca o projeto ativo mais recente da escola que
+// tenha termo vinculado.
+// ---------------------------------------------------------------------------
+async function imprimirAutorizacaoAluno(studentId) {
+  try {
+    const { data: a, error: aErr } = await supabase
+      .from('students')
+      .select(`id, name, school_id, authorize_individual, authorize_class, authorization_date,
+        class:school_classes(name, year:school_years(name)),
+        user:users(name, cpf, rg, phone, relationship)`)
+      .eq('id', studentId).maybeSingle();
+    if (aErr) throw aErr;
+    if (!a) { toast('Aluno não encontrado.', 'error'); return; }
+    if (!a.authorization_date || !(a.authorize_individual || a.authorize_class)) {
+      toast('Este aluno não tem autorização registrada pra imprimir.', 'warn');
+      return;
+    }
+
+    let proj = null;
+    if (drillProjetoId) {
+      const { data: p } = await supabase.from('projects')
+        .select('id, name, authorization_term_id, school_id, school:schools(id, name)')
+        .eq('id', drillProjetoId).maybeSingle();
+      if (p && p.school_id === a.school_id && p.authorization_term_id) proj = p;
+    }
+    if (!proj) {
+      const { data: p2 } = await supabase.from('projects')
+        .select('id, name, authorization_term_id, school_id, school:schools(id, name)')
+        .eq('school_id', a.school_id).eq('active', true)
+        .not('authorization_term_id', 'is', null)
+        .order('created_at', { ascending: false }).limit(1).maybeSingle();
+      proj = p2 || null;
+    }
+    if (!proj?.authorization_term_id) {
+      toast('Nenhum projeto ativo com termo de autorização vinculado pra esta escola. Use "Imprimir autorizações" (em lote) e escolha o projeto manualmente.', 'error');
+      return;
+    }
+
+    const { data: termo, error: termoErr } = await supabase
+      .from('authorization_terms')
+      .select('intro_text, body_html, purpose_text')
+      .eq('id', proj.authorization_term_id).single();
+    if (termoErr || !termo) throw termoErr || new Error('Termo não encontrado.');
+
+    const cardHtml = montarCardAutorizacao(a, termo, proj.school?.name || '');
+    const pagina = `<div class="au-page">
+      <div class="au-head">
+        <div class="au-escola">${escapeHtml(proj.school?.name || '')}</div>
+        <div class="au-turma">Autorização individual</div>
+      </div>
+      <div class="au-grid">${cardHtml}</div>
+    </div>`;
+    abrirJanelaAutorizacoes(pagina, 1);
+  } catch (err) {
+    toast('Erro ao gerar autorização: ' + err.message, 'error');
+  }
+}
+window.imprimirAutorizacaoAluno = imprimirAutorizacaoAluno;
+
 async function abrirModalAutorizacoes() {
   const sel = document.getElementById('au-projeto');
   sel.innerHTML = '<option value="">Carregando…</option>';
@@ -8746,43 +9102,7 @@ async function imprimirAutorizacoes() {
     );
 
     // Monta o cartao compacto de 1 aluno (termo inteiro, letra menor)
-    const montarCard = (a) => {
-      const vars = {
-        nome_responsavel: a.user?.name || '',
-        rg: a.user?.rg || '',
-        cpf: a.user?.cpf || '',
-        whatsapp: a.user?.phone || '',
-        grau_parentesco: a.user?.relationship || '',
-        nome_aluno: a.name || '',
-        ano: a.class?.year?.name || '',
-        turma: a.class?.name || '',
-        escola: proj.school?.name || '',
-        empresa: 'Play Up Fotografia',
-        data_hoje: a.authorization_date ? new Date(a.authorization_date).toLocaleDateString('pt-BR') : '',
-      };
-      const intro   = renderTermoAdmin(termo.intro_text, vars);
-      const body    = renderTermoAdmin(termo.body_html, vars);
-      const purpose = renderTermoAdmin(termo.purpose_text, vars);
-      const partes  = [intro, body, purpose ? `Para uso exclusivo de: ${purpose}` : ''].filter(Boolean);
-      const termoHtml = partes
-        .map(txt => txt.split(/\n+/).map(l => `<p>${escapeHtml(l)}</p>`).join(''))
-        .join('<hr class="au-sep">');
-
-      const tipo = a.authorize_individual && a.authorize_class ? 'Individual + Turma'
-                 : a.authorize_individual ? 'Só individual'
-                 : 'Só turma';
-      const dataAut = a.authorization_date ? new Date(a.authorization_date).toLocaleDateString('pt-BR') : '—';
-
-      return `<div class="au-card">
-        <div class="au-card-head">
-          <div class="au-aluno">${escapeHtml(a.name)}</div>
-          <div class="au-resp">Resp.: <b>${escapeHtml(vars.nome_responsavel || '—')}</b>${vars.grau_parentesco ? ' (' + escapeHtml(vars.grau_parentesco) + ')' : ''}</div>
-          <div class="au-badge">✅ ${escapeHtml(tipo)}</div>
-        </div>
-        <div class="au-termo">${termoHtml}</div>
-        <div class="au-foot">Autorizado em ${dataAut}</div>
-      </div>`;
-    };
+    const montarCard = (a) => montarCardAutorizacao(a, termo, proj.school?.name || '');
 
     // Agrupa por ano+turma (a lista ja vem ordenada assim) — cada turma
     // comeca sempre numa folha nova, nunca dividindo com outra turma na
@@ -9081,6 +9401,257 @@ ${cardsHtml}
 </body></html>`);
   win.document.close();
 }
+
+// ---------------------------------------------------------------------------
+// FICHAS AVULSAS (migration_046) — QR pre-impresso SEM aluno vinculado.
+//
+// Caso real: crianca chega sem cadastro no dia da sessao, a escola confirma
+// por telefone com o responsavel que autoriza, e antes disso tudo era feito
+// na mao (sem ficha, sem QR). Agora existe um estoque de fichas em branco
+// por escola (reaproveitavel entre sessoes — nao e' por projeto): imprime
+// com antecedencia, usa uma quando precisar, e depois "vincula" o codigo a
+// um aluno de verdade aqui mesmo.
+//
+// O QR carrega {tipo:'avulso', codigo} — mesmo campo `tipo` que ja separa o
+// QR de turma do QR de aluno normal (organizador_fotos.py precisa aprender
+// a tratar esse terceiro tipo separadamente).
+// ---------------------------------------------------------------------------
+let faYears = [];
+let faClasses = [];
+
+// Sem 0/O/1/I de proposito: codigo e' lido de olho na hora de vincular, e
+// esses caracteres se confundem facil escritos a mao ou numa fonte pequena.
+function gerarCodigoAvulso() {
+  const alfabeto = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for (let i = 0; i < 6; i++) s += alfabeto[Math.floor(Math.random() * alfabeto.length)];
+  return 'AV-' + s;
+}
+
+async function popularEscolasFichaAvulsa() {
+  const { data, error } = await supabase.from('schools').select('id, name').eq('active', true).order('name');
+  if (error) throw error;
+  const optsHtml = '<option value="">Selecione a escola…</option>' +
+    (data || []).map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('');
+  document.getElementById('fa-gerar-escola').innerHTML = optsHtml;
+  document.getElementById('fa-vinc-escola').innerHTML = optsHtml;
+}
+
+async function abrirModalFichasAvulsas() {
+  try {
+    await popularEscolasFichaAvulsa();
+  } catch (err) {
+    toast('Erro ao carregar escolas: ' + err.message, 'error');
+    return;
+  }
+  document.getElementById('fa-gerar-livres').textContent = '';
+  document.getElementById('fa-vinc-form').style.display = 'none';
+  document.getElementById('fa-vinc-codigo').innerHTML = '';
+  document.querySelectorAll('#mod-fichas-avulsas .tab-btn').forEach((b, i) => b.classList.toggle('active', i === 0));
+  document.querySelectorAll('#mod-fichas-avulsas .tab-pane').forEach((p, i) => p.classList.toggle('active', i === 0));
+  document.getElementById('mod-fichas-avulsas').classList.add('open');
+}
+window.abrirModalFichasAvulsas = abrirModalFichasAvulsas;
+
+document.querySelectorAll('#mod-fichas-avulsas .tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#mod-fichas-avulsas .tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('#mod-fichas-avulsas .tab-pane').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+  });
+});
+
+document.getElementById('fa-gerar-escola').addEventListener('change', async (e) => {
+  const escolaId = e.target.value;
+  const el = document.getElementById('fa-gerar-livres');
+  if (!escolaId) { el.textContent = ''; return; }
+  const { count, error } = await supabase.from('avulso_tickets')
+    .select('id', { count: 'exact', head: true })
+    .eq('school_id', escolaId).eq('status', 'livre');
+  if (error) { el.textContent = ''; return; }
+  el.textContent = `${count || 0} ficha(s) dessa escola ainda não usada(s) em estoque.`;
+});
+
+async function gerarFichasAvulsas() {
+  const escSel = document.getElementById('fa-gerar-escola');
+  const escolaId = escSel.value;
+  const escolaNome = escSel.selectedOptions[0]?.textContent || '';
+  const qtd = Math.max(1, Math.min(100, parseInt(document.getElementById('fa-gerar-qtd').value, 10) || 0));
+  if (!escolaId) { toast('Selecione a escola.', 'error'); return; }
+
+  const btn = document.getElementById('btn-fa-gerar');
+  const orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Gerando…';
+  try {
+    // Insere um a um: colisao de codigo e' rara (6 caracteres num alfabeto de
+    // 32 sao ~1 bilhao de combinacoes), mas o unique constraint garante — se
+    // colidir, so' tenta outro codigo na mesma posicao.
+    const criados = [];
+    for (let i = 0; i < qtd; i++) {
+      let inserido = null;
+      for (let tent = 0; tent < 5 && !inserido; tent++) {
+        const code = gerarCodigoAvulso();
+        const { data, error } = await supabase.from('avulso_tickets')
+          .insert({ code, school_id: escolaId }).select('id, code').maybeSingle();
+        if (!error) inserido = data;
+        else if (!String(error.message || '').toLowerCase().includes('duplicate')) throw error;
+      }
+      if (inserido) criados.push(inserido);
+    }
+    if (!criados.length) { toast('Não foi possível gerar as fichas.', 'error'); return; }
+
+    const payloads = {};
+    const cards = criados.map((t, i) => {
+      const chave = 'av' + i;
+      payloads[chave] = JSON.stringify({ tipo: 'avulso', codigo: t.code });
+      return `<div class="tcard">
+        <div class="tcard-topo">
+          <div class="tcard-escola">${escapeHtml(escolaNome)}</div>
+          <div class="tcard-tag">FICHA AVULSA</div>
+        </div>
+        <div class="tcard-meio">
+          <div class="tcard-texto">
+            <div class="tcard-ano" style="font-size:15px">Sem cadastro ainda</div>
+            <div class="tcard-turma" style="font-size:30px;letter-spacing:0">${escapeHtml(t.code)}</div>
+          </div>
+          <canvas class="tcard-qr" id="qr-${chave}"></canvas>
+        </div>
+        <div class="tcard-rodape">Só use com autorização confirmada. Depois, vincule em Alunos → 🎫 Fichas avulsas.</div>
+      </div>`;
+    }).join('');
+
+    abrirJanelaQrTurmas(cards, payloads, criados.length);
+    escSel.dispatchEvent(new Event('change'));
+  } catch (err) {
+    toast('Erro ao gerar fichas: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = orig;
+  }
+}
+window.gerarFichasAvulsas = gerarFichasAvulsas;
+
+window.faCarregarLivres = async function () {
+  const escolaId = document.getElementById('fa-vinc-escola').value;
+  const sel = document.getElementById('fa-vinc-codigo');
+  document.getElementById('fa-vinc-form').style.display = 'none';
+  if (!escolaId) { sel.innerHTML = ''; return; }
+  sel.innerHTML = '<option>Carregando…</option>';
+  try {
+    const { data, error } = await supabase.from('avulso_tickets')
+      .select('id, code').eq('school_id', escolaId).eq('status', 'livre').order('created_at');
+    if (error) throw error;
+    if (!data || !data.length) {
+      sel.innerHTML = '<option value="">Nenhuma ficha avulsa livre nessa escola</option>';
+      return;
+    }
+    sel.innerHTML = '<option value="">Selecione o código…</option>' +
+      data.map(t => `<option value="${t.id}">${escapeHtml(t.code)}</option>`).join('');
+
+    const [{ data: years }, { data: classes }] = await Promise.all([
+      supabase.from('school_years').select('id,name').eq('school_id', escolaId).order('sort_order'),
+      supabase.from('school_classes').select('id,name,year_id'),
+    ]);
+    faYears = years || [];
+    faClasses = classes || [];
+    document.getElementById('fa-vinc-ano').innerHTML = '<option value="">— Selecione —</option>' +
+      faYears.map(y => `<option value="${y.id}">${escapeHtml(y.name)}</option>`).join('');
+    document.getElementById('fa-vinc-turma').innerHTML = '<option value="">— Selecione —</option>';
+  } catch (err) {
+    sel.innerHTML = '';
+    toast('Erro ao buscar fichas: ' + err.message, 'error');
+  }
+};
+
+window.faOnAnoVinc = function () {
+  const yearId = document.getElementById('fa-vinc-ano').value;
+  document.getElementById('fa-vinc-turma').innerHTML = '<option value="">— Selecione —</option>' +
+    faClasses.filter(c => c.year_id === yearId).map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+};
+
+document.getElementById('fa-vinc-codigo').addEventListener('change', (e) => {
+  document.getElementById('fa-vinc-form').style.display = e.target.value ? 'block' : 'none';
+});
+
+async function vincularFichaAvulsa() {
+  const ticketId = document.getElementById('fa-vinc-codigo').value;
+  const escolaId = document.getElementById('fa-vinc-escola').value;
+  const nome     = document.getElementById('fa-vinc-nome').value.trim();
+  const yearId   = document.getElementById('fa-vinc-ano').value;
+  const classId  = document.getElementById('fa-vinc-turma').value;
+  const nasc     = document.getElementById('fa-vinc-nasc').value;
+  const respNome = document.getElementById('fa-vinc-resp-nome').value.trim();
+  const respTel  = document.getElementById('fa-vinc-resp-tel').value.trim();
+  const autorizado = document.getElementById('fa-vinc-autorizado').checked;
+  const obs      = document.getElementById('fa-vinc-obs').value.trim();
+
+  if (!ticketId || !nome || !classId) {
+    toast('Preencha o código, o nome e a turma.', 'warn');
+    return;
+  }
+
+  const btn = document.getElementById('btn-fa-vincular');
+  const orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Salvando…';
+  try {
+    // Mesmo jeito que "Novo aluno" calcula o numero da ficha: maior numero
+    // ja usado na escola + 1. Sem RPC porque o admin ja passa por cima da
+    // RLS que motivou proximo_numero_ficha() existir pro portal.
+    const { data: maxRow } = await supabase
+      .from('students')
+      .select('photo_seq_number')
+      .eq('school_id', escolaId)
+      .not('photo_seq_number', 'is', null)
+      .order('photo_seq_number', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const fichaNum = ((maxRow?.photo_seq_number) || 0) + 1;
+
+    const now = new Date().toISOString();
+    const dadosAluno = {
+      name: nome,
+      birth_date: nasc || null,
+      class_id: classId,
+      school_id: escolaId,
+      photo_seq_number: fichaNum,
+      guardian2_name: respNome || null,
+      guardian2_phone: respTel || null,
+      notes: 'Ficha avulsa' + (obs ? ` — ${obs}` : ''),
+    };
+    if (autorizado) {
+      const assinadoPor = 'Admin (ficha avulsa)' + (obs ? ` — ${obs}` : '');
+      Object.assign(dadosAluno, {
+        authorize_individual: true,
+        authorize_class: true,
+        authorization_date: now,
+        authorization_signed_by: assinadoPor,
+        authorization_log: [{
+          action: 'authorized', date: now, signed_by: assinadoPor,
+          individual: true, class: true,
+          note: obs || 'Autorização confirmada por telefone, registrada pelo admin (ficha avulsa)',
+        }],
+      });
+    }
+
+    const { data: novoAluno, error: alErr } = await supabase
+      .from('students').insert(dadosAluno).select('id').single();
+    if (alErr) throw alErr;
+
+    const { error: tkErr } = await supabase.from('avulso_tickets')
+      .update({ status: 'vinculado', student_id: novoAluno.id, vinculado_at: now })
+      .eq('id', ticketId);
+    if (tkErr) throw tkErr;
+
+    toast('Ficha vinculada — aluno cadastrado!', 'ok');
+    document.getElementById('mod-fichas-avulsas').classList.remove('open');
+    if (typeof loadAlunos === 'function') loadAlunos();
+  } catch (err) {
+    toast('Erro ao vincular: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = orig;
+  }
+}
+window.vincularFichaAvulsa = vincularFichaAvulsa;
 
 async function abrirModalFichasSessao() {
   const sel = document.getElementById('fs-projeto');
@@ -9804,6 +10375,7 @@ function renderAuthSection(aluno) {
   const logEl      = document.getElementById('al-auth-log');
   const resetBtn   = document.getElementById('btn-al-reset-auth');
   const resetHint  = document.getElementById('al-auth-reset-hint');
+  const printBtn   = document.getElementById('btn-al-imprimir-auth');
   const checkbox   = document.getElementById('al-auth-simples');
 
   const hasDecision = aluno.authorization_date != null;
@@ -9816,11 +10388,15 @@ function renderAuthSection(aluno) {
     logWrap.style.display = 'none';
     resetBtn.style.display = 'none';
     resetHint.style.display = 'none';
+    printBtn.style.display = 'none';
     return;
   }
 
   resetBtn.style.display = 'inline-flex';
   resetHint.style.display = 'block';
+  // So' faz sentido imprimir quem realmente autorizou algo — quem recusou
+  // nao tem "autorizacao" nenhuma pra sair no papel.
+  printBtn.style.display = (ind || cls) ? 'inline-flex' : 'none';
 
   // Status atual
   const date = aluno.authorization_date ? new Date(aluno.authorization_date).toLocaleDateString('pt-BR') : '—';

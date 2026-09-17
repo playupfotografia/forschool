@@ -116,6 +116,16 @@ def organizar(pasta_origem: Path, pasta_saida: Path):
             print(f'🏫 QR TURMA → {nome_pasta}' + (f'  ({periodo})' if periodo else ''))
             continue
 
+        # QR de FICHA AVULSA (aluno sem cadastro ainda, gerado em Admin →
+        # Alunos → Fichas avulsas). Nao tem nome real — so' um codigo. Em vez
+        # de criar um caminho separado, vira um "aluno" temporario com o
+        # proprio codigo como nome, e cai no fluxo normal abaixo (mesma pasta,
+        # mesmos blocos). Depois que o admin vincular o codigo a um aluno de
+        # verdade, é so' renomear esta pasta pelo nome real.
+        if dados and str(dados.get('tipo', '')).lower() == 'avulso':
+            codigo = dados.get('codigo', dados.get('c', '')) or 'SEM-CODIGO'
+            dados = {'n': f'FICHA AVULSA {codigo}', 't': '', 'a': '', 'e': '', 'id': ''}
+
         if dados:
             nome   = dados.get('nome', dados.get('n', 'Desconhecido'))
             turma  = dados.get('turma', dados.get('t', ''))
