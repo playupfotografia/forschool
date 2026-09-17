@@ -2759,7 +2759,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           <div style="font-size:11px;color:var(--gray-500);margin-bottom:4px">Histórico de decisões</div>
           <div id="al-auth-log" style="font-size:12px;display:flex;flex-direction:column;gap:4px"></div>
         </div>
-        <button type="button" class="btn btn-secondary" id="btn-al-imprimir-auth" style="display:none;margin-top:10px;margin-right:8px;font-size:12px" onclick="imprimirAutorizacaoAluno(editAlunoId)">🖨 Imprimir autorização</button>
+        <button type="button" class="btn btn-secondary" id="btn-al-imprimir-auth" style="display:none;margin-top:10px;margin-right:8px;font-size:12px" onclick="imprimirAutorizacaoAluno()">🖨 Imprimir autorização</button>
         <button type="button" class="btn btn-secondary" id="btn-al-reset-auth" style="display:none;margin-top:10px;font-size:12px">↺ Resetar autorização</button>
         <div id="al-auth-reset-hint" style="display:none;font-size:11px;color:var(--gray-500);margin-top:4px">Reseta a decisão: na próxima vez que o responsável entrar no portal, o termo de autorização será exibido novamente.</div>
       </div>
@@ -8982,6 +8982,12 @@ function montarCardAutorizacao(a, termo, escolaNome) {
 // tenha termo vinculado.
 // ---------------------------------------------------------------------------
 async function imprimirAutorizacaoAluno(studentId) {
+  // Chamado por um onclick inline no HTML, que roda fora do escopo deste
+  // <script type="module"> e nao enxerga a variavel editAlunoId — por isso o
+  // botao passa nenhum argumento, e a funcao mesma le a variavel do modulo
+  // (tem closure sobre ela, diferente do atributo onclick no HTML).
+  studentId = studentId || editAlunoId;
+  if (!studentId) { toast('Nenhum aluno selecionado.', 'error'); return; }
   try {
     const { data: a, error: aErr } = await supabase
       .from('students')
