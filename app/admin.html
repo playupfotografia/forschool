@@ -587,7 +587,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
       <div class="stat-card blue"><div class="stat-label">Escolas</div><div class="stat-value" id="d-esc">—</div></div>
       <div class="stat-card green"><div class="stat-label">Alunos</div><div class="stat-value" id="d-al">—</div></div>
       <div class="stat-card orange"><div class="stat-label">Pedidos</div><div class="stat-value" id="d-ped">—</div></div>
-      <div class="stat-card pink"><div class="stat-label">Receita confirmada</div><div class="stat-value" id="d-rec">—</div></div>
+      <div class="stat-card pink"><div class="stat-label">Receita confirmada <span class="olho-receita" onclick="toggleReceitaOculta()" title="Ocultar receita confirmada" style="cursor:pointer">👁</span></div><div class="stat-value" id="d-rec">—</div></div>
       <div class="stat-card purple"><div class="stat-label">Produtos ativos</div><div class="stat-value" id="d-prod">—</div></div>
     </div>
     <div class="card">
@@ -1014,7 +1014,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
       <div class="stat-card blue"><div class="stat-label">Total</div><div class="stat-value" id="pd-total">—</div></div>
       <div class="stat-card green"><div class="stat-label">Pagos</div><div class="stat-value" id="pd-pagos">—</div></div>
       <div class="stat-card orange"><div class="stat-label">Pendentes</div><div class="stat-value" id="pd-pend">—</div></div>
-      <div class="stat-card pink"><div class="stat-label">Receita confirmada</div><div class="stat-value" id="pd-rec">—</div></div>
+      <div class="stat-card pink"><div class="stat-label">Receita confirmada <span class="olho-receita" onclick="toggleReceitaOculta()" title="Ocultar receita confirmada" style="cursor:pointer">👁</span></div><div class="stat-value" id="pd-rec">—</div></div>
       <div class="stat-card green"><div class="stat-label">Caiu na conta (líquido)</div><div class="stat-value" id="pd-liq">—</div><div class="stat-label" style="font-weight:400;text-transform:none;letter-spacing:0;margin-top:2px" id="pd-liq-sub"></div></div>
     </div>
     <!-- CONFERENCIA DE CAIXA (migration_044) — as pilhas separam o que ja'
@@ -2461,7 +2461,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
       <div class="stat-chip"><span id="drill-st-com-pedido">—</span><small>com pedido</small></div>
       <div class="stat-chip" style="color:var(--green)"><span id="drill-st-pagos">—</span><small>pagos</small></div>
       <div class="stat-chip" style="color:var(--orange)"><span id="drill-st-pend">—</span><small>pendentes</small></div>
-      <div class="stat-chip" style="color:var(--blue)"><span id="drill-st-rec">—</span><small>receita confirmada</small></div>
+      <div class="stat-chip" style="color:var(--blue)"><span id="drill-st-rec">—</span><small>receita confirmada <span class="olho-receita" onclick="toggleReceitaOculta()" title="Ocultar receita confirmada" style="cursor:pointer">👁</span></small></div>
       <div class="stat-chip" id="drill-st-semaut-chip" style="color:var(--red);cursor:pointer" onclick="filtrarSemAutorizacao()" title="Clique para ver só quem ainda não autorizou"><span id="drill-st-semaut">—</span><small>sem autorização</small></div>
       <div class="stat-chip" style="color:var(--purple);cursor:pointer" onclick="filtrarFaltaFoto()" title="Clique para ver só quem autorizou e ainda não foi fotografado"><span id="drill-st-foto">—</span><small>fotografados</small></div>
       <div class="stat-chip" id="drill-st-faltou-chip" style="color:var(--red);cursor:pointer;display:none" onclick="filtrarFaltaram()" title="Alunos que não compareceram na sessão"><span id="drill-st-faltou">—</span><small>faltaram</small></div>
@@ -2911,6 +2911,47 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
 <!-- ============ APP JS ============ -->
 <script type="module">
 import { supabase, getCurrentUser, isAdmin, signIn, signOut, fmtMoney, toast, handleError, uploadProductImage, createParentAccount } from './js/supabase-client.js';
+
+// ============================================================================
+// OLHINHO — ocultar "Receita confirmada" em qualquer aba (Dashboard, Pedidos,
+// Alunos & Pedidos). Util na hora de compartilhar a tela com a escola sem
+// mostrar dinheiro. Um clique em qualquer um dos tres olhos esconde/mostra
+// os tres juntos — o estado persiste entre abas e entre sessoes (localStorage),
+// entao continua escondido mesmo depois de trocar de tela ou dar F5.
+// O valor de verdade fica guardado em data-valor no proprio elemento: assim
+// so' precisamos reaplicar a mascara, sem recalcular nada de novo.
+// ============================================================================
+const RECEITA_IDS = ['d-rec', 'pd-rec', 'drill-st-rec'];
+let receitaOculta = localStorage.getItem('receitaOculta') === '1';
+
+function setReceitaEl(id, valorFormatado) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.dataset.valor = valorFormatado;
+  el.textContent = receitaOculta ? '••••••' : valorFormatado;
+}
+
+function atualizarOlhosReceita() {
+  document.querySelectorAll('.olho-receita').forEach(b => {
+    b.textContent = receitaOculta ? '🙈' : '👁';
+    b.title = receitaOculta ? 'Mostrar receita confirmada' : 'Ocultar receita confirmada';
+  });
+}
+
+window.toggleReceitaOculta = function () {
+  receitaOculta = !receitaOculta;
+  localStorage.setItem('receitaOculta', receitaOculta ? '1' : '0');
+  RECEITA_IDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = receitaOculta ? '••••••' : (el.dataset.valor ?? el.textContent);
+  });
+  atualizarOlhosReceita();
+};
+// Estado inicial dos olhos (o HTML nasce sempre com 👁 — se a pagina foi
+// recarregada com a receita ja oculta de uma sessao anterior, os icones
+// precisam nascer como 🙈 tambem).
+atualizarOlhosReceita();
 
 // ============================================================================
 // AUTH
@@ -3662,7 +3703,7 @@ function filtrarPedidos() {
   const receita = pagos.reduce((s, p) => s + Number(p.total_amount || 0), 0);
   // Nada de Math.round aqui: e' um card de receita, tem que bater centavo a
   // centavo com a soma dos pedidos pagos (R$ 28,90 aparecia como R$ 29).
-  document.getElementById('pd-rec').textContent   = fmtMoney(receita);
+  setReceitaEl('pd-rec', fmtMoney(receita));
 
   // Liquido: o que o Asaas creditou, ja' sem a tarifa dele. So' existe em
   // pedido pago pelo gateway — pagamento manual nao tem tarifa.
@@ -4453,7 +4494,7 @@ async function loadDashboard() {
     document.getElementById('d-ped').textContent  = peds.data?.length ?? 0;
     document.getElementById('d-prod').textContent = prod.count ?? 0;
     const receita = (peds.data || []).filter(p => p.payment_status === 'paid').reduce((s, p) => s + Number(p.total_amount), 0);
-    document.getElementById('d-rec').textContent = fmtMoney(receita).replace(',00','');
+    setReceitaEl('d-rec', fmtMoney(receita).replace(',00',''));
 
     // Últimos pedidos
     const { data: ultimos } = await supabase
@@ -7627,7 +7668,7 @@ function renderDrillStats() {
   document.getElementById('drill-st-com-pedido').textContent = drillAlunosData.filter(a => a.order).length;
   document.getElementById('drill-st-pagos').textContent     = pagos.length;
   document.getElementById('drill-st-pend').textContent      = pend.length;
-  document.getElementById('drill-st-rec').textContent       = fmtMoney(rec);
+  setReceitaEl('drill-st-rec', fmtMoney(rec));
 
   // Sem autorizacao = nao respondeu + recusou. Sao os que nao podem ser
   // fotografados e nao entram na ficha — chip some quando esta zerado.
