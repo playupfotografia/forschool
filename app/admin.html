@@ -134,22 +134,29 @@ td{padding:10px 13px;font-size:13px;color:var(--gray-700);border-bottom:1px soli
 .conf-chk{width:19px;height:19px;cursor:pointer;accent-color:var(--green);vertical-align:middle}
 .conf-chk:disabled{cursor:not-allowed;opacity:.35}
 .conf-td{text-align:center;white-space:nowrap}
-/* Presenca na sessao: um botao so', tres estados, ciclando no clique —
-   vazio -> fotografado -> faltou -> vazio. */
+/* Presenca na sessao: um botao so', quatro estados, ciclando no clique —
+   vazio -> fotografado -> faltou -> precisa refazer -> vazio. */
 .pres-btn{width:24px;height:22px;border:1.5px solid var(--gray-300);border-radius:5px;background:#fff;
   cursor:pointer;font-size:13px;font-weight:700;line-height:1;color:var(--gray-300);padding:0}
 .pres-btn:hover{border-color:var(--gray-500)}
 .pres-btn.foto{border-color:var(--green);background:var(--green-light);color:var(--green)}
 .pres-btn.faltou{border-color:var(--red);background:var(--red-light);color:var(--red)}
+.pres-btn.refazer{border-color:#B45309;background:#FDE68A;color:#78350F}
 .pres-btn:disabled{cursor:not-allowed;opacity:.6;border-style:dashed;background:var(--gray-50);color:var(--gray-400)}
 /* Pedido cancelado: a linha inteira fica vermelha — precisa saltar aos olhos
    na lista, nao so' a celula de status, senao passa despercebido no meio de
-   pendentes/pagos. */
+   pendentes/pagos. Mesma ideia pra "precisa refazer a foto" (migration_047),
+   com cor diferente (amarelo/ambar) pra nao confundir os dois avisos ao
+   rolar a lista rapido — cancelado e' dinheiro, refazer e' producao. */
 .drill-tbl tr.row-cancelado{background:var(--red-light)}
 .drill-tbl tr.row-cancelado:hover{background:#fbdcda}
 .drill-tbl tr.row-cancelado td{color:#9B1C1C}
+.drill-tbl tr.row-refazer{background:#FDE68A}
+.drill-tbl tr.row-refazer:hover{background:#FCD34D}
+.drill-tbl tr.row-refazer td{color:#78350F}
 .pres-data{font-size:9px;color:var(--gray-400);margin-top:1px}
 .pres-faltou{font-size:9px;font-weight:700;color:var(--red);margin-top:1px}
+.pres-refazer{font-size:9px;font-weight:700;color:#B45309;margin-top:1px}
 /* Pilhas da conferencia de caixa: cada uma e' um destino de conferencia
    diferente (Asaas, extrato do banco, nada a fazer). Clicaveis. */
 .conf-pilhas{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:9px}
@@ -2471,6 +2478,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
       <div class="stat-chip" id="drill-st-semaut-chip" style="color:var(--red);cursor:pointer" onclick="filtrarSemAutorizacao()" title="Clique para ver só quem ainda não autorizou"><span id="drill-st-semaut">—</span><small>sem autorização</small></div>
       <div class="stat-chip" style="color:var(--purple);cursor:pointer" onclick="filtrarFaltaFoto()" title="Clique para ver só quem autorizou e ainda não foi fotografado"><span id="drill-st-foto">—</span><small>fotografados</small></div>
       <div class="stat-chip" id="drill-st-faltou-chip" style="color:var(--red);cursor:pointer;display:none" onclick="filtrarFaltaram()" title="Alunos que não compareceram na sessão"><span id="drill-st-faltou">—</span><small>faltaram</small></div>
+      <div class="stat-chip" id="drill-st-refazer-chip" style="color:#B45309;cursor:pointer;display:none" onclick="filtrarPrecisaRefazer()" title="Fotografados errado — precisam ser chamados de novo"><span id="drill-st-refazer">—</span><small>p/ refazer</small></div>
     </div>
     <!-- Body scrollable -->
     <div style="flex:1;overflow-y:auto;padding:16px 20px">
@@ -2497,6 +2505,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           <option value="falta">Falta fotografar</option>
           <option value="feito">Já fotografados</option>
           <option value="faltou">Faltaram</option>
+          <option value="refazer">Precisa refazer</option>
         </select>
         <label class="chk-inline" style="align-self:center;white-space:nowrap" title="Esconde quem você já chamou no WhatsApp neste projeto">
           <input type="checkbox" id="drill-al-fcont" onchange="filtrarDrillAlunos()">
@@ -7631,7 +7640,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       order: pedidosPorAluno[a.id] || null,
       contato: contatoPorAluno[a.id] || null,
       fotoEm:     fotoPorAluno[a.id]?.em || null,
-      fotoStatus: fotoPorAluno[a.id]?.status || null,   // 'foto' | 'faltou' | null
+      fotoStatus: fotoPorAluno[a.id]?.status || null,   // 'foto' | 'faltou' | 'refazer' | null
       duplicadoPago: duplicadoPagoPorAluno[a.id] || null,
       };
     });
@@ -7694,6 +7703,12 @@ function renderDrillStats() {
 
   document.getElementById('drill-st-faltou').textContent = faltaram;
   document.getElementById('drill-st-faltou-chip').style.display = faltaram ? '' : 'none';
+
+  // "Precisa refazer" (migration_047): foi fotografado, mas errado — fica
+  // fora do "comFoto de X" de propósito, porque a foto que está lá não serve.
+  const refazer = autorizados.filter(a => a.fotoStatus === 'refazer').length;
+  document.getElementById('drill-st-refazer').textContent = refazer;
+  document.getElementById('drill-st-refazer-chip').style.display = refazer ? '' : 'none';
 }
 
 // Atalho do chip "sem autorizacao": joga o filtro pra essa fila de uma vez.
@@ -7718,6 +7733,16 @@ window.filtrarFaltaFoto = function () {
 // Quem faltou: serve pra remarcar com a escola, ou pra avisar o responsavel.
 window.filtrarFaltaram = function () {
   document.getElementById('drill-al-ffoto').value = 'faltou';
+  document.getElementById('drill-al-faut').value = '';
+  document.getElementById('drill-al-busca').value = '';
+  document.getElementById('drill-al-fst').value = '';
+  filtrarDrillAlunos();
+};
+
+// Quem precisa refazer: foi fotografado errado (produto/tema trocado) e
+// precisa ser chamado de novo antes de a sessao acabar.
+window.filtrarPrecisaRefazer = function () {
+  document.getElementById('drill-al-ffoto').value = 'refazer';
   document.getElementById('drill-al-faut').value = '';
   document.getElementById('drill-al-busca').value = '';
   document.getElementById('drill-al-fst').value = '';
@@ -7995,8 +8020,9 @@ function filtrarDrillAlunos() {
   // pra fotografar. Deixar na fila faria a lista nunca zerar.
   const ffoto = document.getElementById('drill-al-ffoto')?.value;
   if (ffoto === 'falta') lista = lista.filter(a => !a.fotoStatus);
-  else if (ffoto === 'feito')  lista = lista.filter(a => a.fotoStatus === 'foto');
-  else if (ffoto === 'faltou') lista = lista.filter(a => a.fotoStatus === 'faltou');
+  else if (ffoto === 'feito')   lista = lista.filter(a => a.fotoStatus === 'foto');
+  else if (ffoto === 'faltou')  lista = lista.filter(a => a.fotoStatus === 'faltou');
+  else if (ffoto === 'refazer') lista = lista.filter(a => a.fotoStatus === 'refazer');
 
   // "Ainda nao contatados" cruza com o filtro de situacao em vez de substituir:
   // o uso real e' "sem pedido E que eu ainda nao chamei".
@@ -8120,7 +8146,10 @@ function filtrarDrillAlunos() {
     // --- Conferencia do dia: 📷 tirou foto / 💰 pagamento entrou ---------
     // Quem RECUSOU a autorizacao nao e' fotografado — a caixinha fica
     // travada em vez de convidar a marcar por engano.
-    const rowCls = a.order?.payment_status === 'cancelled' ? ' class="row-cancelado"' : '';
+    // Cancelado (dinheiro) vem antes de "precisa refazer" (producao) quando
+    // os dois coincidem — caso raro, mas o financeiro chama mais atencao.
+    const rowCls = a.order?.payment_status === 'cancelled' ? ' class="row-cancelado"'
+      : a.fotoStatus === 'refazer' ? ' class="row-refazer"' : '';
     return `<tr${rowCls} style="cursor:pointer" onclick="editarAluno('${a.id}')">
       <td onclick="event.stopPropagation()"><input type="checkbox" class="drill-ficha-chk" data-id="${a.id}" ${drillFichaSel.has(a.id) ? 'checked' : ''} onchange="toggleFichaSelDrill('${a.id}', this.checked)"></td>
       <td id="nome-td-${a.id}" style="font-weight:500">${celulaNomeAluno(a)}${avisoAut}</td>
@@ -8279,21 +8308,25 @@ window.imprimirFichasSelecionadasDrill = imprimirFichasSelecionadasDrill;
 // ---------------------------------------------------------------------------
 function celulaFoto(a) {
   const trava = a.autorizacao === 'recusou';
-  const st = a.fotoStatus || null;   // 'foto' | 'faltou' | null
+  const st = a.fotoStatus || null;   // 'foto' | 'faltou' | 'refazer' | null
 
   const titulo = trava ? 'Recusou a autorização — não é fotografado'
-    : st === 'foto'   ? `Fotografado em ${fmtDataHoraCurta(a.fotoEm)}. Clique: marcar que FALTOU`
-    : st === 'faltou' ? `Faltou em ${fmtDataHoraCurta(a.fotoEm)}. Clique: limpar`
-    : 'Clique: fotografado. De novo: faltou. De novo: limpa';
+    : st === 'foto'    ? `Fotografado em ${fmtDataHoraCurta(a.fotoEm)}. Clique: marcar que FALTOU`
+    : st === 'faltou'  ? `Faltou em ${fmtDataHoraCurta(a.fotoEm)}. Clique: marcar que PRECISA REFAZER`
+    : st === 'refazer' ? `Marcado pra refazer em ${fmtDataHoraCurta(a.fotoEm)}. Clique: limpar`
+    : 'Clique: fotografado. De novo: faltou. De novo: precisa refazer. De novo: limpa';
 
   // Tracejado com '–' pra nao parecer uma caixa vazia esperando clique: quem
   // recusou nao entra na fila de fotografar, e' outra coisa.
-  const cara = trava ? '–' : st === 'foto' ? '✓' : st === 'faltou' ? 'F' : '';
+  const cara = trava ? '–' : st === 'foto' ? '✓' : st === 'faltou' ? 'F' : st === 'refazer' ? '↻' : '';
   const btn = `<button class="pres-btn ${st || ''}" ${trava ? 'disabled' : ''}
       onclick="ciclarPresenca('${a.id}')" title="${titulo}">${cara}</button>`;
 
   if (st === 'faltou') {
     return btn + `<div class="pres-faltou">faltou</div><div class="pres-data">${fmtDataHoraCurta(a.fotoEm)}</div>`;
+  }
+  if (st === 'refazer') {
+    return btn + `<div class="pres-refazer">refazer</div><div class="pres-data">${fmtDataHoraCurta(a.fotoEm)}</div>`;
   }
   return btn + (st === 'foto' ? `<div class="pres-data">${fmtDataHoraCurta(a.fotoEm)}</div>` : '');
 }
@@ -8307,11 +8340,14 @@ function atualizarCelulaFoto(studentId) {
   if (a && td) td.innerHTML = celulaFoto(a);
 }
 
-// Um clique anda um passo: vazio -> fotografado -> faltou -> vazio.
+// Um clique anda um passo: vazio -> fotografado -> faltou -> precisa refazer -> vazio.
 // "Faltou" (migration_045) precisa existir porque aluno que nao veio nao e'
 // um "ainda nao fotografei": e' caso resolvido, e sem isso ele ficaria pra
-// sempre na fila de quem falta chamar.
-const PROXIMA_PRESENCA = { null: 'foto', foto: 'faltou', faltou: null };
+// sempre na fila de quem falta chamar. "Refazer" (migration_047) e' outro
+// caso resolvido, mas o oposto de "faltou": foi fotografado, so' que errado
+// (produto/tema trocado) — precisa aparecer chamando atencao na lista, nao
+// so' numa nota de texto dentro do cadastro.
+const PROXIMA_PRESENCA = { null: 'foto', foto: 'faltou', faltou: 'refazer', refazer: null };
 
 window.ciclarPresenca = function (studentId) {
   const a = drillAlunosData.find(x => x.id === studentId);
