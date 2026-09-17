@@ -142,6 +142,12 @@ td{padding:10px 13px;font-size:13px;color:var(--gray-700);border-bottom:1px soli
 .pres-btn.foto{border-color:var(--green);background:var(--green-light);color:var(--green)}
 .pres-btn.faltou{border-color:var(--red);background:var(--red-light);color:var(--red)}
 .pres-btn:disabled{cursor:not-allowed;opacity:.6;border-style:dashed;background:var(--gray-50);color:var(--gray-400)}
+/* Pedido cancelado: a linha inteira fica vermelha — precisa saltar aos olhos
+   na lista, nao so' a celula de status, senao passa despercebido no meio de
+   pendentes/pagos. */
+.drill-tbl tr.row-cancelado{background:var(--red-light)}
+.drill-tbl tr.row-cancelado:hover{background:#fbdcda}
+.drill-tbl tr.row-cancelado td{color:#9B1C1C}
 .pres-data{font-size:9px;color:var(--gray-400);margin-top:1px}
 .pres-faltou{font-size:9px;font-weight:700;color:var(--red);margin-top:1px}
 /* Pilhas da conferencia de caixa: cada uma e' um destino de conferencia
@@ -2477,6 +2483,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           <option value="sem_pedido">Sem pedido</option>
           <option value="pending">Pendentes</option>
           <option value="paid">Pagos</option>
+          <option value="cancelled">Cancelados</option>
         </select>
         <select class="form-select" style="width:175px" id="drill-al-faut" onchange="filtrarDrillAlunos()">
           <option value="">Toda autorização</option>
@@ -8079,14 +8086,20 @@ function filtrarDrillAlunos() {
 
       if (o.payment_status === 'paid') {
         stCell = `<button class="btn btn-sm badge-green" style="border:none;cursor:pointer;font-weight:600" onclick="drillMarcarPendente('${o.id}')" title="Clique para reverter para pendente">✓ Pago</button>`
-               + avisoCredito(o);
+               + avisoCredito(o)
+               + botaoCancelarPedido(o.id);
       } else if (o.payment_status === 'pending' && a.duplicadoPago) {
         // Duplicidade de cadastro vinculada (migration_035): o pedido lá do
         // outro cadastro do mesmo aluno ja esta' pago — nao e' mais um
         // "pendente" de verdade, so' o registro duplicado.
         stCell = `<span class="badge badge-blue" title="Mesma criança, cadastro diferente — pedido lá: ${escapeHtml(a.duplicadoPago.order_number || '')}, pago">🔗 Duplicado ✓ Pago</span>`;
       } else if (o.payment_status === 'pending') {
-        stCell = `<button class="btn btn-sm badge-yellow" style="border:none;cursor:pointer;font-weight:600" onclick="drillMarcarPago('${o.id}')" title="Clique para marcar como pago">⏳ Pendente</button>`;
+        stCell = `<button class="btn btn-sm badge-yellow" style="border:none;cursor:pointer;font-weight:600" onclick="drillMarcarPago('${o.id}')" title="Clique para marcar como pago">⏳ Pendente</button>`
+               + botaoCancelarPedido(o.id);
+      } else if (o.payment_status === 'cancelled') {
+        // Reativar volta so' pra pendente — nunca pra "pago" sozinho, pra nao
+        // fingir que um dinheiro que nunca foi conferido de novo caiu.
+        stCell = `<button class="btn btn-sm badge-red" style="border:none;cursor:pointer;font-weight:600" onclick="drillReativarPedido('${o.id}')" title="Cancelado — clique pra reativar (volta pra pendente)">✕ Cancelado</button>`;
       } else {
         stCell = `<span class="badge badge-gray">${escapeHtml(o.payment_status)}</span>`;
       }
@@ -8107,7 +8120,8 @@ function filtrarDrillAlunos() {
     // --- Conferencia do dia: 📷 tirou foto / 💰 pagamento entrou ---------
     // Quem RECUSOU a autorizacao nao e' fotografado — a caixinha fica
     // travada em vez de convidar a marcar por engano.
-    return `<tr style="cursor:pointer" onclick="editarAluno('${a.id}')">
+    const rowCls = a.order?.payment_status === 'cancelled' ? ' class="row-cancelado"' : '';
+    return `<tr${rowCls} style="cursor:pointer" onclick="editarAluno('${a.id}')">
       <td onclick="event.stopPropagation()"><input type="checkbox" class="drill-ficha-chk" data-id="${a.id}" ${drillFichaSel.has(a.id) ? 'checked' : ''} onchange="toggleFichaSelDrill('${a.id}', this.checked)"></td>
       <td id="nome-td-${a.id}" style="font-weight:500">${celulaNomeAluno(a)}${avisoAut}</td>
       <td class="conf-td" id="foto-td-${a.id}" onclick="event.stopPropagation()">${celulaFoto(a)}</td>
@@ -8639,6 +8653,69 @@ async function drillMarcarPendente(orderId) {
   renderDrillStats();
   filtrarDrillAlunos();
 }
+
+// Botao pequeno de cancelar, ao lado do status Pago/Pendente — separado do
+// toggle principal de proposito: cancelar e' mais consequente (pode mexer
+// numa cobranca de verdade no Asaas), entao pede um clique a mais e uma
+// confirmacao, em vez de entrar no mesmo ciclo de um clique so'.
+function botaoCancelarPedido(orderId) {
+  return ` <button class="btn btn-sm btn-secondary" style="font-size:10px;padding:2px 6px;color:var(--red);border-color:var(--red-light)" onclick="event.stopPropagation();drillCancelarPedido('${orderId}')" title="Cancelar este pedido">✕ Cancelar</button>`;
+}
+
+// Cancela via /api (nao direto no Supabase): se o pedido tiver uma cobranca
+// aberta no Asaas, ela precisa ser cancelada la' tambem, senao o responsavel
+// continuaria conseguindo pagar um pedido que o admin ja descartou — e essa
+// chamada exige a chave do Asaas, que so' existe no servidor.
+window.drillCancelarPedido = async function (orderId) {
+  if (!confirm('Cancelar este pedido?\n\nSe houver uma cobrança em aberto no Asaas (PIX ou cartão), ela também será cancelada — o responsável não vai mais conseguir pagar.')) return;
+  try {
+    const { data: sess } = await supabase.auth.getSession();
+    const r = await fetch('/api/cancelar-pedido', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(sess?.session?.access_token ? { Authorization: 'Bearer ' + sess.session.access_token } : {}),
+      },
+      body: JSON.stringify({ order_id: orderId }),
+    });
+    const d = await r.json();
+    if (!r.ok || !d.ok) throw new Error(d.erro || 'Não consegui cancelar.');
+
+    const idx = drillPedidosData.findIndex(p => p.id === orderId);
+    if (idx !== -1) drillPedidosData[idx].payment_status = 'cancelled';
+    const aidx = drillAlunosData.findIndex(a => a.order?.id === orderId);
+    if (aidx !== -1 && drillAlunosData[aidx].order) {
+      drillAlunosData[aidx].order.payment_status = 'cancelled';
+      drillAlunosData[aidx].order.updated_at = new Date().toISOString();
+    }
+    toast('Pedido cancelado.', 'success');
+    renderDrillStats();
+    filtrarDrillAlunos();
+    if (typeof loadPedidos === 'function') loadPedidos();
+  } catch (err) {
+    toast('Erro ao cancelar: ' + err.message, 'error');
+  }
+};
+
+// Reativar so' devolve pra "Pendente" — nunca pra "Pago" direto, porque
+// reativar nao prova que o dinheiro esta' na conta. Quem confere isso e' o
+// botao normal de marcar pago, de proposito.
+window.drillReativarPedido = async function (orderId) {
+  if (!confirm('Reativar este pedido cancelado? Ele volta para "Pendente".')) return;
+  const { error } = await supabase.from('orders').update({ payment_status: 'pending' }).eq('id', orderId);
+  if (error) { toast('Erro ao reativar: ' + error.message, 'error'); return; }
+  const idx = drillPedidosData.findIndex(p => p.id === orderId);
+  if (idx !== -1) drillPedidosData[idx].payment_status = 'pending';
+  const aidx = drillAlunosData.findIndex(a => a.order?.id === orderId);
+  if (aidx !== -1 && drillAlunosData[aidx].order) {
+    drillAlunosData[aidx].order.payment_status = 'pending';
+    drillAlunosData[aidx].order.updated_at = new Date().toISOString();
+  }
+  toast('Pedido reativado — voltou para pendente.', 'success');
+  renderDrillStats();
+  filtrarDrillAlunos();
+  if (typeof loadPedidos === 'function') loadPedidos();
+};
 
 window.abrirDrillProjeto  = abrirDrillProjeto;
 window.filtrarDrillAlunos = filtrarDrillAlunos;
