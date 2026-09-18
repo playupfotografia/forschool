@@ -430,6 +430,28 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
 .fs-turma-qtd { font-size:12px; font-weight:600; color:var(--gray-600); min-width:64px; text-align:right; font-variant-numeric:tabular-nums; }
 .fs-turma.vazia { opacity:.5; }
 
+/* RECIBO — usado no <div id="recibo-pdf-el"> escondido, capturado pelo
+   html2pdf (ver baixarReciboPDF). Mesmo CSS da janela de impressão do
+   recibo (gerarRecibo), so' que com prefixo pra nao vazar table/th/td pro
+   resto do admin — sem o prefixo, essas regras bem gerais pisariam nas
+   tabelas de Pedidos, Alunos etc. */
+.recibo-doc{font-family:'DM Sans',Arial,sans-serif;color:#1a1a2e;font-size:13px;line-height:1.5}
+.recibo-doc .rec-head{text-align:center;border-bottom:2px solid #4B6BFB;padding-bottom:12px;margin-bottom:16px}
+.recibo-doc .rec-empresa{font-family:'Playfair Display',serif;font-size:22px;color:#4B6BFB;font-weight:700}
+.recibo-doc .rec-empresa-sub{font-size:11px;color:#888;margin-top:2px}
+.recibo-doc .rec-titulo{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px}
+.recibo-doc .rec-titulo h1{font-size:16px}
+.recibo-doc .rec-status{font-weight:700;padding:3px 10px;border-radius:20px;font-size:11px}
+.recibo-doc .rec-status.pago{background:#E9F7EF;color:#27AE60}
+.recibo-doc .rec-status.pendente{background:#FEF9C3;color:#854D0E}
+.recibo-doc .rec-bloco{margin-bottom:14px}
+.recibo-doc .rec-bloco b{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#888;margin-bottom:3px}
+.recibo-doc table{width:100%;border-collapse:collapse;margin-bottom:10px}
+.recibo-doc th{text-align:left;font-size:10px;text-transform:uppercase;color:#888;border-bottom:1px solid #ddd;padding:6px 4px}
+.recibo-doc td{padding:6px 4px;border-bottom:1px solid #f0f0f0}
+.recibo-doc .rec-total{display:flex;justify-content:space-between;font-size:16px;font-weight:700;border-top:2px solid #1a1a2e;padding-top:8px;margin-top:4px}
+.recibo-doc .rec-foot{margin-top:24px;font-size:10.5px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:10px}
+
 /* ============================================================
    MOBILE / TABLET (<=880px) — sidebar vira gaveta (☰), aberta por
    cima do conteudo, com fundo escuro pra fechar tocando fora.
@@ -3003,6 +3025,10 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
 
 <div id="toast"></div>
 
+<!-- Recibo: preenchido so' durante a geracao do PDF (baixarReciboPDF), fora
+     da tela — e' o elemento que o html2pdf "fotografa". -->
+<div id="recibo-pdf-el" class="recibo-doc" style="position:fixed;left:-9999px;top:0;width:190mm;background:#fff;padding:10mm"></div>
+
 <!-- ============ APP JS ============ -->
 <script type="module">
 import { supabase, getCurrentUser, isAdmin, signIn, signOut, fmtMoney, toast, handleError, uploadProductImage, createParentAccount } from './js/supabase-client.js';
@@ -4174,14 +4200,21 @@ async function abrirDetalhesPedido(id) {
     `;
 
     // Ações no footer
+    let acoesHtml = `<button class="btn btn-secondary" id="mp-recibo">🧾 Gerar recibo</button>`;
     if (ped.payment_status === 'pending') {
-      actions.innerHTML = `<button class="btn btn-success" id="mp-confirmar">✓ Confirmar pagamento</button>`;
+      acoesHtml += `<button class="btn btn-success" id="mp-confirmar">✓ Confirmar pagamento</button>`;
+    } else if (ped.payment_status === 'paid') {
+      acoesHtml += `<button class="btn btn-warning" id="mp-reverter">↩ Reverter pra pendente</button>`;
+    }
+    actions.innerHTML = acoesHtml;
+
+    document.getElementById('mp-recibo').addEventListener('click', () => gerarRecibo(ped));
+    if (ped.payment_status === 'pending') {
       document.getElementById('mp-confirmar').addEventListener('click', async () => {
         await marcarPedidoPago(ped.id);
         modal.classList.remove('open');
       });
     } else if (ped.payment_status === 'paid') {
-      actions.innerHTML = `<button class="btn btn-warning" id="mp-reverter">↩ Reverter pra pendente</button>`;
       document.getElementById('mp-reverter').addEventListener('click', async () => {
         await marcarPedidoPendente(ped.id);
         modal.classList.remove('open');
@@ -4191,6 +4224,194 @@ async function abrirDetalhesPedido(id) {
     handleError(err, 'detalhesPedido');
     body.innerHTML = '<div class="empty" style="color:var(--red)">Erro ao carregar detalhes. Veja o console (F12).</div>';
   }
+}
+
+// ---------------------------------------------------------------------------
+// RECIBO DO PEDIDO
+//
+// Reusa o mesmo `ped` ja' carregado por abrirDetalhesPedido (com school/user/
+// items) — nao busca de novo no banco. Duas saidas a partir da mesma janela:
+// imprimir (visual, com o cabecalho da empresa) ou mandar por WhatsApp (texto
+// puro — wa.me nao anexa arquivo, entao o "recibo" que vai por WhatsApp e' a
+// mesma informacao em texto, nao o PDF/impresso). Segue o mesmo padrao de
+// janela usado em abrirJanelaAutorizacoes/abrirJanelaFichas.
+// ---------------------------------------------------------------------------
+// Monta so' o CONTEUDO do recibo (sem <html>/<head>/botoes) — reusado tanto
+// pela janela de impressao quanto pelo PDF (que roda no documento principal,
+// onde o html2pdf ja' esta' carregado). Evita ter a mesma tabela de itens
+// escrita duas vezes com chance de uma ficar desatualizada e a outra nao.
+function montarConteudoRecibo(ped, cfg) {
+  const empresa = cfg?.business_name || 'Play Up Fotografia';
+  const turma = ped.student?.school_classes;
+  const anoTxt = turma?.year?.name || '';
+  const turmaTxt = turma?.name || '';
+  const dataEmissao = new Date().toLocaleString('pt-BR');
+  const dataPedido = new Date(ped.created_at).toLocaleDateString('pt-BR');
+  const paidAt = ped.paid_at ? new Date(ped.paid_at).toLocaleDateString('pt-BR') : null;
+  const metodoNome = ped.payment_method ? (METODO_LABEL[ped.payment_method] || ped.payment_method) : null;
+  const statusTxt = ped.payment_status === 'paid' ? 'PAGO' : ped.payment_status === 'pending' ? 'PENDENTE' : ped.payment_status.toUpperCase();
+
+  const itemsFromKit = (ped.items || []).filter(it => it.from_kit_id);
+  const itemsAvulsos = (ped.items || []).filter(it => !it.from_kit_id);
+
+  const linhasHtml = [
+    ...itemsFromKit.map(it => `<tr><td>${escapeHtml(it.product?.name || '—')} <span style="color:#999;font-size:11px">(incluso no kit)</span></td><td style="text-align:center">${it.quantity}</td><td style="text-align:right">—</td></tr>`),
+    ...itemsAvulsos.map(it => `<tr><td>${escapeHtml(it.product?.name || '—')}${it.variant_name ? ' — ' + escapeHtml(it.variant_name) : ''}</td><td style="text-align:center">${it.quantity}</td><td style="text-align:right">${fmtMoney(Number(it.unit_price) * it.quantity)}</td></tr>`),
+  ].join('');
+
+  return `
+<div class="rec-head">
+  <div class="rec-empresa">${escapeHtml(empresa)}</div>
+  <div class="rec-empresa-sub">${cfg?.cnpj ? 'CNPJ ' + escapeHtml(cfg.cnpj) : ''}${cfg?.support_email ? (cfg?.cnpj ? ' · ' : '') + escapeHtml(cfg.support_email) : ''}${cfg?.address ? '<br>' + escapeHtml(cfg.address) : ''}</div>
+</div>
+<div class="rec-titulo">
+  <h1>Recibo — Pedido ${escapeHtml(ped.order_number || '—')}</h1>
+  <span class="rec-status ${ped.payment_status === 'paid' ? 'pago' : 'pendente'}">${statusTxt}</span>
+</div>
+<div class="rec-bloco">
+  <b>Aluno</b>
+  ${escapeHtml(ped.student?.name || '—')} — ${escapeHtml(ped.school?.name || '—')}${anoTxt ? ', ' + escapeHtml(anoTxt) : ''}${turmaTxt ? ' / Turma ' + escapeHtml(turmaTxt) : ''}
+</div>
+<div class="rec-bloco">
+  <b>Responsável</b>
+  ${escapeHtml(ped.user?.name || '—')}${ped.user?.cpf ? ' — CPF ' + escapeHtml(ped.user.cpf) : ''}
+</div>
+<div class="rec-bloco">
+  <b>Itens</b>
+  <table>
+    <thead><tr><th>Produto</th><th style="text-align:center">Qtd</th><th style="text-align:right">Valor</th></tr></thead>
+    <tbody>${linhasHtml}</tbody>
+  </table>
+  <div class="rec-total"><span>Total</span><span>${fmtMoney(ped.total_amount)}</span></div>
+</div>
+<div class="rec-bloco">
+  <b>Pagamento</b>
+  ${metodoNome ? escapeHtml(metodoNome) : 'Não informado'} — pedido feito em ${dataPedido}${paidAt ? `, pago em ${paidAt}` : ''}
+</div>
+<div class="rec-foot">Recibo gerado eletronicamente em ${dataEmissao} pelo sistema For School.</div>`;
+}
+
+async function gerarRecibo(ped) {
+  const { data: cfg } = await supabase
+    .from('app_settings')
+    .select('business_name, cnpj, support_email, address')
+    .eq('id', 1)
+    .maybeSingle();
+  const empresa = cfg?.business_name || 'Play Up Fotografia';
+  const dataPedido = new Date(ped.created_at).toLocaleDateString('pt-BR');
+  const paidAt = ped.paid_at ? new Date(ped.paid_at).toLocaleDateString('pt-BR') : null;
+  const metodoNome = ped.payment_method ? (METODO_LABEL[ped.payment_method] || ped.payment_method) : null;
+  const statusTxt = ped.payment_status === 'paid' ? 'PAGO' : ped.payment_status === 'pending' ? 'PENDENTE' : ped.payment_status.toUpperCase();
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="UTF-8">
+<title>Recibo ${escapeHtml(ped.order_number || '')} — ${escapeHtml(empresa)}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',Arial,sans-serif;background:#fff;color:#1a1a2e;font-size:13px;line-height:1.5}
+@page{size:A4 portrait;margin:18mm}
+@media screen{body{padding:20px;max-width:190mm;margin:0 auto}
+  .btn-row{display:flex;gap:8px;justify-content:center;margin-bottom:18px;flex-wrap:wrap}
+  .btn-row button,.btn-row a{padding:9px 18px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+  .btn-print{background:#4B6BFB;color:#fff}
+  .btn-pdf{background:#7C3AED;color:#fff}
+  .btn-wpp{background:#25D366;color:#fff}}
+@media print{.btn-row{display:none}}
+.rec-head{text-align:center;border-bottom:2px solid #4B6BFB;padding-bottom:12px;margin-bottom:16px}
+.rec-empresa{font-family:'Playfair Display',serif;font-size:22px;color:#4B6BFB;font-weight:700}
+.rec-empresa-sub{font-size:11px;color:#888;margin-top:2px}
+.rec-titulo{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px}
+.rec-titulo h1{font-size:16px}
+.rec-status{font-weight:700;padding:3px 10px;border-radius:20px;font-size:11px}
+.rec-status.pago{background:#E9F7EF;color:#27AE60}
+.rec-status.pendente{background:#FEF9C3;color:#854D0E}
+.rec-bloco{margin-bottom:14px}
+.rec-bloco b{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#888;margin-bottom:3px}
+table{width:100%;border-collapse:collapse;margin-bottom:10px}
+th{text-align:left;font-size:10px;text-transform:uppercase;color:#888;border-bottom:1px solid #ddd;padding:6px 4px}
+td{padding:6px 4px;border-bottom:1px solid #f0f0f0}
+.rec-total{display:flex;justify-content:space-between;font-size:16px;font-weight:700;border-top:2px solid #1a1a2e;padding-top:8px;margin-top:4px}
+.rec-foot{margin-top:24px;font-size:10.5px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:10px}
+</style>
+</head><body>
+<div class="btn-row">
+  <button class="btn-print" onclick="window.print()">🖨 Imprimir</button>
+  <button class="btn-pdf" onclick="window.opener && window.opener.baixarReciboPDF('${ped.id}')">📄 Baixar PDF</button>
+  <a class="btn-wpp" style="text-decoration:none;display:inline-flex;align-items:center" href="https://wa.me/${apenasDigitosWpp(ped.user?.phone) || ''}?text=${encodeURIComponent(montarTextoRecibo(ped, empresa, statusTxt, metodoNome, dataPedido, paidAt))}" target="_blank" rel="noopener">💬 Enviar texto por WhatsApp</a>
+</div>
+${montarConteudoRecibo(ped, cfg)}
+</body></html>`;
+
+  const win = window.open('', '_blank', 'width=820,height=760');
+  win.document.write(html);
+  win.document.close();
+}
+window.gerarRecibo = gerarRecibo;
+
+// Baixa o recibo como PDF, pra anexar manualmente no WhatsApp — o texto puro
+// (botao acima) nao passa a mesma confianca de um documento formatado.
+// Roda AQUI no documento principal (nao na janela do recibo) porque e' aqui
+// que o html2pdf.js foi carregado; a janela de impressao so' faz uma chamada
+// remota via window.opener, sem precisar carregar a biblioteca de novo.
+async function baixarReciboPDF(pedidoId) {
+  if (typeof html2pdf === 'undefined') { toast('Biblioteca de PDF não carregou. Recarregue a página.', 'error'); return; }
+  const el = document.getElementById('recibo-pdf-el');
+  toast('Gerando PDF…', 'info');
+  try {
+    const [{ data: ped, error }, { data: cfg }] = await Promise.all([
+      supabase.from('orders').select(`
+        *,
+        student:students(id, name, school_classes(name, year:school_years(name))),
+        school:schools(id, name),
+        user:users(id, name, phone, email, cpf),
+        items:order_items(id, quantity, unit_price, discount_applied, from_kit_id, variant_name, product:products(id, name))
+      `).eq('id', pedidoId).single(),
+      supabase.from('app_settings').select('business_name, cnpj, support_email, address').eq('id', 1).maybeSingle(),
+    ]);
+    if (error) throw error;
+
+    el.innerHTML = montarConteudoRecibo(ped, cfg);
+    await html2pdf().set({
+      margin: 10,
+      filename: `Recibo-${(ped.order_number || 'pedido').replace(/\s+/g, '_')}.pdf`,
+      image: { type: 'jpeg', quality: 0.97 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    }).from(el).save();
+    toast('PDF baixado! Agora é só anexar no WhatsApp.', 'ok');
+  } catch (err) {
+    handleError(err, 'baixarReciboPDF');
+  } finally {
+    el.innerHTML = '';
+  }
+}
+window.baixarReciboPDF = baixarReciboPDF;
+
+// Versao em texto puro do recibo, pro botao "Enviar por WhatsApp" da janela
+// de impressao — wa.me so' abre com texto, nunca com arquivo anexado.
+function montarTextoRecibo(ped, empresa, statusTxt, metodoNome, dataPedido, paidAt) {
+  const itemsFromKit = (ped.items || []).filter(it => it.from_kit_id);
+  const itemsAvulsos = (ped.items || []).filter(it => !it.from_kit_id);
+  const linhas = [
+    ...itemsFromKit.map(it => `- ${it.product?.name || '—'} (incluso no kit) x${it.quantity}`),
+    ...itemsAvulsos.map(it => `- ${it.product?.name || '—'}${it.variant_name ? ' — ' + it.variant_name : ''} x${it.quantity}: ${fmtMoney(Number(it.unit_price) * it.quantity)}`),
+  ].join('\n');
+
+  return `🧾 *Recibo — ${empresa}*
+
+Pedido: ${ped.order_number || '—'}
+Aluno: ${ped.student?.name || '—'}
+Escola: ${ped.school?.name || '—'}
+
+*Itens:*
+${linhas}
+
+*Total: ${fmtMoney(ped.total_amount)}*
+Forma de pagamento: ${metodoNome || 'Não informado'}
+Status: ${statusTxt}${paidAt ? ` (pago em ${paidAt})` : ` (pedido feito em ${dataPedido})`}
+
+Obrigado pela confiança! 💛`;
 }
 
 // ============================================================================
