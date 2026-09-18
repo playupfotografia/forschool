@@ -1356,6 +1356,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           </select>
         </div>
         <button class="btn btn-primary" id="btn-gerar-rel">Gerar relatório</button>
+        <button class="btn btn-secondary" id="btn-imprimir-rel">🖨 Imprimir / PDF</button>
       </div>
     </div>
 
@@ -3327,6 +3328,8 @@ document.querySelectorAll('.sb-item').forEach(btn => {
 // ============================================================================
 
 let pedidosCache = [];   // todos os pedidos carregados (pra filtrar client-side sem requery)
+let relDados = null;     // ultimo relatorio gerado — usado pelo botao Imprimir/PDF
+let pedModalAtual = null; // pedido aberto no modal de detalhes — salvarMetodoPagamento mantem isso fresco pro botao "Gerar recibo" nao usar forma de pagamento desatualizada
 let duplicadoPagoPorAlunoPedidos = {};   // student_id -> pedido pago do cadastro duplicado (migration_035)
 let conferidoPorPedido = {};             // order_id -> {checked_at, notes} (migration_044)
 
@@ -3700,6 +3703,38 @@ function rotuloMetodo(p) {
   return `<span style="font-size:12px;color:var(--gray-700)">${escapeHtml(nome)}</span>${auto}`;
 }
 
+// Forma de pagamento EDITAVEL — so' pra pedido manual (gateway != asaas). O
+// pago pelo Asaas ja' vem preenchido sozinho pelo webhook (rotuloMetodo com
+// selo AUTO) e nao faz sentido deixar sobrescrever isso na mao. Usado em
+// Alunos & Pedidos e no modal de detalhes do pedido — os dois unicos lugares
+// que precisavam disso pra o recibo sair com a forma certa.
+function celulaMetodoPagamento(o) {
+  if (o.gateway === 'asaas') return rotuloMetodo(o);
+  const opts = ['', ...Object.keys(METODO_LABEL)].map(v =>
+    `<option value="${v}" ${o.payment_method === v ? 'selected' : ''}>${v ? METODO_LABEL[v] : '— forma —'}</option>`
+  ).join('');
+  return `<select class="form-select" style="font-size:11px;padding:2px 4px;width:110px"
+            onclick="event.stopPropagation()"
+            onchange="event.stopPropagation();salvarMetodoPagamento('${o.id}', this.value)">${opts}</select>`;
+}
+
+async function salvarMetodoPagamento(orderId, metodo) {
+  const { error } = await supabase.from('orders').update({ payment_method: metodo || null }).eq('id', orderId);
+  if (error) { toast('Erro ao salvar forma de pagamento', 'error'); return; }
+  // Atualiza os caches em memoria pra nao precisar recarregar a tela —
+  // mesmo padrao de atualizarCelulaFoto: nada de re-render aqui, senao o
+  // <select> fecha sozinho no meio da escolha.
+  [pedidosCache, drillPedidosData].forEach(arr => {
+    const p = (arr || []).find(x => x.id === orderId);
+    if (p) p.payment_method = metodo || null;
+  });
+  const a = (drillAlunosData || []).find(x => x.order?.id === orderId);
+  if (a?.order) a.order.payment_method = metodo || null;
+  if (pedModalAtual?.id === orderId) pedModalAtual.payment_method = metodo || null;
+  toast('Forma de pagamento salva.', 'ok');
+}
+window.salvarMetodoPagamento = salvarMetodoPagamento;
+
 // ---------------------------------------------------------------------------
 // "Pago" nem sempre e' "caiu na conta" (migration_043).
 //
@@ -4026,6 +4061,17 @@ async function marcarPedidoPendente(id) {
   }
 }
 
+// Usada em abrirDetalhesPedido, baixarReciboPDF e gerarReciboPorId — as tres
+// telas que precisam do pedido "completo" (aluno+escola+responsavel+itens).
+// Uma so' definicao pra as tres nao correrem o risco de divergir com o tempo.
+const ORDER_DETAIL_SELECT = `
+  *,
+  student:students(id, name, birth_date, school_classes(name, year:school_years(name))),
+  school:schools(id, name, slug, phone),
+  user:users(id, name, phone, email, cpf),
+  items:order_items(id, quantity, unit_price, discount_applied, from_kit_id, variant_name, product:products(id, name, image_url))
+`;
+
 async function abrirDetalhesPedido(id) {
   const modal = document.getElementById('mod-ped');
   const body = document.getElementById('mod-ped-body');
@@ -4038,16 +4084,11 @@ async function abrirDetalhesPedido(id) {
   try {
     const { data: ped, error } = await supabase
       .from('orders')
-      .select(`
-        *,
-        student:students(id, name, birth_date, school_classes(name, year:school_years(name))),
-        school:schools(id, name, slug, phone),
-        user:users(id, name, phone, email, cpf),
-        items:order_items(id, quantity, unit_price, discount_applied, from_kit_id, variant_name, product:products(id, name, image_url))
-      `)
+      .select(ORDER_DETAIL_SELECT)
       .eq('id', id)
       .single();
     if (error) throw error;
+    pedModalAtual = ped;
 
     title.textContent = `Pedido ${ped.order_number || '—'}`;
 
@@ -4142,7 +4183,7 @@ async function abrirDetalhesPedido(id) {
           <div class="card" style="border-color:var(--gray-100)">
             <div class="card-header" style="padding:9px 13px"><div class="card-title" style="font-size:12px">Pagamento</div></div>
             <div class="card-body" style="padding:11px 13px;font-size:13px">
-              <div>Método: ${rotuloMetodo(ped)}</div>
+              <div>Método: ${celulaMetodoPagamento(ped)}</div>
               <div style="margin-top:4px">Status: ${stBadge}</div>
               ${paidAt ? `<div style="font-size:12px;color:var(--gray-500);margin-top:3px">Pago em ${paidAt}</div>` : ''}
               ${ped.gateway === 'asaas' ? `
@@ -4368,13 +4409,7 @@ async function baixarReciboPDF(pedidoId) {
   toast('Gerando PDF…', 'info');
   try {
     const [{ data: ped, error }, { data: cfg }] = await Promise.all([
-      supabase.from('orders').select(`
-        *,
-        student:students(id, name, school_classes(name, year:school_years(name))),
-        school:schools(id, name),
-        user:users(id, name, phone, email, cpf),
-        items:order_items(id, quantity, unit_price, discount_applied, from_kit_id, variant_name, product:products(id, name))
-      `).eq('id', pedidoId).single(),
+      supabase.from('orders').select(ORDER_DETAIL_SELECT).eq('id', pedidoId).single(),
       supabase.from('app_settings').select('business_name, cnpj, support_email, address').eq('id', 1).maybeSingle(),
     ]);
     if (error) throw error;
@@ -4395,6 +4430,16 @@ async function baixarReciboPDF(pedidoId) {
   }
 }
 window.baixarReciboPDF = baixarReciboPDF;
+
+// Entrada usada por quem NAO tem o pedido completo em maos (ex: o icone 🧾
+// em Alunos & Pedidos, que so' tem os campos do drill) — busca o pedido
+// completo e delega pro gerarRecibo de sempre.
+async function gerarReciboPorId(pedidoId) {
+  const { data: ped, error } = await supabase.from('orders').select(ORDER_DETAIL_SELECT).eq('id', pedidoId).single();
+  if (error) { handleError(error, 'gerarReciboPorId'); return; }
+  gerarRecibo(ped);
+}
+window.gerarReciboPorId = gerarReciboPorId;
 
 // Versao em texto puro do recibo, pro botao "Enviar por WhatsApp" da janela
 // de impressao — wa.me so' abre com texto, nunca com arquivo anexado.
@@ -8438,7 +8483,7 @@ function filtrarDrillAlunos() {
 
       // Mesmo rotulo da tela de Pedidos (com o selo AUTO/manual), pra as duas
       // telas nao descreverem o mesmo pagamento de jeitos diferentes.
-      formaCell = rotuloMetodo(o)
+      formaCell = celulaMetodoPagamento(o)
         + (Number(o.amount_charged) > Number(o.total_amount || 0)
             ? `<div style="font-size:10px;color:var(--gray-500)">pagou ${fmtMoney(Number(o.amount_charged))}</div>`
             : '');
@@ -8466,6 +8511,7 @@ function filtrarDrillAlunos() {
       if (o.payment_proof_url) {
         stCell += ` <a class="btn btn-sm btn-secondary" href="${escapeHtml(o.payment_proof_url)}" target="_blank" title="Ver comprovante" style="font-size:11px">📎</a>`;
       }
+      stCell += ` <button class="btn btn-sm btn-secondary" style="font-size:11px" onclick="event.stopPropagation();gerarReciboPorId('${o.id}')" title="Gerar recibo (imprimir, PDF ou WhatsApp)">🧾</button>`;
     }
 
     // Sem autorizacao o aluno nao e' fotografado — precisa saltar aos olhos na
@@ -11758,6 +11804,7 @@ document.getElementById('btn-gerar-rel').addEventListener('click', async () => {
     `).join('');
 
     // DRE
+    let dreLinhasParaImprimir = null;
     if (projetoId) {
       dreEl.style.display = 'block';
       const linhas = [
@@ -11792,6 +11839,7 @@ document.getElementById('btn-gerar-rel').addEventListener('click', async () => {
         </div>
         <div style="font-size:11px;color:var(--gray-400);margin-top:2px">Total despesas: ${fmtMoney(totalDespesas)} · Margem: ${totalBruto > 0 ? Math.round((liquido/totalBruto)*100) : 0}%</div>
       `;
+      dreLinhasParaImprimir = { linhas, liquido, totalDespesas, totalBruto };
     }
 
     // Tabela de pedidos
@@ -11826,10 +11874,121 @@ document.getElementById('btn-gerar-rel').addEventListener('click', async () => {
       tr.addEventListener('click', () => abrirDetalhesPedido(tr.dataset.relPed))
     );
 
+    // Guarda pro botao Imprimir/PDF — nao reconsulta o banco, so' reusa o
+    // que acabou de calcular.
+    relDados = {
+      todos, kitLabel,
+      projetoNome: projetoId ? (document.getElementById('rel-fprojeto').selectedOptions[0]?.text || '') : 'Todos os projetos',
+      statusTxt: document.getElementById('rel-fstatus').selectedOptions[0]?.text || 'Todos',
+      dre: dreLinhasParaImprimir,
+    };
   } catch (err) {
     handleError(err, 'gerarRelatorio');
     resumoEl.innerHTML = '<div style="color:var(--red);font-size:13px">Erro ao gerar relatório.</div>';
   }
+});
+
+// ---------------------------------------------------------------------------
+// IMPRIMIR / PDF DO RELATORIO
+//
+// Reusa relDados (ja' calculado por "Gerar relatorio", sem reconsultar o
+// banco). Mesmo padrao de janela usado no recibo (gerarRecibo) — botao
+// "Imprimir" chama window.print(), e o proprio dialogo de impressao do
+// navegador ja' tem "Salvar como PDF" como opcao de impressora, entao nao
+// precisa de uma segunda biblioteca aqui.
+// ---------------------------------------------------------------------------
+document.getElementById('btn-imprimir-rel').addEventListener('click', async () => {
+  if (!relDados) { toast('Clique em "Gerar relatório" primeiro.', 'warn'); return; }
+
+  const { data: cfg } = await supabase
+    .from('app_settings')
+    .select('business_name, cnpj')
+    .eq('id', 1)
+    .maybeSingle();
+  const empresa = cfg?.business_name || 'Play Up Fotografia';
+  const { todos, kitLabel, projetoNome, statusTxt, dre } = relDados;
+  const pagos = todos.filter(p => p.payment_status === 'paid');
+  const pendentes = todos.filter(p => p.payment_status === 'pending');
+  const totalBruto = pagos.reduce((s,p) => s + Number(p.total_amount || 0), 0);
+  const totalPendente = pendentes.reduce((s,p) => s + Number(p.total_amount || 0), 0);
+  const dataEmissao = new Date().toLocaleString('pt-BR');
+
+  const dreHtml = dre ? dre.linhas.map(l => {
+    if (l.sep) return `<div style="padding:8px 0 3px;font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.6px;border-top:1px solid #eee;margin-top:4px">${escapeHtml(l.label)}</div>`;
+    const cor = l.dest ? (l.valor > 0 ? '#E74C3C' : '#999') : '#1a1a2e';
+    return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f0f0f0;font-size:13px">
+      <span>${escapeHtml(l.label)}${l.hint ? ` <span style="font-size:11px;color:#999">${escapeHtml(l.hint)}</span>` : ''}</span>
+      <span style="font-weight:600;color:${cor}">${l.dest ? '−' : ''}${fmtMoney(l.valor)}</span>
+    </div>`;
+  }).join('') + `
+    <div style="display:flex;justify-content:space-between;padding:10px 0 4px;font-size:14px;font-weight:700;margin-top:4px;border-top:2px solid #ddd">
+      <span>= Resultado líquido</span><span style="color:${dre.liquido >= 0 ? '#27AE60' : '#E74C3C'}">${fmtMoney(dre.liquido)}</span>
+    </div>` : '';
+
+  const linhasTab = todos.map(p => `<tr>
+    <td style="font-family:monospace;font-size:11px">${escapeHtml(p.order_number || '—')}</td>
+    <td>${escapeHtml(p.student?.name || '—')}</td>
+    <td style="font-size:11px;color:#666">${escapeHtml(p.user?.name || '—')}</td>
+    <td>${kitLabel[p.kit_type] || (p.kit_type ? escapeHtml(p.kit_type) : '—')}</td>
+    <td style="text-align:right;font-weight:600">${fmtMoney(p.total_amount)}</td>
+    <td>${p.payment_status === 'paid' ? 'Pago' : p.payment_status === 'pending' ? 'Pendente' : escapeHtml(p.payment_status)}</td>
+    <td style="font-size:11px;color:#666">${p.created_at ? new Date(p.created_at).toLocaleDateString('pt-BR') : '—'}</td>
+  </tr>`).join('') || '<tr><td colspan="7" style="text-align:center;color:#999;padding:14px">Nenhum pedido encontrado.</td></tr>';
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="UTF-8">
+<title>Relatório financeiro — ${escapeHtml(empresa)}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',Arial,sans-serif;background:#fff;color:#1a1a2e;font-size:13px;line-height:1.5}
+@page{size:A4 portrait;margin:15mm}
+@media screen{body{padding:20px;max-width:190mm;margin:0 auto}
+  .btn-row{display:flex;gap:8px;justify-content:center;margin-bottom:18px}
+  .btn-row button{padding:9px 18px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;background:#4B6BFB;color:#fff}}
+@media print{.btn-row{display:none}}
+.rr-head{text-align:center;border-bottom:2px solid #4B6BFB;padding-bottom:12px;margin-bottom:16px}
+.rr-empresa{font-family:'Playfair Display',serif;font-size:22px;color:#4B6BFB;font-weight:700}
+.rr-sub{font-size:11px;color:#888;margin-top:2px}
+.rr-titulo{font-size:16px;font-weight:700;margin-bottom:4px}
+.rr-filtro{font-size:12px;color:#666;margin-bottom:16px}
+.rr-cards{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.rr-card{flex:1;min-width:140px;border:1px solid #eee;border-radius:8px;padding:10px 12px}
+.rr-card b{display:block;font-size:18px;margin-top:2px}
+.rr-bloco{margin-bottom:16px}
+.rr-bloco h2{font-size:13px;margin-bottom:8px}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:10px;text-transform:uppercase;color:#888;border-bottom:1px solid #ddd;padding:5px 4px}
+td{padding:5px 4px;border-bottom:1px solid #f5f5f5}
+.rr-foot{margin-top:20px;font-size:10.5px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:8px}
+</style>
+</head><body>
+<div class="btn-row"><button onclick="window.print()">🖨 Imprimir / Salvar como PDF</button></div>
+<div class="rr-head">
+  <div class="rr-empresa">${escapeHtml(empresa)}</div>
+  <div class="rr-sub">${cfg?.cnpj ? 'CNPJ ' + escapeHtml(cfg.cnpj) : ''}</div>
+</div>
+<div class="rr-titulo">Relatório financeiro</div>
+<div class="rr-filtro">Projeto: ${escapeHtml(projetoNome)} · Status: ${escapeHtml(statusTxt)} · Gerado em ${dataEmissao}</div>
+<div class="rr-cards">
+  <div class="rr-card" style="border-top:3px solid #27AE60">Pedidos pagos<b style="color:#27AE60">${fmtMoney(totalBruto)}</b><span style="font-size:11px;color:#999">${pagos.length} pedidos</span></div>
+  <div class="rr-card" style="border-top:3px solid #E3815A">Pedidos pendentes<b style="color:#E3815A">${fmtMoney(totalPendente)}</b><span style="font-size:11px;color:#999">${pendentes.length} pedidos</span></div>
+  <div class="rr-card" style="border-top:3px solid #4B6BFB">Total de pedidos<b style="color:#4B6BFB">${todos.length}</b></div>
+</div>
+${dre ? `<div class="rr-bloco"><h2>Resultado do projeto</h2>${dreHtml}</div>` : ''}
+<div class="rr-bloco">
+  <h2>Pedidos incluídos</h2>
+  <table>
+    <thead><tr><th>Nº</th><th>Aluno</th><th>Responsável</th><th>Kit</th><th style="text-align:right">Total</th><th>Status</th><th>Data</th></tr></thead>
+    <tbody>${linhasTab}</tbody>
+  </table>
+</div>
+<div class="rr-foot">Relatório gerado eletronicamente em ${dataEmissao} pelo sistema For School.</div>
+</body></html>`;
+
+  const win = window.open('', '_blank', 'width=900,height=800');
+  win.document.write(html);
+  win.document.close();
 });
 
 // ============================================================================
@@ -11840,7 +11999,7 @@ async function loadAnaliseProdutos() {
   const sel = document.getElementById('ap-fprojeto');
   if (sel.options.length <= 1) {
     const { data: projs } = await supabase.from('projects')
-      .select('id, name:inf_intro_text, school:schools(name)').order('created_at', { ascending: false });
+      .select('id, name, school:schools(name)').order('created_at', { ascending: false });
     (projs || []).forEach(p => {
       const o = document.createElement('option');
       o.value = p.id;
