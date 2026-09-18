@@ -3026,8 +3026,16 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
 <div id="toast"></div>
 
 <!-- Recibo: preenchido so' durante a geracao do PDF (baixarReciboPDF), fora
-     da tela — e' o elemento que o html2pdf "fotografa". -->
-<div id="recibo-pdf-el" class="recibo-doc" style="position:fixed;left:-9999px;top:0;width:190mm;background:#fff;padding:10mm"></div>
+     da tela — e' o elemento que o html2pdf "fotografa".
+     ⚠️ O wrapper com max-height:0;overflow:hidden e' o que esconde (nao
+     "position:fixed;left:-9999px", que parecia funcionar mas o html2canvas
+     capturava com ALTURA ZERO — vira PDF em branco sem erro nenhum no
+     console. position:absolute tem o mesmo problema. Testado na pratica
+     antes de trocar: static + clip pelo pai e' o unico dos tres que da'
+     certo. Nao "otimizar" isso de volta pra fixed/absolute.) -->
+<div style="max-height:0;overflow:hidden">
+  <div id="recibo-pdf-el" class="recibo-doc" style="width:190mm;background:#fff;padding:10mm"></div>
+</div>
 
 <!-- ============ APP JS ============ -->
 <script type="module">
