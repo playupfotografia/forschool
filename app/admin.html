@@ -6132,10 +6132,15 @@ function renderAvulsos() {
 
 // ----- SALVAR ESCOLA -----
 document.getElementById('btn-salvar-escola').addEventListener('click', async () => {
+  const btnSalvarEsc = document.getElementById('btn-salvar-escola');
+  if (btnSalvarEsc.disabled) return; // clique duplo enquanto o salvamento anterior ainda roda
   const nome = document.getElementById('e-nome').value.trim();
   let slug = document.getElementById('e-slug').value.trim() || slugify(nome);
   if (!nome) { toast('Preencha o nome da escola', 'warn'); switchTab('te-dados'); return; }
   if (!slug) { toast('Defina um slug pra URL', 'warn'); switchTab('te-dados'); return; }
+  btnSalvarEsc.disabled = true;
+  const txtOriginalBtnEsc = btnSalvarEsc.textContent;
+  btnSalvarEsc.textContent = 'Salvando…';
 
   const payloadSchool = {
     name: nome,
@@ -6309,6 +6314,9 @@ document.getElementById('btn-salvar-escola').addEventListener('click', async () 
     loadCounts();
   } catch (err) {
     handleError(err, 'salvarEscola');
+  } finally {
+    btnSalvarEsc.disabled = false;
+    btnSalvarEsc.textContent = txtOriginalBtnEsc;
   }
 });
 
