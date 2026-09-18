@@ -40,7 +40,7 @@
   --c-pro:#E3815A;--c-pro-bg:#FEF3EC;
   --c-av:#4B6BFB;--c-av-bg:#EEF1FF;
 }
-body{font-family:var(--font);background:var(--gray-50);color:var(--gray-800);font-size:14px;line-height:1.5}
+body{font-family:var(--font);background:var(--gray-50);color:var(--gray-800);font-size:14px;line-height:1.5;overflow-x:hidden}
 button,input,select,textarea{font-family:var(--font)}
 
 /* LOGIN */
@@ -57,6 +57,20 @@ button,input,select,textarea{font-family:var(--font)}
 .app{display:flex;min-height:100vh}
 .sidebar{width:var(--sidebar);background:var(--white);border-right:1px solid var(--gray-200);position:fixed;top:0;left:0;height:100vh;z-index:100;display:flex;flex-direction:column;overflow-y:auto}
 .main{margin-left:var(--sidebar);flex:1;min-height:100vh}
+
+/* MENU MOBILE — botao hamburguer + fundo escuro + botao de fechar dentro da
+   sidebar. Ficam ocultos por padrao (so aparecem dentro do @media la embaixo,
+   que e' onde a sidebar vira gaveta) pra nao mudar nada no desktop. */
+.mobile-menu-btn{display:none;position:fixed;top:9px;left:10px;z-index:160;
+  width:34px;height:34px;border-radius:8px;border:1px solid var(--gray-200);
+  background:var(--white);align-items:center;justify-content:center;cursor:pointer;
+  box-shadow:0 1px 4px rgba(0,0,0,.1)}
+.mobile-menu-btn svg{width:18px;height:18px;stroke:var(--gray-700);stroke-width:2.2}
+.sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(17,24,39,.45);z-index:95}
+.sidebar-overlay.open{display:block}
+.sb-mobile-close{display:none;position:absolute;top:10px;right:10px;width:28px;height:28px;
+  border:none;border-radius:7px;background:var(--gray-100);color:var(--gray-600);
+  font-size:18px;line-height:1;cursor:pointer;align-items:center;justify-content:center}
 
 /* SIDEBAR */
 .sb-brand{padding:13px 12px;border-bottom:1px solid var(--gray-100);display:flex;align-items:center;gap:10px}
@@ -415,6 +429,45 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
 .fs-turma-sessao.sem { color:var(--gray-300); font-style:italic; }
 .fs-turma-qtd { font-size:12px; font-weight:600; color:var(--gray-600); min-width:64px; text-align:right; font-variant-numeric:tabular-nums; }
 .fs-turma.vazia { opacity:.5; }
+
+/* ============================================================
+   MOBILE / TABLET (<=880px) — sidebar vira gaveta (☰), aberta por
+   cima do conteudo, com fundo escuro pra fechar tocando fora.
+   Acima de 880px (desktop, tablet grande em paisagem) nada aqui
+   se aplica — o layout continua exatamente como sempre foi.
+   ============================================================ */
+@media (max-width:880px){
+  .mobile-menu-btn{display:flex}
+  .sb-mobile-close{display:flex}
+  .sidebar{transform:translateX(-100%);transition:transform .25s ease;
+    width:82vw;max-width:300px;box-shadow:2px 0 24px rgba(0,0,0,.18)}
+  .sidebar.open{transform:translateX(0)}
+  .main{margin-left:0}
+  .topbar{padding-left:54px}
+  .page{padding:14px 12px}
+  /* Formularios em 2-3 colunas viram 1 coluna so' — sem precisar de
+     zoom/pinch pra ler rotulo e campo. */
+  .fg2,.fg3,.grid-2{grid-template-columns:1fr}
+  .contato-row,.ano-row,.kit-item-row,.bil-turma-row{grid-template-columns:1fr;gap:8px}
+  .avulso-row,.avulso-row-hd{grid-template-columns:22px 1fr 58px 58px;gap:5px;padding:7px 8px;font-size:12px}
+  /* "Vende?" nao cabe em 22px e atropelava "Produto" — a coluna e' so' o
+     checkbox mesmo, o rotulo e' redundante aqui. */
+  .avulso-row-hd span:first-child{font-size:0}
+  .stats-grid{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
+  /* Modal vira "bottom sheet": largura toda, nasce colado embaixo —
+     mais facil de alcancar com o polegar que um cartao centralizado. */
+  .modal-overlay{padding:0;align-items:flex-end}
+  .modal,.modal-lg{max-width:100%;width:100%;border-radius:16px 16px 0 0;max-height:94vh}
+  /* Evita o zoom automatico do iOS ao focar campo com fonte < 16px. */
+  .form-input,.form-select,textarea{font-size:16px}
+  .btn{padding:8px 14px}
+  .topbar{height:auto;min-height:52px;flex-wrap:wrap;row-gap:8px;padding-top:10px;padding-bottom:10px}
+  .topbar-actions{flex-wrap:wrap;justify-content:flex-end;row-gap:6px}
+  /* Linhas "titulo + botoes de acao" (card de escola, cabecalho de card...)
+     que nao cabem lado a lado quebram pra baixo em vez de cortar o botao
+     fora da tela — sem isso da' pra ficar sem alcancar "Duplicar"/"Excluir". */
+  .escola-card,.card-header{flex-wrap:wrap;row-gap:8px}
+}
 </style>
 </head>
 <body>
@@ -486,7 +539,12 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
 <!-- ============ APP ============ -->
 <div id="app">
 <div class="app">
+<button class="mobile-menu-btn" onclick="toggleSidebarMobile()" aria-label="Abrir menu" title="Menu">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+</button>
+<div class="sidebar-overlay" onclick="fecharSidebarMobile()"></div>
 <aside class="sidebar">
+  <button class="sb-mobile-close" onclick="fecharSidebarMobile()" aria-label="Fechar menu">×</button>
   <div class="sb-brand">
     <img src="assets/logo.png" alt="For School" class="brand-logo-sidebar"
          onerror="this.style.display='none';this.parentElement.querySelector('.sb-logo').style.display='block'">
@@ -3171,8 +3229,22 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
 // NAV
 // ============================================================================
 
+// Menu mobile (gaveta): funcoes expostas em window por serem chamadas via
+// onclick inline no HTML, dentro de <script type="module"> (mesmo padrao
+// de window.editarAluno/window.abrirDrillRapido acima).
+window.toggleSidebarMobile = function () {
+  document.querySelector('.sidebar')?.classList.toggle('open');
+  document.querySelector('.sidebar-overlay')?.classList.toggle('open');
+};
+window.fecharSidebarMobile = function () {
+  document.querySelector('.sidebar')?.classList.remove('open');
+  document.querySelector('.sidebar-overlay')?.classList.remove('open');
+};
+document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharSidebarMobile(); });
+
 document.querySelectorAll('.sb-item').forEach(btn => {
   btn.addEventListener('click', () => {
+    fecharSidebarMobile();   // no celular, escolher uma pagina fecha a gaveta
     const page = btn.dataset.page;
     // Item sem data-page e' atalho (abre modal), nao troca de pagina.
     if (!page) return;
