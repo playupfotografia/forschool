@@ -1547,6 +1547,11 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
             <div class="hint" style="margin-bottom:5px">Usada antes de qualquer conversa sobre compra — sem autorização o aluno não é fotografado.</div>
             <textarea class="form-input" id="cfg-msg-sem-autorizacao" rows="7" style="font-size:13px"></textarea>
           </div>
+          <div class="form-group">
+            <label class="form-label">Lembrete: sessão é hoje</label>
+            <div class="hint" style="margin-bottom:5px">Versão urgente da mensagem acima, pra quem ainda está sem autorização no dia da própria sessão. Botão separado ("📸 Hoje") em Alunos/Pedidos.</div>
+            <textarea class="form-input" id="cfg-msg-sessao-hoje" rows="7" style="font-size:13px"></textarea>
+          </div>
         </div>
       </div>
 
@@ -2336,6 +2341,15 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
               <span>🔎 Projeto de demonstração</span>
             </label>
             <div class="slug-hint">Pra escola conhecer o portal antes de fechar: navega tudo e vê os preços, mas nenhum pedido é gravado e nenhuma cobrança é gerada.</div>
+            <label class="chk-inline" style="margin-top:6px">
+              <input type="checkbox" id="pj-encerrado">
+              <span>🔒 Encerrar novos cadastros</span>
+            </label>
+            <div class="slug-hint">Bloqueia cadastro de responsável ou aluno novo no portal deste projeto — quem já tem conta continua acessando e comprando normalmente pros filhos já cadastrados. Use quando não há mais tempo de atender pedido novo (ex: sessão de fotos já feita).</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Mensagem pra quem tentar se cadastrar <span style="font-weight:400;text-transform:none;letter-spacing:0">(opcional)</span></label>
+            <textarea class="form-input" id="pj-encerrado-msg" rows="4" placeholder="Em branco usa a mensagem padrão do portal (agradecendo e avisando de uma próxima oportunidade)."></textarea>
           </div>
         </div>
       </div>
@@ -4381,6 +4395,7 @@ async function loadConfig() {
     document.getElementById('cfg-msg-sem-pedido').value = data.contact_msg_sem_pedido || '';
     document.getElementById('cfg-msg-pendente').value   = data.contact_msg_pendente || '';
     document.getElementById('cfg-msg-sem-autorizacao').value = data.contact_msg_sem_autorizacao || '';
+    document.getElementById('cfg-msg-sessao-hoje').value = data.contact_msg_sessao_hoje || '';
     document.getElementById('cfg-paylink-url').value   = data.payment_link_url || '';
     document.getElementById('cfg-paylink-label').value = data.payment_link_label || '';
     document.getElementById('cfg-min-installment').value  = data.min_installment_value ?? 40;
@@ -4509,6 +4524,7 @@ document.getElementById('btn-salvar-config').addEventListener('click', async () 
     contact_msg_sem_pedido: document.getElementById('cfg-msg-sem-pedido').value.trim() || null,
     contact_msg_pendente:   document.getElementById('cfg-msg-pendente').value.trim() || null,
     contact_msg_sem_autorizacao: document.getElementById('cfg-msg-sem-autorizacao').value.trim() || null,
+    contact_msg_sessao_hoje: document.getElementById('cfg-msg-sessao-hoje').value.trim() || null,
     payment_link_url:   document.getElementById('cfg-paylink-url').value.trim() || null,
     payment_link_label: document.getElementById('cfg-paylink-label').value.trim() || null,
     min_installment_value: parseFloat(document.getElementById('cfg-min-installment').value) || 40,
@@ -6799,7 +6815,7 @@ async function loadProjetos() {
   tbody.innerHTML = '<tr><td colspan="7" class="loading"><span class="spinner"></span>Carregando…</td></tr>';
   try {
     const [projResp, escResp] = await Promise.all([
-      supabase.from('projects').select('id, name, slug, year, project_type, active, demo_mode, school:schools(id, name)').order('name'),
+      supabase.from('projects').select('id, name, slug, year, project_type, active, demo_mode, registrations_closed, school:schools(id, name)').order('name'),
       supabase.from('schools').select('id, name').eq('active', true).order('name'),
     ]);
     if (projResp.error) throw projResp.error;
@@ -6853,11 +6869,12 @@ function renderTabelaProjetos() {
     // vende), verde = ativo, vermelho = desativado. A demonstracao vem antes
     // do ativo de proposito — um projeto pode ser os dois, e o que importa
     // saber e' que ele nao cobra.
-    const status = p.demo_mode
+    const status = (p.demo_mode
       ? '<span class="badge badge-yellow">🔎 Demonstração</span>'
       : p.active
         ? '<span class="badge badge-green">Ativo</span>'
-        : '<span class="badge badge-gray">Inativo</span>';
+        : '<span class="badge badge-gray">Inativo</span>')
+      + (p.registrations_closed ? ' <span class="badge badge-gray" title="Cadastro novo bloqueado no portal — quem já tem conta continua comprando">🔒 Cadastro encerrado</span>' : '');
     const linhaCls = p.demo_mode ? 'pj-demo' : p.active ? 'pj-ativo' : 'pj-inativo';
     return `<tr class="${linhaCls}" style="cursor:pointer" title="Clique para abrir o Bilhete deste projeto" data-proj-bil="${p.id}">
       <td style="font-weight:500">${escapeHtml(p.name)}</td>
@@ -6919,13 +6936,16 @@ async function abrirModalProjeto() {
 function resetModalProjeto() {
   ['pj-nome','pj-slug','pj-ano','pj-entrega',
    'pj-rep-valor','pj-delivery','pj-material','pj-obs',
-   'pj-inf-intro','pj-inf-body','pj-inf-delivery','pj-inf-uniform','pj-inf-footer'].forEach(id => {
+   'pj-inf-intro','pj-inf-body','pj-inf-delivery','pj-inf-uniform','pj-inf-footer',
+   'pj-encerrado-msg'].forEach(id => {
     document.getElementById(id).value = '';
   });
   document.getElementById('pj-slug-prev').textContent = 'slug';
   document.getElementById('pj-tipo').value = 'regular';
   document.getElementById('pj-rep-tipo').value = 'nenhum';
   document.getElementById('pj-ativo').checked = true;
+  document.getElementById('pj-demo').checked = false;
+  document.getElementById('pj-encerrado').checked = false;
   document.getElementById('pj-pix-manual').checked = true;
   document.getElementById('pj-external').checked = false;
   document.getElementById('pj-inf-badge').style.display = 'none';
@@ -7030,6 +7050,8 @@ async function editarProjeto(id) {
     document.getElementById('pj-tipo').value    = p.project_type || 'regular';
     document.getElementById('pj-ativo').checked = p.active !== false;
     document.getElementById('pj-demo').checked  = p.demo_mode === true;
+    document.getElementById('pj-encerrado').checked = p.registrations_closed === true;
+    document.getElementById('pj-encerrado-msg').value = p.closed_message || '';
     document.getElementById('pj-bilhete').value = p.bilhete_template_id || '';
     document.getElementById('pj-termo').value   = p.authorization_term_id || '';
     document.getElementById('pj-entrega').value = p.delivery_date || '';
@@ -7232,6 +7254,8 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
     project_type: document.getElementById('pj-tipo').value,
     active: document.getElementById('pj-ativo').checked,
     demo_mode: document.getElementById('pj-demo').checked,
+    registrations_closed: document.getElementById('pj-encerrado').checked,
+    closed_message: document.getElementById('pj-encerrado-msg').value.trim() || null,
     delivery_fee:         parseFloat(document.getElementById('pj-entrega-taxa').value) || 0,
     delivery_cutoff_days: parseInt(document.getElementById('pj-entrega-corte').value, 10) || 0,
     pickup_enabled:       document.getElementById('pj-entrega-retirada').checked,
@@ -8567,9 +8591,17 @@ function celulaContato(a) {
   }
 
   const jaFoi = !!a.contato;
+  // Sem autorizacao ganha um segundo botao, mais urgente, pra quem a sessao
+  // e' hoje — mensagem separada (contact_msg_sessao_hoje), sem mexer no
+  // botao generico de sempre.
+  const btnHoje = tipo === 'sem_autorizacao'
+    ? ` <button class="btn btn-sm" style="border:none;cursor:pointer;font-weight:600;background:var(--orange);color:#fff"
+          onclick="contatarResponsavel('${a.id}','sessao_hoje')"
+          title="Lembrete urgente: a sessão de fotos deste aluno é hoje">📸 Hoje</button>`
+    : '';
   return `<button class="btn btn-sm" style="border:none;cursor:pointer;font-weight:600;background:${jaFoi ? 'var(--gray-100)' : '#25D366'};color:${jaFoi ? 'var(--gray-500)' : '#fff'}"
             onclick="contatarResponsavel('${a.id}','${tipo}')"
-            title="${jaFoi ? 'Já contatado — clique para falar de novo' : 'Abrir conversa no WhatsApp'}">💬 WhatsApp</button>${quando}`;
+            title="${jaFoi ? 'Já contatado — clique para falar de novo' : 'Abrir conversa no WhatsApp'}">💬 WhatsApp</button>${btnHoje}${quando}`;
 }
 
 // "2026-09-30" -> "30/09/2026" e volta. dd/mm e' o formato que o Daniel
@@ -8710,7 +8742,7 @@ window.contatarResponsavel = async function (studentId, tipo) {
     if (!contatoMsgCache) {
       const { data, error } = await supabase
         .from('app_settings')
-        .select(`contact_msg_sem_pedido, contact_msg_pendente, contact_msg_sem_autorizacao, pix_key, pix_key_type,
+        .select(`contact_msg_sem_pedido, contact_msg_pendente, contact_msg_sem_autorizacao, contact_msg_sessao_hoje, pix_key, pix_key_type,
                  surcharge_mode, card_fee_percent, card_fee_percent_installment, card_fee_fixed,
                  anticipation_enabled, anticipation_fee_percent, anticipation_fee_percent_installment,
                  min_installment_value, max_installments`)
@@ -8720,6 +8752,7 @@ window.contatarResponsavel = async function (studentId, tipo) {
     }
 
     const modelo = tipo === 'sem_autorizacao' ? contatoMsgCache.contact_msg_sem_autorizacao
+                 : tipo === 'sessao_hoje'     ? contatoMsgCache.contact_msg_sessao_hoje
                  : tipo === 'pendente'        ? contatoMsgCache.contact_msg_pendente
                  : contatoMsgCache.contact_msg_sem_pedido;
     if (!modelo) {

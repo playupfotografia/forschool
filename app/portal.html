@@ -563,6 +563,19 @@ body.modo-demo::after{content:'';position:fixed;inset:0;border:4px solid #7C3AED
         <div id="cad-erro" class="error-msg" style="display:none"></div>
       </form>
 
+      <!-- CADASTRO ENCERRADO (projects.registrations_closed) — some no lugar
+           do form-cadastro quando o projeto nao aceita gente nova, mas quem
+           ja' tem conta continua entrando pela aba "Já tenho cadastro". -->
+      <div id="cadastro-encerrado" style="display:none;text-align:center;padding:4px 2px">
+        <img src="assets/logo-playup.png" alt="Play Up Fotografia" style="height:96px;width:auto;margin:0 auto 16px;display:block;object-fit:contain" onerror="this.style.display='none'">
+        <div style="font-size:32px;margin-bottom:6px">💛</div>
+        <div style="font-size:17px;font-weight:700;color:#1a1a2e;margin-bottom:8px">Período de cadastro encerrado</div>
+        <div id="cadastro-encerrado-msg" style="font-size:13.5px;color:#555;line-height:1.6;margin-bottom:18px;text-align:left"></div>
+        <div style="font-size:12px;color:#888;margin-bottom:14px">Já tem cadastro? Continue comprando normalmente pro(a) seu(sua) filho(a).</div>
+        <button type="button" class="btn btn-primary btn-block" id="btn-encerrado-login" style="padding:11px">Já tenho cadastro — Entrar →</button>
+        <a id="encerrado-wpp" href="#" target="_blank" rel="noopener" class="pay-duvida" style="margin-top:12px;display:inline-block">💬 Dúvidas? Fale com a Play Up</a>
+      </div>
+
       <!-- FORM LOGIN -->
       <form id="form-login" style="display:none">
         <div class="form-group">
@@ -1909,6 +1922,7 @@ async function loadEscola() {
       await afterLogin(user);
     } else {
       show('screen-auth');
+      if (projeto?.registrations_closed) mostrarCadastroEncerrado();
     }
   } catch (err) {
     handleError(err, 'loadEscola');
@@ -1947,15 +1961,37 @@ function renderTermPlaceholders(text, vars) {
 document.getElementById('tab-cadastro').addEventListener('click', () => {
   document.getElementById('tab-cadastro').classList.add('active');
   document.getElementById('tab-login').classList.remove('active');
-  document.getElementById('form-cadastro').style.display = 'block';
   document.getElementById('form-login').style.display = 'none';
+  if (projeto?.registrations_closed) mostrarCadastroEncerrado();
+  else {
+    document.getElementById('cadastro-encerrado').style.display = 'none';
+    document.getElementById('form-cadastro').style.display = 'block';
+  }
 });
 document.getElementById('tab-login').addEventListener('click', () => {
   document.getElementById('tab-login').classList.add('active');
   document.getElementById('tab-cadastro').classList.remove('active');
   document.getElementById('form-login').style.display = 'block';
   document.getElementById('form-cadastro').style.display = 'none';
+  document.getElementById('cadastro-encerrado').style.display = 'none';
 });
+document.getElementById('btn-encerrado-login').addEventListener('click', () => {
+  document.getElementById('tab-login').click();
+});
+
+// Projeto com projects.registrations_closed=true (migration_050): no lugar
+// do formulario de cadastro, uma tela agradecendo e avisando que o periodo
+// encerrou — pensada pra quando a sessao de fotos ja' aconteceu e nao ha'
+// mais tempo de atender pedido novo. Quem ja' tem conta continua entrando
+// normal pela aba "Já tenho cadastro" (essa tela nao mexe no form-login).
+function mostrarCadastroEncerrado() {
+  document.getElementById('form-cadastro').style.display = 'none';
+  document.getElementById('cadastro-encerrado').style.display = 'block';
+  document.getElementById('cadastro-encerrado-msg').textContent = projeto?.closed_message?.trim() ||
+    'O período de cadastro para este projeto já se encerrou. Agradecemos demais o carinho das famílias que já garantiram as fotos! 💛 Fique de olho: em breve teremos novas oportunidades com a Play Up Fotografia.';
+  const msg = encodeURIComponent(`Olá! Vi que o cadastro da ${escola?.name || 'escola'} está encerrado e gostaria de mais informações.`);
+  document.getElementById('encerrado-wpp').href = `https://wa.me/${WPP_NUMERO}?text=${msg}`;
+}
 
 // Blocos de irmao no cadastro inicial — gemeos e irmaos entram de uma vez so',
 // cada um virando um aluno separado (com autorizacao e pedido proprios).
@@ -2054,6 +2090,10 @@ function validarWhatsApp(tel) {
 // Submit cadastro
 document.getElementById('form-cadastro').addEventListener('submit', async e => {
   e.preventDefault();
+  // Segunda trava (a tela de cadastro ja' fica escondida quando o projeto
+  // esta' encerrado — isso aqui e' so' seguranca, caso o formulario continue
+  // visivel por algum motivo).
+  if (projeto?.registrations_closed) { mostrarCadastroEncerrado(); return; }
   const erroEl = document.getElementById('cad-erro');
   erroEl.style.display = 'none';
 
@@ -2217,6 +2257,12 @@ document.getElementById('form-cadastro').addEventListener('submit', async e => {
 // tentava criar uma conta nova, com outro e-mail, e batia na trava de CPF
 // (cada CPF so' existe uma vez). Ai ele desistia ou mandava mensagem.
 window.irAdicionarFilho = function () {
+  // Filho novo tambem e' "cadastro novo" — se o projeto esta' encerrado,
+  // nao ha' mais tempo de fotografar quem ainda nao tem sessao marcada.
+  if (projeto?.registrations_closed) {
+    toast('Novo cadastro encerrado para este projeto. Fale com a Play Up se precisar.', 'warn');
+    return;
+  }
   document.getElementById('form-add-filho').reset();
   const selAno = document.getElementById('af-ano');
   selAno.innerHTML = '<option value="">— Selecione —</option>';
@@ -2252,6 +2298,12 @@ document.getElementById('af-ano').addEventListener('change', e => {
 // Submit do form de adicionar filho
 document.getElementById('form-add-filho').addEventListener('submit', async e => {
   e.preventDefault();
+  // Mesma segunda trava do form-cadastro (regra 17: garanta que quem chegou
+  // aqui por algum caminho antigo tambem esbarra na regra).
+  if (projeto?.registrations_closed) {
+    toast('Novo cadastro encerrado para este projeto. Fale com a Play Up se precisar.', 'warn');
+    return;
+  }
   const erroEl = document.getElementById('af-erro');
   erroEl.style.display = 'none';
   const alNome  = document.getElementById('af-nome').value.trim();
