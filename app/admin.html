@@ -2559,6 +2559,56 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
   </div>
 </div>
 
+<!-- MODAL PERSONALIZAR AVULSO PRA UM PROJETO (nome/descricao/foto/variacoes,
+     so' pra esse projeto — o produto global e os outros projetos nao mudam) -->
+<div class="modal-overlay" id="mod-pjav-override">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Personalizar <span id="pjav-ov-title-produto"></span> pra este projeto</div>
+      <button class="modal-close" data-close="mod-pjav-override">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="alert alert-info" style="font-size:12px;margin-bottom:14px">
+        Tudo que você preencher aqui vale <b>só pra este projeto</b>. Campo em branco continua usando o produto padrão — nada aqui muda o produto global nem os outros projetos/escolas.
+      </div>
+      <div class="form-grid" style="gap:12px">
+        <div class="form-group">
+          <label class="form-label">Nome</label>
+          <input class="form-input" id="pjav-ov-nome" placeholder="">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Descrição</label>
+          <textarea class="form-input" rows="3" id="pjav-ov-desc" placeholder=""></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Foto principal</label>
+          <div style="display:flex;gap:10px;align-items:center">
+            <div id="pjav-ov-img-preview" style="width:64px;height:64px;border-radius:8px;overflow:hidden;background:var(--gray-50);border:1px solid var(--gray-200);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0"></div>
+            <label class="btn btn-secondary" style="cursor:pointer;white-space:nowrap">
+              Trocar foto
+              <input type="file" accept="image/*" id="pjav-ov-img-file" style="display:none">
+            </label>
+            <button type="button" id="pjav-ov-img-reset" style="display:none;background:none;border:none;color:var(--gray-400);text-decoration:underline;font-size:12px;cursor:pointer">restaurar padrão</button>
+          </div>
+        </div>
+        <div class="form-group" style="border-top:1px solid var(--gray-100);padding-top:12px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px">
+            <input type="checkbox" id="pjav-ov-var-toggle">
+            <b style="font-size:13px">Personalizar variações pra este projeto</b>
+          </label>
+          <div id="pjav-ov-var-off-info" style="font-size:12px;color:var(--gray-500)"></div>
+          <div id="pjav-ov-var-wrap" style="display:none;flex-direction:column;gap:8px"></div>
+          <button type="button" class="btn btn-secondary btn-sm" id="pjav-ov-var-add" style="display:none;margin-top:8px">+ Adicionar variação</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" data-close="mod-pjav-override">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-pjav-override">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL DRILL-DOWN PROJETO (Alunos & Pedidos) -->
 <div class="modal-overlay" id="mod-drill-proj" style="align-items:flex-start;padding:0">
   <div class="modal" style="max-width:1600px;width:98vw;height:97vh;margin:1.5vh auto;display:flex;flex-direction:column;border-radius:var(--radius-lg)">
@@ -6681,6 +6731,35 @@ let pjAvulsosTemp = [];     // [{product_id, name, available, price_with_promo, 
 let projColabsTemp = [];    // [{_id?, collaborator_id, name, service_value}]
 let colabsGlobal = [];      // todos os colaboradores ativos (cache p/ select)
 
+// Variações GLOBAIS de cada produto (product_variants) — usadas como texto
+// informativo e como ponto de partida ao personalizar um avulso pra um
+// projeto (migration_051).
+async function carregarVariantesGlobaisPorProduto(productIds) {
+  const mapa = {};
+  if (!productIds.length) return mapa;
+  const { data, error } = await supabase
+    .from('product_variants')
+    .select('id, product_id, name, image_url, price_with_promo, price_without_promo, photo_theme')
+    .in('product_id', productIds).eq('active', true).order('sort_order');
+  if (error) throw error;
+  (data || []).forEach(v => { (mapa[v.product_id] ||= []).push(v); });
+  return mapa;
+}
+
+// Variações PRÓPRIAS de um projeto/escola (school_price_variants), uma por
+// school_prices.id — só existem pra quem tem variants_overridden ligado.
+async function carregarVariantesOverridePorSchoolPrice(schoolPriceIds) {
+  const mapa = {};
+  if (!schoolPriceIds.length) return mapa;
+  const { data, error } = await supabase
+    .from('school_price_variants')
+    .select('id, school_price_id, name, image_url, price_with_promo, price_without_promo, photo_theme')
+    .in('school_price_id', schoolPriceIds).order('sort_order');
+  if (error) throw error;
+  (data || []).forEach(v => { (mapa[v.school_price_id] ||= []).push(v); });
+  return mapa;
+}
+
 window.updatePjRepLabel = function() {
   const tipo = document.getElementById('pj-rep-tipo').value;
   const lbl = document.getElementById('pj-rep-lbl');
@@ -6855,6 +6934,9 @@ document.getElementById('btn-pj-copiar-escola').addEventListener('click', async 
 
     const priceMap = {};
     (pricesResp.data || []).forEach(pr => { priceMap[pr.product_id] = pr; });
+    const variantesGlobais = await carregarVariantesGlobaisPorProduto(produtosAtomicos.map(p => p.id));
+    const spIdsComVar = (pricesResp.data || []).filter(pr => pr.variants_overridden).map(pr => pr.id);
+    const variantesOverride = await carregarVariantesOverridePorSchoolPrice(spIdsComVar);
     let nAvulsos = 0;
     pjAvulsosTemp = produtosAtomicos.map(p => {
       const sp = priceMap[p.id];
@@ -6865,6 +6947,14 @@ document.getElementById('btn-pj-copiar-escola').addEventListener('click', async 
         price_with_promo: sp ? sp.price_with_promo : null,
         price_without_promo: sp ? sp.price_without_promo : null,
         base_pcom: p.base_price_with_promo, base_psem: p.base_price_without_promo,
+        ov_name: sp?.name || null,
+        ov_description: sp?.description || null,
+        ov_image_url: sp?.image_url || null,
+        ov_variants_overridden: sp?.variants_overridden || false,
+        ov_variants: sp ? (variantesOverride[sp.id] || []) : [],
+        default_description: p.description || null,
+        default_image_url: p.image_url || null,
+        default_variants: variantesGlobais[p.id] || [],
       };
     });
 
@@ -7081,13 +7171,20 @@ function renderPjAvulsos() {
     el.innerHTML = '<div class="empty">Nenhum produto avulso cadastrado. Vá em Produtos e adicione antes.</div>';
     return;
   }
-  el.innerHTML = pjAvulsosTemp.map((a, i) => `
+  el.innerHTML = pjAvulsosTemp.map((a, i) => {
+    const personalizado = !!(a.ov_name || a.ov_description || a.ov_image_url || a.ov_variants_overridden);
+    return `
     <div class="avulso-row ${a.available ? '' : 'disabled'}" data-pjav-row="${i}">
       <input type="checkbox" data-pjav-chk="${i}" ${a.available ? 'checked' : ''}>
-      <span class="av-nome">${escapeHtml(a.name)} <span style="color:var(--gray-400);font-size:11px">(base: ${fmtMoney(a.base_pcom)} / ${fmtMoney(a.base_psem)})</span></span>
+      <span class="av-nome">${escapeHtml(a.name)} <span style="color:var(--gray-400);font-size:11px">(base: ${fmtMoney(a.base_pcom)} / ${fmtMoney(a.base_psem)})</span>
+        <button type="button" class="btn btn-sm ${personalizado ? 'btn-primary' : 'btn-secondary'}" style="font-size:10px;padding:2px 7px;margin-left:6px" data-pjav-ov-btn="${i}" title="Nome, descrição, foto e variações só pra este projeto">
+          ${personalizado ? '✓ personalizado' : '✏️ personalizar'}
+        </button>
+      </span>
       <input type="number" step="0.01" data-pjav-pcom="${i}" value="${a.price_with_promo ?? ''}" placeholder="${fmtMoney(a.base_pcom)}">
       <input type="number" step="0.01" data-pjav-psem="${i}" value="${a.price_without_promo ?? ''}" placeholder="${fmtMoney(a.base_psem)}">
-    </div>`).join('');
+    </div>`;
+  }).join('');
   el.querySelectorAll('[data-pjav-chk]').forEach(c => c.addEventListener('change', e => {
     const i = Number(c.dataset.pjavChk);
     pjAvulsosTemp[i].available = e.target.checked;
@@ -7101,7 +7198,174 @@ function renderPjAvulsos() {
     const v = e.target.value === '' ? null : parseFloat(e.target.value);
     pjAvulsosTemp[Number(c.dataset.pjavPsem)].price_without_promo = isNaN(v) ? null : v;
   }));
+  el.querySelectorAll('[data-pjav-ov-btn]').forEach(b => b.addEventListener('click', () => {
+    abrirPjavOverride(Number(b.dataset.pjavOvBtn));
+  }));
 }
+
+// ----------------------------------------------------------------------------
+// PERSONALIZAR AVULSO PRA UM PROJETO — nome/descricao/foto/variacoes so' pra
+// esse projeto. Guarda tudo em pjAvulsosTemp[i] (campos ov_*) ate' o clique
+// em "Salvar projeto"; so' vira escrita no banco (school_prices +
+// school_price_variants) junto do resto do projeto, igual preco/disponivel.
+// ----------------------------------------------------------------------------
+let pjavOvIdx = null;
+let pjavOvVariantesTemp = [];
+let pjavOvImageFile = null;
+
+function abrirPjavOverride(i) {
+  const a = pjAvulsosTemp[i];
+  if (!a) return;
+  pjavOvIdx = i;
+  pjavOvImageFile = null;
+  document.getElementById('pjav-ov-title-produto').textContent = a.name;
+  document.getElementById('pjav-ov-nome').value = a.ov_name || '';
+  document.getElementById('pjav-ov-nome').placeholder = a.name || '';
+  document.getElementById('pjav-ov-desc').value = a.ov_description || '';
+  document.getElementById('pjav-ov-desc').placeholder = a.default_description || '';
+  renderPjavOvImagePreview(a.ov_image_url || a.default_image_url || '', !!a.ov_image_url);
+
+  // Variacoes: comeca com uma copia de trabalho — se ja tem override salvo,
+  // usa ele; senao, prepara uma copia do que o produto global tem, pronta
+  // pra virar a lista propria do projeto assim que o interruptor for ligado.
+  pjavOvVariantesTemp = (a.ov_variants_overridden ? a.ov_variants : (a.default_variants || []))
+    .map(v => ({ id: v.id && a.ov_variants_overridden ? v.id : null, name: v.name, image_url: v.image_url || '', price_with_promo: v.price_with_promo, price_without_promo: v.price_without_promo, photo_theme: v.photo_theme || '', _file: null, _previewUrl: null }));
+  document.getElementById('pjav-ov-var-toggle').checked = !!a.ov_variants_overridden;
+  const semVariacaoGlobal = !(a.default_variants || []).length;
+  document.getElementById('pjav-ov-var-off-info').textContent = semVariacaoGlobal
+    ? 'O produto padrão não tem variações.'
+    : `Usando as variações do produto padrão: ${(a.default_variants || []).map(v => v.name).join(', ')}.`;
+  atualizarPjavOvVarVisibilidade();
+  renderPjavOvVariantes();
+
+  document.getElementById('mod-pjav-override').classList.add('open');
+}
+window.abrirPjavOverride = abrirPjavOverride;
+
+function renderPjavOvImagePreview(url, isOverride) {
+  document.getElementById('pjav-ov-img-preview').innerHTML = url
+    ? `<img src="${escapeHtml(url)}" style="width:100%;height:100%;object-fit:cover">`
+    : '📷';
+  document.getElementById('pjav-ov-img-reset').style.display = isOverride ? 'inline' : 'none';
+}
+
+function atualizarPjavOvVarVisibilidade() {
+  const ligado = document.getElementById('pjav-ov-var-toggle').checked;
+  document.getElementById('pjav-ov-var-off-info').style.display = ligado ? 'none' : 'block';
+  document.getElementById('pjav-ov-var-wrap').style.display = ligado ? 'flex' : 'none';
+  document.getElementById('pjav-ov-var-add').style.display = ligado ? 'inline-block' : 'none';
+}
+
+document.getElementById('pjav-ov-var-toggle').addEventListener('change', atualizarPjavOvVarVisibilidade);
+
+document.getElementById('pjav-ov-img-file').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  pjavOvImageFile = file;
+  const reader = new FileReader();
+  reader.onload = ev => renderPjavOvImagePreview(ev.target.result, true);
+  reader.readAsDataURL(file);
+});
+
+document.getElementById('pjav-ov-img-reset').addEventListener('click', () => {
+  pjavOvImageFile = null;
+  const a = pjAvulsosTemp[pjavOvIdx];
+  if (a) a.ov_image_url = null;
+  renderPjavOvImagePreview(a?.default_image_url || '', false);
+});
+
+function renderPjavOvVariantes() {
+  const wrap = document.getElementById('pjav-ov-var-wrap');
+  if (!pjavOvVariantesTemp.length) {
+    wrap.innerHTML = '<div style="font-size:12px;color:var(--gray-400)">Nenhuma variação. Clique em "+ Adicionar variação".</div>';
+    return;
+  }
+  wrap.innerHTML = pjavOvVariantesTemp.map((v, i) => `
+    <div style="display:flex;gap:8px;align-items:flex-start;border:1px solid var(--gray-100);border-radius:8px;padding:8px">
+      <div style="width:44px;height:44px;border-radius:6px;overflow:hidden;background:#fafafa;border:1px dashed var(--gray-200);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px" id="pjav-ov-var-preview-${i}">
+        ${(v.image_url || v._previewUrl) ? `<img src="${escapeHtml(v.image_url || v._previewUrl)}" style="width:100%;height:100%;object-fit:cover">` : '📷'}
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:5px;min-width:0">
+        <div style="display:flex;gap:6px">
+          <input class="form-input" style="flex:1" placeholder="Nome (ex: Azul)" value="${escapeHtml(v.name || '')}" oninput="atualizarPjavOvVariante(${i},'name',this.value)">
+          <label class="btn btn-secondary" style="cursor:pointer;white-space:nowrap;font-size:11px;padding:6px 8px">
+            Foto
+            <input type="file" accept="image/*" style="display:none" onchange="onPjavOvVarFile(${i}, this)">
+          </label>
+          <button type="button" class="btn btn-sm btn-danger" onclick="removePjavOvVariante(${i})" style="flex-shrink:0">Remover</button>
+        </div>
+        <div style="display:flex;gap:6px">
+          <input class="form-input" type="number" step="0.01" style="flex:1" placeholder="Preço c/ Promo" value="${v.price_with_promo ?? ''}" oninput="atualizarPjavOvVariante(${i},'price_with_promo',this.value)">
+          <input class="form-input" type="number" step="0.01" style="flex:1" placeholder="Preço sem Promo" value="${v.price_without_promo ?? ''}" oninput="atualizarPjavOvVariante(${i},'price_without_promo',this.value)">
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// Mesmo motivo do padrão em renderPrVariantes: oninput inline não enxerga
+// variável de dentro de <script type="module">, só função em window.*.
+window.atualizarPjavOvVariante = function (i, campo, valor) {
+  if (pjavOvVariantesTemp[i]) pjavOvVariantesTemp[i][campo] = valor;
+};
+
+document.getElementById('pjav-ov-var-add').addEventListener('click', () => {
+  pjavOvVariantesTemp.push({ id: null, name: '', image_url: '', price_with_promo: null, price_without_promo: null, photo_theme: '', _file: null, _previewUrl: null });
+  renderPjavOvVariantes();
+});
+
+window.removePjavOvVariante = function (i) {
+  pjavOvVariantesTemp.splice(i, 1);
+  renderPjavOvVariantes();
+};
+
+window.onPjavOvVarFile = function (i, input) {
+  const file = input.files[0];
+  if (!file) return;
+  pjavOvVariantesTemp[i]._file = file;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    pjavOvVariantesTemp[i]._previewUrl = ev.target.result;
+    const el = document.getElementById('pjav-ov-var-preview-' + i);
+    if (el) el.innerHTML = `<img src="${ev.target.result}" style="width:100%;height:100%;object-fit:cover">`;
+  };
+  reader.readAsDataURL(file);
+};
+
+document.getElementById('btn-salvar-pjav-override').addEventListener('click', async () => {
+  const a = pjAvulsosTemp[pjavOvIdx];
+  if (!a) return;
+  const btn = document.getElementById('btn-salvar-pjav-override');
+  btn.disabled = true;
+  const txtOriginal = btn.textContent;
+  btn.textContent = 'Salvando…';
+  try {
+    if (pjavOvImageFile) {
+      a.ov_image_url = await uploadProductImage(pjavOvImageFile, 'produtos-projeto');
+    }
+    a.ov_name = document.getElementById('pjav-ov-nome').value.trim() || null;
+    a.ov_description = document.getElementById('pjav-ov-desc').value.trim() || null;
+    a.ov_variants_overridden = document.getElementById('pjav-ov-var-toggle').checked;
+
+    if (a.ov_variants_overridden) {
+      for (const v of pjavOvVariantesTemp) {
+        if (v._file) { v.image_url = await uploadProductImage(v._file, 'variantes-projeto'); v._file = null; }
+      }
+      a.ov_variants = pjavOvVariantesTemp.filter(v => (v.name || '').trim());
+    } else {
+      a.ov_variants = [];
+    }
+
+    document.getElementById('mod-pjav-override').classList.remove('open');
+    renderPjAvulsos();
+    toast('Personalização salva neste projeto — clique em "Salvar projeto" pra gravar de vez.', 'ok');
+  } catch (err) {
+    handleError(err, 'salvarPjavOverride');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = txtOriginal;
+  }
+});
 
 // Botão "Copiar modelo" no informativo
 document.getElementById('btn-copiar-modelo').addEventListener('click', async () => {
@@ -7252,7 +7516,7 @@ async function abrirModalProjeto() {
     (trmResp.data || []).map(t => `<option value="${t.id}">[${t.type}] ${escapeHtml(t.name)}</option>`).join('');
 }
 
-function resetModalProjeto() {
+async function resetModalProjeto() {
   ['pj-nome','pj-slug','pj-ano','pj-entrega',
    'pj-rep-valor','pj-delivery','pj-material','pj-obs',
    'pj-inf-intro','pj-inf-body','pj-inf-delivery','pj-inf-uniform','pj-inf-footer',
@@ -7274,10 +7538,15 @@ function resetModalProjeto() {
   pjEscolaClasses = [];
   pjKitsTemp = {};
   KIT_TYPES.forEach(t => { pjKitsTemp[t] = kitVazio(t); });
+  const variantesGlobais = await carregarVariantesGlobaisPorProduto(produtosAtomicos.map(p => p.id));
   pjAvulsosTemp = produtosAtomicos.map(p => ({
     product_id: p.id, name: p.name, available: false,
     price_with_promo: null, price_without_promo: null,
     base_pcom: p.base_price_with_promo, base_psem: p.base_price_without_promo,
+    ov_name: null, ov_description: null, ov_image_url: null,
+    ov_variants_overridden: false, ov_variants: [],
+    default_description: p.description || null, default_image_url: p.image_url || null,
+    default_variants: variantesGlobais[p.id] || [],
   }));
   renderSessoes();
   renderPjKits();
@@ -7291,7 +7560,7 @@ document.getElementById('btn-novo-projeto').addEventListener('click', async () =
   document.getElementById('mod-proj-title').textContent = 'Novo projeto';
   atualizarContextoProjeto();
   await abrirModalProjeto();
-  resetModalProjeto();
+  await resetModalProjeto();
   document.getElementById('mod-proj').classList.add('open');
 });
 
@@ -7441,6 +7710,9 @@ async function editarProjeto(id) {
     }
     const priceMap = {};
     (pjPricesResp.data || []).forEach(pr => { priceMap[pr.product_id] = pr; });
+    const variantesGlobais = await carregarVariantesGlobaisPorProduto(produtosAtomicos.map(p => p.id));
+    const spIdsComVar = (pjPricesResp.data || []).filter(pr => pr.variants_overridden).map(pr => pr.id);
+    const variantesOverride = await carregarVariantesOverridePorSchoolPrice(spIdsComVar);
     pjAvulsosTemp = produtosAtomicos.map(p => {
       const sp = priceMap[p.id];
       return {
@@ -7449,6 +7721,14 @@ async function editarProjeto(id) {
         price_with_promo: sp ? sp.price_with_promo : null,
         price_without_promo: sp ? sp.price_without_promo : null,
         base_pcom: p.base_price_with_promo, base_psem: p.base_price_without_promo,
+        ov_name: sp?.name || null,
+        ov_description: sp?.description || null,
+        ov_image_url: sp?.image_url || null,
+        ov_variants_overridden: sp?.variants_overridden || false,
+        ov_variants: sp ? (variantesOverride[sp.id] || []) : [],
+        default_description: p.description || null,
+        default_image_url: p.image_url || null,
+        default_variants: variantesGlobais[p.id] || [],
       };
     });
     renderPjKits();
@@ -7658,18 +7938,41 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
       }
     }
 
-    // Salvar avulsos do projeto (school_prices com project_id)
+    // Salvar avulsos do projeto (school_prices com project_id) — insere um a
+    // um (em vez de insert em lote) porque quem tem variacao personalizada
+    // precisa do id de volta pra gravar school_price_variants na sequencia.
     await supabase.from('school_prices').delete().eq('project_id', projId);
-    const pjPriceRows = pjAvulsosTemp
-      .filter(a => a.available || a.price_with_promo != null || a.price_without_promo != null)
-      .map(a => ({
+    const pjAvulsosParaSalvar = pjAvulsosTemp.filter(a =>
+      a.available || a.price_with_promo != null || a.price_without_promo != null ||
+      a.ov_name || a.ov_description || a.ov_image_url || a.ov_variants_overridden
+    );
+    for (const a of pjAvulsosParaSalvar) {
+      const { data: spIns, error: spErr } = await supabase.from('school_prices').insert({
         school_id: schoolIdForKits, project_id: projId, product_id: a.product_id,
         price_with_promo: a.price_with_promo ?? a.base_pcom,
         price_without_promo: a.price_without_promo ?? a.base_psem,
         available: a.available,
-      }));
-    if (pjPriceRows.length) {
-      await supabase.from('school_prices').insert(pjPriceRows);
+        name: a.ov_name || null,
+        description: a.ov_description || null,
+        image_url: a.ov_image_url || null,
+        variants_overridden: a.ov_variants_overridden || false,
+      }).select('id').single();
+      if (spErr) throw spErr;
+      if (a.ov_variants_overridden && (a.ov_variants || []).length) {
+        const varRows = a.ov_variants.map((v, i) => ({
+          school_price_id: spIns.id,
+          name: (v.name || '').trim(),
+          image_url: v.image_url || null,
+          price_with_promo: v.price_with_promo !== '' && v.price_with_promo != null ? parseFloat(v.price_with_promo) : null,
+          price_without_promo: v.price_without_promo !== '' && v.price_without_promo != null ? parseFloat(v.price_without_promo) : null,
+          photo_theme: (v.photo_theme || '').trim() || null,
+          sort_order: i,
+        })).filter(v => v.name);
+        if (varRows.length) {
+          const { error: varErr } = await supabase.from('school_price_variants').insert(varRows);
+          if (varErr) throw varErr;
+        }
+      }
     }
 
     // Salvar colaboradores do projeto (apaga e reinserindo)

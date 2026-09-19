@@ -3042,19 +3042,40 @@ async function loadCatalogo(user) {
     });
   }
 
+  // Variações PRÓPRIAS deste projeto/escola (migration_051) — quando o admin
+  // personaliza um avulso e liga "variants_overridden", usa SÓ essa lista em
+  // vez das variações do produto padrão (mesmo que fique vazia de propósito).
+  const spIdsComVarPropria = (pricesResp.data || []).filter(sp => sp.variants_overridden).map(sp => sp.id);
+  let variantesOverridePorProduto = {};
+  if (spIdsComVarPropria.length) {
+    const spProdutoPorId = {};
+    (pricesResp.data || []).forEach(sp => { spProdutoPorId[sp.id] = sp.product_id; });
+    const { data: variantesOv } = await supabase
+      .from('school_price_variants')
+      .select('id, school_price_id, name, image_url, price_with_promo, price_without_promo')
+      .in('school_price_id', spIdsComVarPropria)
+      .eq('active', true)
+      .order('sort_order');
+    (variantesOv || []).forEach(v => {
+      const pid = spProdutoPorId[v.school_price_id];
+      if (!pid) return;
+      (variantesOverridePorProduto[pid] ||= []).push(v);
+    });
+  }
+
   avulsosDisp = prodsAtivos.map(p => {
     const sp = priceMap[p.id];
     return {
       id: p.id,
-      name: p.name,
-      description: p.description,
-      image_url: p.image_url,
+      name: sp?.name || p.name,
+      description: sp?.description || p.description,
+      image_url: sp?.image_url || p.image_url,
       image_url_2: p.image_url_2,
       image_url_3: p.image_url_3,
       image_url_4: p.image_url_4,
       price_with_promo:    sp?.price_with_promo    ?? p.base_price_with_promo,
       price_without_promo: sp?.price_without_promo ?? p.base_price_without_promo,
-      variants: variantesPorProduto[p.id] || null,
+      variants: (sp?.variants_overridden ? variantesOverridePorProduto[p.id] : variantesPorProduto[p.id]) || null,
     };
   });
 

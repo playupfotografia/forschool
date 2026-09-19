@@ -99,6 +99,32 @@ module.exports = async (req, res) => {
         )
       : [];
 
+    // Variacoes PROPRIAS de um projeto/escola (migration_051, school_price_variants)
+    // — nao existem em product_variants, entao quem nao achou ali procura aqui.
+    // Preco continua so' saindo do banco: so' aceita se a variacao pertencer ao
+    // MESMO projeto/escola do pedido (senao daria pra usar a variacao — e o
+    // preco dela — de outro projeto qualquer).
+    const idsAchados = new Set(variantesDb.map((v) => v.id));
+    const idsFaltando = variantIdsPedidos.filter((id) => !idsAchados.has(id));
+    if (idsFaltando.length) {
+      const spVariantesRaw = await sb(
+        `/school_price_variants?id=in.(${idsFaltando.map(q).join(',')})&active=is.true&select=id,name,price_with_promo,price_without_promo,school_price:school_prices(product_id,project_id,school_id)`
+      );
+      (spVariantesRaw || []).forEach((v) => {
+        const sp = v.school_price;
+        if (!sp) return;
+        const mesmoEscopo = projectId
+          ? sp.project_id === projectId
+          : (sp.project_id === null && sp.school_id === aluno.school_id);
+        if (!mesmoEscopo) return;
+        variantesDb.push({
+          id: v.id, product_id: sp.product_id, name: v.name,
+          price_with_promo: v.price_with_promo, price_without_promo: v.price_without_promo,
+          _proprioDoProjeto: true,
+        });
+      });
+    }
+
     // ---- 4. Monta o pedido com preco do servidor --------------------------
     const kitsFinal = [];
     let total = 0;
@@ -139,7 +165,11 @@ module.exports = async (req, res) => {
         if (!variante) continue;   // variacao removida/desativada entre o pai montar o carrinho e finalizar: ignora essa linha
         unit = Number(temPromo ? variante.price_with_promo : variante.price_without_promo) || 0;
         variantName = variante.name;
-        variantIdFinal = variante.id;
+        // order_items.variant_id referencia product_variants — uma variacao
+        // propria do projeto (school_price_variants) tem id de outra tabela e
+        // quebraria essa chave estrangeira. O nome (variant_name) e' quem
+        // aparece em recibo/relatorio, entao fica so' sem o vinculo de id.
+        variantIdFinal = variante._proprioDoProjeto ? null : variante.id;
       } else {
         const sp = precoPorProduto[pid];
         if (sp && sp.available === false) continue;   // indisponivel: ignora
