@@ -2569,7 +2569,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
     </div>
     <div class="modal-body">
       <div class="alert alert-info" style="font-size:12px;margin-bottom:14px">
-        Tudo que você preencher aqui vale <b>só pra este projeto</b>. Campo em branco continua usando o produto padrão — nada aqui muda o produto global nem os outros projetos/escolas.
+        Nome e descrição já vêm preenchidos com o texto atual — edite só o que quiser mudar. Tudo que estiver aqui quando você salvar vale <b>só pra este projeto</b>: nada muda no produto global nem nos outros projetos/escolas.
       </div>
       <div class="form-grid" style="gap:12px">
         <div class="form-group">
@@ -7230,10 +7230,11 @@ function abrirPjavOverride(i) {
   pjavOvIdx = i;
   pjavOvImageFile = null;
   document.getElementById('pjav-ov-title-produto').textContent = a.name;
-  document.getElementById('pjav-ov-nome').value = a.ov_name || '';
-  document.getElementById('pjav-ov-nome').placeholder = a.name || '';
-  document.getElementById('pjav-ov-desc').value = a.ov_description || '';
-  document.getElementById('pjav-ov-desc').placeholder = a.default_description || '';
+  // Vem preenchido com o texto ATUAL (do override, se já tiver, senão o do
+  // produto padrão) — editável na hora, sem precisar copiar de outro lugar
+  // só pra trocar uma palavra.
+  document.getElementById('pjav-ov-nome').value = a.ov_name || a.name || '';
+  document.getElementById('pjav-ov-desc').value = a.ov_description || a.default_description || '';
   renderPjavOvImagePreview(a.ov_image_url || a.default_image_url || '', !!a.ov_image_url);
 
   pjavOvExtras = [2, 3, 4].map(n => ({
