@@ -73,7 +73,7 @@ module.exports = async (req, res) => {
       : `gateway_id=eq.${encodeURIComponent(cobrancaId)}`;
 
     const pedidos = await sb(
-      `/orders?${filtro}&select=id,order_number,payment_status,payment_method,installments,` +
+      `/orders?${filtro}&select=id,order_number,payment_status,payment_method,installments,is_test,` +
       'total_amount,amount_charged,student:students(name),school:schools(name),user:users(name,phone)'
     );
     const pedido = pedidos?.[0];
@@ -139,7 +139,7 @@ module.exports = async (req, res) => {
     // "!jaEstavaPago" evita o aviso repetido do parcelado: um pedido em 2x
     // recebe DOIS PAYMENT_CONFIRMED (um por parcela) e mandava dois e-mails
     // de venda pro mesmo pedido.
-    if (PAGOS.has(evento) && !jaEstavaPago) {
+    if (PAGOS.has(evento) && !jaEstavaPago && !pedido.is_test) {
       try {
         await avisarVenda({ ...pedido, ...patch });
       } catch (e) {
@@ -150,7 +150,7 @@ module.exports = async (req, res) => {
     // Pagamento que se desfaz e' mais urgente que venda: e' dinheiro que sumiu
     // depois de o aluno ja' ter sido fotografado. So' avisa se ele realmente
     // estava pago antes — evento de cobranca que nunca foi paga nao e' noticia.
-    if (DESFEITOS.has(evento) && jaEstavaPago) {
+    if (DESFEITOS.has(evento) && jaEstavaPago && !pedido.is_test) {
       try {
         await avisarPagamentoDesfeito({ ...pedido, ...patch }, evento);
       } catch (e) {

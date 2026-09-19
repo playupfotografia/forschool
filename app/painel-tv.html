@@ -396,13 +396,13 @@ async function carregarDadosUnico() {
     const { data } = await supabase
       .from('students')
       .select('id, name, class:school_classes(id, name, year:school_years(name))')
-      .in('class_id', classIds).order('name');
+      .in('class_id', classIds).neq('is_test', true).order('name');
     alunosRaw = data || [];
   } else if (projetoAtual.school?.id) {
     const { data } = await supabase
       .from('students')
       .select('id, name, class:school_classes(id, name, year:school_years(name))')
-      .eq('school_id', projetoAtual.school.id).order('name');
+      .eq('school_id', projetoAtual.school.id).neq('is_test', true).order('name');
     alunosRaw = data || [];
   }
 
@@ -444,6 +444,7 @@ async function carregarDadosTodos() {
       items:order_items(quantity, variant_name, product:products(name))
     `)
     .in('project_id', idsProjetos)
+    .neq('is_test', true)
     .order('created_at', { ascending: false })
     .limit(LIMITE_PEDIDOS_TODOS);
 

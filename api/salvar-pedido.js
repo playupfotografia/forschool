@@ -43,7 +43,7 @@ module.exports = async (req, res) => {
     if (!studentId) return res.status(400).json({ erro: 'student_id e obrigatorio.' });
 
     // ---- 1. O aluno e' mesmo de quem esta pedindo? -------------------------
-    const alunos = await sb(`/students?id=eq.${q(studentId)}&select=id,name,school_id,user_id`);
+    const alunos = await sb(`/students?id=eq.${q(studentId)}&select=id,name,school_id,user_id,is_test`);
     const aluno = alunos?.[0];
     if (!aluno) return res.status(404).json({ erro: 'Aluno nao encontrado.' });
     if (aluno.user_id !== uid) return res.status(403).json({ erro: 'Esse aluno nao e seu.' });
@@ -289,6 +289,7 @@ module.exports = async (req, res) => {
           delivery_address: endereco,
           payment_status: 'pending',
           source: 'parent',
+          is_test: aluno.is_test === true,
         }),
       });
       orderId = criado?.[0]?.id;
@@ -319,7 +320,7 @@ module.exports = async (req, res) => {
     // pendente) e so' quando PIX esta configurado como manual pra esse
     // projeto; se o pai acabar pagando no cartao mesmo assim, o aviso de
     // "venda confirmada" chega depois do mesmo jeito — os dois convivem.
-    if (!existente) {
+    if (!existente && !aluno.is_test) {
       try {
         const [config] = await sb('/app_settings?id=eq.1&select=pay_pix_enabled');
         if (config?.pay_pix_enabled !== true && projeto?.payment_pix_manual) {

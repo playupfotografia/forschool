@@ -2851,6 +2851,16 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           <label class="form-label">Observações</label>
           <textarea class="form-input" rows="2" id="al-obs" placeholder="Ex: necessidades especiais, alergias, contato extra…"></textarea>
         </div>
+        <div class="form-group" style="grid-column:1/-1">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:10px">
+            <input type="checkbox" id="al-is-test" style="width:16px;height:16px">
+            🧪 Cadastro de conferência (não é aluno real)
+          </label>
+          <div style="font-size:11px;color:var(--gray-500);margin-top:4px">
+            Use pra ver o catálogo/checkout reais de um projeto (ex: mostrar pra coordenadora) sem
+            afetar nenhum número — fica de fora de receita, relatórios, contagens e avisos de venda.
+          </div>
+        </div>
       </div>
 
       <!-- Seção responsáveis -->
@@ -3847,6 +3857,7 @@ async function loadPedidos() {
         user:users(id, name),
         school:schools(id, name, slug)
       `)
+      .neq('is_test', true)
       .order('created_at', { ascending: false });
     if (error) throw error;
 
@@ -4921,7 +4932,7 @@ async function loadCounts() {
   try {
     const [esc, al, prod] = await Promise.all([
       supabase.from('schools').select('id', { count: 'exact', head: true }).eq('active', true),
-      supabase.from('students').select('id', { count: 'exact', head: true }),
+      supabase.from('students').select('id', { count: 'exact', head: true }).neq('is_test', true),
       supabase.from('products').select('id', { count: 'exact', head: true }).eq('active', true),
     ]);
     document.getElementById('sb-esc').textContent  = esc.count ?? '0';
@@ -4936,8 +4947,8 @@ async function loadDashboard() {
   try {
     const [esc, al, peds, prod] = await Promise.all([
       supabase.from('schools').select('id', { count: 'exact', head: true }).eq('active', true),
-      supabase.from('students').select('id', { count: 'exact', head: true }),
-      supabase.from('orders').select('id,total_amount,payment_status'),
+      supabase.from('students').select('id', { count: 'exact', head: true }).neq('is_test', true),
+      supabase.from('orders').select('id,total_amount,payment_status').neq('is_test', true),
       supabase.from('products').select('id', { count: 'exact', head: true }).eq('active', true),
     ]);
     document.getElementById('d-esc').textContent  = esc.count ?? 0;
@@ -4951,6 +4962,7 @@ async function loadDashboard() {
     const { data: ultimos } = await supabase
       .from('orders')
       .select('order_number,total_amount,payment_status,student:students(name)')
+      .neq('is_test', true)
       .order('created_at', { ascending: false })
       .limit(5);
     const tb = document.getElementById('dash-pedidos');
@@ -4974,7 +4986,8 @@ async function loadDashboard() {
     const { data: alunos } = await supabase
       .from('students')
       .select('id,name,birth_date,class:school_classes(name,year:school_years(name)),school:schools(name),guardian:users!user_id(phone,name)')
-      .not('birth_date', 'is', null);
+      .not('birth_date', 'is', null)
+      .neq('is_test', true);
 
     function daysUntilBirthday(dob) {
       const today = new Date(); today.setHours(0,0,0,0);
@@ -8288,6 +8301,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
           responsible:users(id, name, phone)
         `)
         .in('class_id', classIds)
+        .neq('is_test', true)
         .order('name');
       alunosRaw = data || [];
     } else if (schoolId) {
@@ -8302,6 +8316,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
           responsible:users(id, name, phone)
         `)
         .eq('school_id', schoolId)
+        .neq('is_test', true)
         .order('name');
       alunosRaw = data || [];
     }
@@ -9625,7 +9640,7 @@ async function loadAlunos() {
   try {
     const [{ data, error }, { data: esc }] = await Promise.all([
       supabase.from('students').select(`
-        id, name, birth_date, photo_seq_number, notes, duplicate_of_student_id,
+        id, name, birth_date, photo_seq_number, notes, duplicate_of_student_id, is_test,
         guardian2_name, guardian2_phone, guardian2_relationship,
         authorize_individual, authorize_class, authorization_date, authorization_signed_by, authorization_log,
         school:schools(id, name),
@@ -9691,7 +9706,7 @@ function renderAlunos() {
   tb.innerHTML = lista.map(a => `
     <tr style="cursor:pointer" onclick="editarAluno('${a.id}')">
       <td style="text-align:center" onclick="event.stopPropagation()"><input type="checkbox" class="al-chk" data-id="${a.id}" onchange="atualizarBtnImprimirFichas()"></td>
-      <td class="td-name">${escapeHtml(a.name)}</td>
+      <td class="td-name">${escapeHtml(a.name)}${a.is_test ? ' <span class="badge badge-orange" title="Cadastro de conferência — não conta em nenhum número ou relatório">🧪 Teste</span>' : ''}</td>
       <td>${a.birth_date ? fmtDate(a.birth_date) : '—'}</td>
       <td>${escapeHtml(a.school?.name || '—')}</td>
       <td>${escapeHtml(a.school_class?.year?.name || '—')}</td>
@@ -10704,11 +10719,11 @@ async function onFichasSessaoProjeto() {
       // Traz tambem quem nao respondeu (authorization_date null) — a contagem
       // mostra os dois numeros, e o checkbox decide quem entra na impressao.
       supabase.from('students').select('id, class_id, authorization_date, authorize_individual, authorize_class')
-        .eq('school_id', escolaId).limit(5000),
+        .eq('school_id', escolaId).neq('is_test', true).limit(5000),
       supabase.from('ficha_prints').select('student_id, printed_at').eq('project_id', projId),
       // updated_at do pedido: ficha impressa ANTES da ultima mudanca esta'
       // desatualizada (nao mostra o que o aluno comprou nem o tema).
-      supabase.from('orders').select('student_id, updated_at').eq('project_id', projId),
+      supabase.from('orders').select('student_id, updated_at').eq('project_id', projId).neq('is_test', true),
     ]);
     if (anosResp.error) throw anosResp.error;
     if (sessResp.error) throw sessResp.error;
@@ -11058,6 +11073,7 @@ function abrirModalAluno() {
   document.getElementById('al-nasc').value  = '';
   document.getElementById('al-ficha').value = '';
   document.getElementById('al-obs').value   = '';
+  document.getElementById('al-is-test').checked = false;
   document.getElementById('al-pedido-section').style.display = 'none';
   document.getElementById('al-dup-section').style.display = 'none';
   document.getElementById('al-esc').value   = '';
@@ -11088,7 +11104,7 @@ async function editarAluno(id) {
   // alunosCache pode ter sido carregado antes dessa coluna existir na tela).
   if (!aluno || aluno.duplicate_of_student_id === undefined) {
     const { data } = await supabase.from('students').select(`
-      id, name, birth_date, photo_seq_number, notes, duplicate_of_student_id,
+      id, name, birth_date, photo_seq_number, notes, duplicate_of_student_id, is_test,
       guardian2_name, guardian2_phone, guardian2_relationship,
       authorize_individual, authorize_class, authorization_date, authorization_signed_by, authorization_log,
       school:schools(id, name),
@@ -11107,6 +11123,7 @@ async function editarAluno(id) {
   document.getElementById('al-nasc').value  = aluno.birth_date || '';
   document.getElementById('al-ficha').value = aluno.photo_seq_number ?? '';
   document.getElementById('al-obs').value   = aluno.notes || '';
+  document.getElementById('al-is-test').checked = !!aluno.is_test;
 
   // Garantir que o select de escola está populado (pode não estar se a seção Alunos nunca foi carregada)
   if (document.getElementById('al-esc').options.length <= 1) {
@@ -11545,6 +11562,7 @@ document.getElementById('btn-salvar-aluno').addEventListener('click', async () =
       birth_date:              nasc,
       photo_seq_number:        fichaNum,
       notes:                   obs,
+      is_test:                 document.getElementById('al-is-test').checked,
       guardian2_name:          document.getElementById('al-g2-nome').value.trim() || null,
       guardian2_phone:         document.getElementById('al-g2-tel').value.trim() || null,
       guardian2_relationship:  document.getElementById('al-g2-parent').value.trim() || null,
@@ -12141,6 +12159,7 @@ document.getElementById('btn-gerar-rel').addEventListener('click', async () => {
                student:students(name),
                project:projects(id, name),
                user:users(name, phone)`)
+      .neq('is_test', true)
       .order('created_at', { ascending: false });
     if (projetoId)    query = query.eq('project_id', projetoId);
     if (statusFiltro) query = query.eq('payment_status', statusFiltro);
@@ -12171,7 +12190,7 @@ document.getElementById('btn-gerar-rel').addEventListener('click', async () => {
           .select('school_id, vendor:vendors(commission_type, commission_value)'),
         supabase.from('project_collaborators')
           .select('service_value').eq('project_id', projetoId),
-        supabase.from('students').select('id', { count: 'exact', head: true }).eq('project_id', projetoId),
+        supabase.from('students').select('id', { count: 'exact', head: true }).eq('project_id', projetoId).neq('is_test', true),
       ]);
 
       projData = projResp.data;
@@ -12443,7 +12462,7 @@ document.getElementById('btn-gerar-ap').addEventListener('click', async () => {
       kits:order_kits(quantity, unit_price, kit:school_kits(id, name, kit_type)),
       items:order_items(quantity, unit_price, product:products(id, name)),
       student:students(id, class:school_classes(id, name, year:school_years(id, name)))
-    `);
+    `).neq('is_test', true);
     if (projetoId) q = q.eq('project_id', projetoId);
     if (statusFiltro) q = q.eq('payment_status', statusFiltro);
     const { data: pedidos, error } = await q;
@@ -12792,7 +12811,8 @@ async function renderComissoes() {
         .from('orders')
         .select('total_amount, project:projects!inner(school_id)')
         .eq('project.school_id', v.school_id)
-        .eq('payment_status', 'paid');
+        .eq('payment_status', 'paid')
+        .neq('is_test', true);
       const totalVendido = (ords || []).reduce((s, o) => s + Number(o.total_amount || 0), 0);
       const vendor = v.vendor;
       const comissao = vendor?.commission_type === 'pct'
