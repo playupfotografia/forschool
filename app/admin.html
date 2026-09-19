@@ -2591,6 +2591,10 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
             <button type="button" id="pjav-ov-img-reset" style="display:none;background:none;border:none;color:var(--gray-400);text-decoration:underline;font-size:12px;cursor:pointer">restaurar padrão</button>
           </div>
         </div>
+        <div class="form-group">
+          <label class="form-label">Fotos extras <span style="font-weight:400;color:var(--gray-400)">(opcionais — mostradas no detalhe do produto no portal)</span></label>
+          <div id="pjav-ov-extra-wrap" style="display:flex;flex-direction:column;gap:8px"></div>
+        </div>
         <div class="form-group" style="border-top:1px solid var(--gray-100);padding-top:12px">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px">
             <input type="checkbox" id="pjav-ov-var-toggle">
@@ -6950,10 +6954,16 @@ document.getElementById('btn-pj-copiar-escola').addEventListener('click', async 
         ov_name: sp?.name || null,
         ov_description: sp?.description || null,
         ov_image_url: sp?.image_url || null,
+        ov_image_url_2: sp?.image_url_2 || null,
+        ov_image_url_3: sp?.image_url_3 || null,
+        ov_image_url_4: sp?.image_url_4 || null,
         ov_variants_overridden: sp?.variants_overridden || false,
         ov_variants: sp ? (variantesOverride[sp.id] || []) : [],
         default_description: p.description || null,
         default_image_url: p.image_url || null,
+        default_image_url_2: p.image_url_2 || null,
+        default_image_url_3: p.image_url_3 || null,
+        default_image_url_4: p.image_url_4 || null,
         default_variants: variantesGlobais[p.id] || [],
       };
     });
@@ -7172,7 +7182,7 @@ function renderPjAvulsos() {
     return;
   }
   el.innerHTML = pjAvulsosTemp.map((a, i) => {
-    const personalizado = !!(a.ov_name || a.ov_description || a.ov_image_url || a.ov_variants_overridden);
+    const personalizado = !!(a.ov_name || a.ov_description || a.ov_image_url || a.ov_image_url_2 || a.ov_image_url_3 || a.ov_image_url_4 || a.ov_variants_overridden);
     return `
     <div class="avulso-row ${a.available ? '' : 'disabled'}" data-pjav-row="${i}">
       <input type="checkbox" data-pjav-chk="${i}" ${a.available ? 'checked' : ''}>
@@ -7212,6 +7222,7 @@ function renderPjAvulsos() {
 let pjavOvIdx = null;
 let pjavOvVariantesTemp = [];
 let pjavOvImageFile = null;
+let pjavOvExtras = []; // [{url, override, file}] — fotos extras 2/3/4
 
 function abrirPjavOverride(i) {
   const a = pjAvulsosTemp[i];
@@ -7224,6 +7235,13 @@ function abrirPjavOverride(i) {
   document.getElementById('pjav-ov-desc').value = a.ov_description || '';
   document.getElementById('pjav-ov-desc').placeholder = a.default_description || '';
   renderPjavOvImagePreview(a.ov_image_url || a.default_image_url || '', !!a.ov_image_url);
+
+  pjavOvExtras = [2, 3, 4].map(n => ({
+    url: a['ov_image_url_' + n] || a['default_image_url_' + n] || '',
+    override: !!a['ov_image_url_' + n],
+    file: null,
+  }));
+  renderPjavOvExtras();
 
   // Variacoes: comeca com uma copia de trabalho — se ja tem override salvo,
   // usa ele; senao, prepara uma copia do que o produto global tem, pronta
@@ -7248,6 +7266,39 @@ function renderPjavOvImagePreview(url, isOverride) {
     : '📷';
   document.getElementById('pjav-ov-img-reset').style.display = isOverride ? 'inline' : 'none';
 }
+
+function renderPjavOvExtras() {
+  const wrap = document.getElementById('pjav-ov-extra-wrap');
+  wrap.innerHTML = pjavOvExtras.map((ex, i) => `
+    <div style="display:flex;gap:10px;align-items:center">
+      <div style="width:44px;height:44px;border-radius:6px;overflow:hidden;background:var(--gray-50);border:1px solid var(--gray-200);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">
+        ${ex.url ? `<img src="${escapeHtml(ex.url)}" style="width:100%;height:100%;object-fit:cover">` : '📷'}
+      </div>
+      <span style="font-size:12px;color:var(--gray-500);width:80px;flex-shrink:0">Foto extra ${i + 1}</span>
+      <label class="btn btn-secondary btn-sm" style="cursor:pointer;font-size:11px;white-space:nowrap">
+        Trocar
+        <input type="file" accept="image/*" style="display:none" onchange="onPjavOvExtraFile(${i}, this)">
+      </label>
+      ${ex.override ? `<button type="button" style="background:none;border:none;color:var(--gray-400);text-decoration:underline;font-size:11px;cursor:pointer" onclick="resetPjavOvExtra(${i})">restaurar padrão</button>` : ''}
+    </div>
+  `).join('');
+}
+
+window.onPjavOvExtraFile = function (i, input) {
+  const file = input.files[0];
+  if (!file) return;
+  pjavOvExtras[i].file = file;
+  pjavOvExtras[i].override = true;
+  const reader = new FileReader();
+  reader.onload = ev => { pjavOvExtras[i].url = ev.target.result; renderPjavOvExtras(); };
+  reader.readAsDataURL(file);
+};
+
+window.resetPjavOvExtra = function (i) {
+  const a = pjAvulsosTemp[pjavOvIdx];
+  pjavOvExtras[i] = { url: a?.['default_image_url_' + (i + 2)] || '', override: false, file: null };
+  renderPjavOvExtras();
+};
 
 function atualizarPjavOvVarVisibilidade() {
   const ligado = document.getElementById('pjav-ov-var-toggle').checked;
@@ -7342,6 +7393,11 @@ document.getElementById('btn-salvar-pjav-override').addEventListener('click', as
   try {
     if (pjavOvImageFile) {
       a.ov_image_url = await uploadProductImage(pjavOvImageFile, 'produtos-projeto');
+    }
+    for (let i = 0; i < pjavOvExtras.length; i++) {
+      const ex = pjavOvExtras[i];
+      if (ex.file) ex.url = await uploadProductImage(ex.file, 'produtos-projeto');
+      a['ov_image_url_' + (i + 2)] = ex.override ? (ex.url || null) : null;
     }
     a.ov_name = document.getElementById('pjav-ov-nome').value.trim() || null;
     a.ov_description = document.getElementById('pjav-ov-desc').value.trim() || null;
@@ -7544,8 +7600,10 @@ async function resetModalProjeto() {
     price_with_promo: null, price_without_promo: null,
     base_pcom: p.base_price_with_promo, base_psem: p.base_price_without_promo,
     ov_name: null, ov_description: null, ov_image_url: null,
+    ov_image_url_2: null, ov_image_url_3: null, ov_image_url_4: null,
     ov_variants_overridden: false, ov_variants: [],
     default_description: p.description || null, default_image_url: p.image_url || null,
+    default_image_url_2: p.image_url_2 || null, default_image_url_3: p.image_url_3 || null, default_image_url_4: p.image_url_4 || null,
     default_variants: variantesGlobais[p.id] || [],
   }));
   renderSessoes();
@@ -7724,10 +7782,16 @@ async function editarProjeto(id) {
         ov_name: sp?.name || null,
         ov_description: sp?.description || null,
         ov_image_url: sp?.image_url || null,
+        ov_image_url_2: sp?.image_url_2 || null,
+        ov_image_url_3: sp?.image_url_3 || null,
+        ov_image_url_4: sp?.image_url_4 || null,
         ov_variants_overridden: sp?.variants_overridden || false,
         ov_variants: sp ? (variantesOverride[sp.id] || []) : [],
         default_description: p.description || null,
         default_image_url: p.image_url || null,
+        default_image_url_2: p.image_url_2 || null,
+        default_image_url_3: p.image_url_3 || null,
+        default_image_url_4: p.image_url_4 || null,
         default_variants: variantesGlobais[p.id] || [],
       };
     });
@@ -7944,7 +8008,7 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
     await supabase.from('school_prices').delete().eq('project_id', projId);
     const pjAvulsosParaSalvar = pjAvulsosTemp.filter(a =>
       a.available || a.price_with_promo != null || a.price_without_promo != null ||
-      a.ov_name || a.ov_description || a.ov_image_url || a.ov_variants_overridden
+      a.ov_name || a.ov_description || a.ov_image_url || a.ov_image_url_2 || a.ov_image_url_3 || a.ov_image_url_4 || a.ov_variants_overridden
     );
     for (const a of pjAvulsosParaSalvar) {
       const { data: spIns, error: spErr } = await supabase.from('school_prices').insert({
@@ -7955,6 +8019,9 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
         name: a.ov_name || null,
         description: a.ov_description || null,
         image_url: a.ov_image_url || null,
+        image_url_2: a.ov_image_url_2 || null,
+        image_url_3: a.ov_image_url_3 || null,
+        image_url_4: a.ov_image_url_4 || null,
         variants_overridden: a.ov_variants_overridden || false,
       }).select('id').single();
       if (spErr) throw spErr;
