@@ -4069,7 +4069,8 @@ const ORDER_DETAIL_SELECT = `
   student:students(id, name, birth_date, school_classes(name, year:school_years(name))),
   school:schools(id, name, slug, phone),
   user:users(id, name, phone, email, cpf),
-  items:order_items(id, quantity, unit_price, discount_applied, from_kit_id, variant_name, product:products(id, name, image_url))
+  items:order_items(id, quantity, unit_price, discount_applied, from_kit_id, variant_name, product:products(id, name, image_url)),
+  kits:order_kits(id, quantity, unit_price, kit:school_kits(name, kit_type))
 `;
 
 async function abrirDetalhesPedido(id) {
@@ -4142,6 +4143,14 @@ async function abrirDetalhesPedido(id) {
             <table style="font-size:13px">
               <thead><tr><th style="padding:7px 13px">Produto</th><th style="text-align:center">Qtd</th><th style="text-align:right">Unitário</th><th style="text-align:right">Subtotal</th></tr></thead>
               <tbody>
+                ${(ped.kits || []).map(k => `
+                  <tr>
+                    <td style="padding:7px 13px;font-weight:600">${escapeHtml(k.kit?.name || kitMap[k.kit?.kit_type] || 'Kit')}</td>
+                    <td style="text-align:center">${k.quantity}</td>
+                    <td style="text-align:right">${fmtMoney(k.unit_price)}</td>
+                    <td style="text-align:right;font-weight:600">${fmtMoney(Number(k.unit_price) * k.quantity)}</td>
+                  </tr>
+                `).join('')}
                 ${itemsFromKit.length > 0 ? `
                   <tr style="background:var(--gray-50)">
                     <td colspan="4" style="padding:6px 13px;font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px">Conteúdo do kit (incluso)</td>
@@ -4304,6 +4313,9 @@ function montarConteudoRecibo(ped, cfg) {
   const itemsAvulsos = (ped.items || []).filter(it => !it.from_kit_id);
 
   const linhasHtml = [
+    // O kit em si nunca vira order_items (so' order_kits) — sem essa linha
+    // o recibo de um pedido so'-kit ficava com a tabela de itens vazia.
+    ...(ped.kits || []).map(k => `<tr><td>${escapeHtml(k.kit?.name || KIT_LABELS[k.kit?.kit_type] || 'Kit')}</td><td style="text-align:center">${k.quantity}</td><td style="text-align:right">${fmtMoney(Number(k.unit_price) * k.quantity)}</td></tr>`),
     ...itemsFromKit.map(it => `<tr><td>${escapeHtml(it.product?.name || '—')} <span style="color:#999;font-size:11px">(incluso no kit)</span></td><td style="text-align:center">${it.quantity}</td><td style="text-align:right">—</td></tr>`),
     ...itemsAvulsos.map(it => `<tr><td>${escapeHtml(it.product?.name || '—')}${it.variant_name ? ' — ' + escapeHtml(it.variant_name) : ''}</td><td style="text-align:center">${it.quantity}</td><td style="text-align:right">${fmtMoney(Number(it.unit_price) * it.quantity)}</td></tr>`),
   ].join('');
@@ -5855,6 +5867,11 @@ async function duplicarEscola(id) {
     await editarEscola(id);
     // ...mas trata como nova escola (não atualiza a original)
     escEditId = null;
+    // anosTemp veio com os ids de school_years da escola ORIGINAL — sem
+    // limpar isso, salvarEscola() atualiza os anos da escola original em
+    // vez de criar anos novos pra essa (a nova escola fica sem turma
+    // nenhuma, e a sessão do projeto não acha turma pra marcar).
+    anosTemp = anosTemp.map(a => ({ ...a, id: null }));
     document.getElementById('mod-esc-title').textContent = 'Duplicar escola — preencha o novo nome';
     // Limpa nome e slug pra forçar o usuário a preencher
     document.getElementById('e-nome').value = '';
