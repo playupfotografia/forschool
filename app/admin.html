@@ -257,8 +257,8 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
 .prod-card{background:var(--white);border:1px solid var(--gray-200);border-radius:var(--radius-lg);overflow:hidden;transition:border .15s,transform .15s,box-shadow .15s}
 .prod-card:hover{border-color:var(--blue)}
 .prod-card.drag-over{border:2px dashed var(--blue);transform:scale(1.02);box-shadow:0 4px 16px rgba(59,130,246,.18)}
-.prod-card-img{height:110px;display:flex;align-items:center;justify-content:center;overflow:hidden}
-.prod-card-img img{width:100%;height:100%;object-fit:cover}
+.prod-card-img{aspect-ratio:4/5;display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--gray-50)}
+.prod-card-img img{width:100%;height:100%;object-fit:contain}
 .prod-card-body{padding:10px 12px}
 .prod-card-tag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
 .prod-card-nome{font-size:13px;font-weight:600;color:var(--gray-900);margin-bottom:2px}
