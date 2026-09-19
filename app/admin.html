@@ -6241,6 +6241,26 @@ document.getElementById('btn-salvar-escola').addEventListener('click', async () 
 
       const remover = (turmasDb || []).filter(t => !turmas.includes(t.name)).map(t => t.id);
       if (remover.length) {
+        // Trava de seguranca: renomear/apagar uma turma que ainda tem aluno
+        // vinculado zera o class_id dele (on delete set null) SEM erro nenhum
+        // na tela — foi assim que 13 alunos do Sena de Miranda ficaram sem
+        // turma e sumiram das sessoes dos projetos, sem ninguem perceber por
+        // dias. Agora avisa ANTES de apagar, com o numero exato de alunos.
+        const turmasRemovidas = (turmasDb || []).filter(t => remover.includes(t.id));
+        const { count: alunosAfetados, error: cntErr } = await supabase
+          .from('students')
+          .select('id', { count: 'exact', head: true })
+          .in('class_id', remover);
+        if (cntErr) throw cntErr;
+        if (alunosAfetados > 0) {
+          const nomesRemovidas = turmasRemovidas.map(t => t.name).join(', ');
+          const confirmou = confirm(
+            `⚠️ ${alunosAfetados} aluno(s) est${alunosAfetados > 1 ? 'ão' : 'á'} na turma "${nomesRemovidas}", que está prestes a ser removida (geralmente por ter sido renomeada em vez de editada).\n\n` +
+            `Se continuar, ${alunosAfetados > 1 ? 'esses alunos ficarão' : 'esse aluno ficará'} SEM TURMA e vai sumir das sessões dos projetos até alguém reatribuir a turma dele manualmente.\n\n` +
+            `Continuar mesmo assim?`
+          );
+          if (!confirmou) throw new Error('Salvamento cancelado: a turma "' + nomesRemovidas + '" tem aluno vinculado.');
+        }
         const { error: rmErr } = await supabase.from('school_classes').delete().in('id', remover);
         if (rmErr) throw rmErr;
       }
