@@ -4590,20 +4590,45 @@ async function loadComunicados() {
   const grid = document.getElementById('comunicados-grid');
   grid.innerHTML = '<div class="loading"><span class="spinner"></span>Carregando…</div>';
 
-  // Popula select de projetos
-  const { data: projs } = await supabase.from('projects').select('id,name,slug').eq('active', true).order('name');
+  // Lista agrupada por escola. O valor do <option> carrega o tipo junto
+  // ("escola:<id>" ou "projeto:<id>") porque os dois destinos convivem no
+  // mesmo select — sem isso nao daria pra saber em qual coluna gravar.
+  const { data: projs } = await supabase
+    .from('projects').select('id,name,slug,school:schools(id,name)')
+    .eq('active', true).order('name');
   const sel = document.getElementById('com-projeto');
-  sel.innerHTML = '<option value="">— Todos os projetos —</option>';
+  sel.innerHTML = '<option value="">— Todas as escolas e projetos —</option>';
+
+  const porEscola = {};
   (projs || []).forEach(p => {
-    const opt = document.createElement('option');
-    opt.value = p.id;
-    opt.textContent = p.name || p.slug;
-    sel.appendChild(opt);
+    const eid = p.school?.id || '_sem';
+    (porEscola[eid] = porEscola[eid] || { nome: p.school?.name || 'Sem escola', projetos: [] })
+      .projetos.push(p);
   });
+
+  Object.entries(porEscola)
+    .sort((a, b) => a[1].nome.localeCompare(b[1].nome))
+    .forEach(([eid, esc]) => {
+      const grupo = document.createElement('optgroup');
+      grupo.label = esc.nome;
+      if (eid !== '_sem') {
+        const todos = document.createElement('option');
+        todos.value = `escola:${eid}`;
+        todos.textContent = `${esc.nome} — todos os projetos`;
+        grupo.appendChild(todos);
+      }
+      esc.projetos.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = `projeto:${p.id}`;
+        opt.textContent = p.name || p.slug;
+        grupo.appendChild(opt);
+      });
+      sel.appendChild(grupo);
+    });
 
   const { data, error } = await supabase
     .from('announcements')
-    .select('*, project:projects(name,slug)')
+    .select('*, project:projects(name,slug), school:schools(name)')
     .order('created_at', { ascending: false });
 
   if (error) { grid.innerHTML = '<div class="empty">Erro ao carregar.</div>'; return; }
@@ -4616,7 +4641,11 @@ async function loadComunicados() {
     <div class="card" style="overflow:hidden;padding:0">
       ${c.image_url ? `<img src="${escapeHtml(c.image_url)}" alt="" style="width:100%;height:180px;object-fit:cover">` : '<div style="height:80px;background:var(--gray-100);display:flex;align-items:center;justify-content:center;font-size:32px">📢</div>'}
       <div style="padding:12px">
-        <div style="font-size:12px;color:var(--gray-400);margin-bottom:4px">${c.project?.name || 'Todos os projetos'} · ${new Date(c.created_at).toLocaleDateString('pt-BR')}</div>
+        <div style="font-size:12px;color:var(--gray-400);margin-bottom:4px">${escapeHtml(
+          c.project?.name ? c.project.name
+          : c.school?.name ? `🏫 ${c.school.name} — todos os projetos`
+          : 'Todas as escolas e projetos'
+        )} · ${new Date(c.created_at).toLocaleDateString('pt-BR')}</div>
         <div style="font-size:13px;color:var(--gray-700);margin-bottom:10px;white-space:pre-line">${escapeHtml(c.caption || '')}</div>
         <div style="display:flex;align-items:center;justify-content:space-between">
           <span class="badge ${c.published ? 'badge-green' : 'badge-gray'}">${c.published ? 'Publicado' : 'Rascunho'}</span>
@@ -4646,7 +4675,10 @@ function editarComunicado(id) {
     document.getElementById('btn-cancelar-comunicado').style.display = 'inline-flex';
     document.getElementById('com-caption').value = data.caption || '';
     document.getElementById('com-published').checked = !!data.published;
-    if (data.project_id) document.getElementById('com-projeto').value = data.project_id;
+    document.getElementById('com-projeto').value =
+      data.project_id ? `projeto:${data.project_id}`
+      : data.school_id ? `escola:${data.school_id}`
+      : '';
     const prev = document.getElementById('com-img-preview');
     if (data.image_url) {
       prev.innerHTML = `<img src="${escapeHtml(data.image_url)}" alt="" style="width:100%;height:100%;object-fit:cover">`;
@@ -4699,7 +4731,11 @@ document.getElementById('btn-cancelar-comunicado').addEventListener('click', () 
 document.getElementById('btn-salvar-comunicado').addEventListener('click', async () => {
   const caption   = document.getElementById('com-caption').value.trim();
   const published = document.getElementById('com-published').checked;
-  const projectId = document.getElementById('com-projeto').value || null;
+  // "escola:<id>" | "projeto:<id>" | "" (geral) — os dois nunca vao juntos:
+  // e' o que a politica de leitura (migration_055) espera pra decidir quem ve.
+  const destino  = document.getElementById('com-projeto').value || '';
+  const projectId = destino.startsWith('projeto:') ? destino.slice(8) : null;
+  const schoolId  = destino.startsWith('escola:')  ? destino.slice(7) : null;
   if (!caption && !comImgFile && !comImgUrl) { toast('Adicione uma imagem ou texto.', 'warn'); return; }
 
   try {
@@ -4713,7 +4749,7 @@ document.getElementById('btn-salvar-comunicado').addEventListener('click', async
       comImgUrl = supabase.storage.from('media').getPublicUrl(path).data.publicUrl;
     }
 
-    const payload = { caption, published, project_id: projectId, image_url: comImgUrl || null };
+    const payload = { caption, published, project_id: projectId, school_id: schoolId, image_url: comImgUrl || null };
     let err;
     if (comEditId) {
       ({ error: err } = await supabase.from('announcements').update(payload).eq('id', comEditId));

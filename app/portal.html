@@ -2746,11 +2746,17 @@ async function loadMinhaConta() {
 
 async function loadComunicadosPortal() {
   if (!projeto?.id) return;
+  // Tres destinos possiveis (migration_055): o projeto, a escola inteira, ou
+  // geral (os dois em branco). "project_id.is.null" sozinho nao serve mais —
+  // pegaria tambem o comunicado de OUTRA escola, que tem projeto nulo.
+  const alvos = [`project_id.eq.${projeto.id}`, 'and(project_id.is.null,school_id.is.null)'];
+  if (escola?.id) alvos.push(`school_id.eq.${escola.id}`);
+
   const { data } = await supabase
     .from('announcements')
     .select('*')
     .eq('published', true)
-    .or(`project_id.eq.${projeto.id},project_id.is.null`)
+    .or(alvos.join(','))
     .order('created_at', { ascending: false })
     .limit(10);
 
