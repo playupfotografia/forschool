@@ -6813,6 +6813,8 @@ let projEditId = null;
 let projetosCache = [];
 let sessoesTemp = [];       // [{photo_date, period, class_ids: []}]
 let pjEscolaClasses = [];   // [{year_id, year_name, classes:[{id,name}]}]
+let pjEscolaAnterior = '';  // escola que estava selecionada antes da ultima troca
+let pjTurmasOrfas = [];     // turmas de OUTRA escola achadas vinculadas as sessoes
 let pjKitsTemp = {};        // {basico:{}, inter:{}, promo:{}} — kits do projeto
 let pjAvulsosTemp = [];     // [{product_id, name, available, price_with_promo, ...}]
 let projColabsTemp = [];    // [{_id?, collaborator_id, name, service_value}]
@@ -6873,7 +6875,29 @@ document.querySelectorAll('#mod-proj .tab-btn').forEach(btn => {
 
 // Quando escola muda, recarrega as turmas disponíveis para as sessões
 document.getElementById('pj-escola').addEventListener('change', async () => {
-  const schoolId = document.getElementById('pj-escola').value;
+  const sel = document.getElementById('pj-escola');
+  const schoolId = sel.value;
+
+  // Trocar a escola invalida as turmas ja' marcadas nas sessoes — elas sao da
+  // escola ANTERIOR. Se ficarem, viram vinculo invisivel: o modal so' desenha
+  // turma da escola atual, entao some da tela mas continua no banco, sai no
+  // bilhete impresso e ainda puxa aluno da outra escola pro Alunos/Pedidos.
+  // Foi assim que os G3/G4/G5 da Unidade I foram parar no projeto da Unidade II.
+  const marcadas = sessoesTemp.reduce((n, s) => n + s.class_ids.length, 0);
+  if (marcadas > 0) {
+    const ok = confirm(
+      `Trocar a escola vai desmarcar ${marcadas} turma(s) já selecionada(s) nas ` +
+      `sessões deste projeto.\n\n` +
+      `Elas são turmas da escola anterior — se continuassem marcadas, ficariam ` +
+      `invisíveis nesta tela e apareceriam no bilhete impresso.\n\n` +
+      `Você vai precisar marcar as turmas da nova escola. Continuar?`
+    );
+    if (!ok) { sel.value = pjEscolaAnterior || ''; return; }
+    sessoesTemp.forEach(s => { s.class_ids = []; });
+    pjTurmasOrfas = [];
+  }
+
+  pjEscolaAnterior = schoolId;
   atualizarContextoProjeto();
   await loadPjEscolaClasses(schoolId);
   renderSessoes();
@@ -6908,11 +6932,25 @@ async function loadPjEscolaClasses(schoolId) {
 
 function renderSessoes() {
   const lista = document.getElementById('pj-sessoes-lista');
+
+  // Aviso de turma de outra escola. Nunca some sozinho: e' desvinculo de dado
+  // ja' gravado, entao tem que estar na cara antes de clicar em Salvar.
+  const aviso = pjTurmasOrfas.length ? `
+    <div style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:6px;padding:10px 12px;margin-bottom:10px">
+      <div style="font-weight:700;color:#92400E;font-size:12.5px">⚠️ ${pjTurmasOrfas.length} turma(s) de outra escola vinculada(s) às sessões</div>
+      <div style="color:#78350F;font-size:12px;margin-top:4px">${pjTurmasOrfas.map(escapeHtml).join(' · ')}</div>
+      <div style="color:#78350F;font-size:11.5px;margin-top:6px">
+        Vieram de uma duplicação de projeto. Não aparecem nas caixinhas abaixo porque não são desta escola —
+        mas saem no bilhete impresso e puxam alunos da outra escola pro Alunos/Pedidos.
+        <b>Ao salvar o projeto, elas serão removidas.</b>
+      </div>
+    </div>` : '';
+
   if (!sessoesTemp.length) {
-    lista.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:8px 0">Nenhuma sessão adicionada. Clique em "+ Adicionar sessão".</div>';
+    lista.innerHTML = aviso + '<div style="color:var(--gray-400);font-size:13px;padding:8px 0">Nenhuma sessão adicionada. Clique em "+ Adicionar sessão".</div>';
     return;
   }
-  lista.innerHTML = sessoesTemp.map((s, idx) => {
+  lista.innerHTML = aviso + sessoesTemp.map((s, idx) => {
     const classesSelecionadas = new Set(s.class_ids);
     const turmasHtml = pjEscolaClasses.length
       ? pjEscolaClasses.map(year => `
@@ -7708,6 +7746,8 @@ async function resetModalProjeto() {
   sessoesTemp = [];
   projColabsTemp = [];
   pjEscolaClasses = [];
+  pjEscolaAnterior = '';
+  pjTurmasOrfas = [];
   pjKitsTemp = {};
   KIT_TYPES.forEach(t => { pjKitsTemp[t] = kitVazio(t); });
   const variantesGlobais = await carregarVariantesGlobaisPorProduto(produtosAtomicos.map(p => p.id));
@@ -7794,13 +7834,40 @@ async function editarProjeto(id) {
         sessionClassMap[sc.session_id].push(sc.school_class_id);
       });
     }
-    sessoesTemp = sessions.map(s => ({
-      _id: s.id,
-      photo_date: s.photo_date || '',
-      order_deadline: s.order_deadline || '',
-      period: s.period || 'manhã',
-      class_ids: sessionClassMap[s.id] || [],
-    }));
+    // Turmas que existem de verdade nesta escola. Vinculo com turma de OUTRA
+    // escola (sobra de projeto duplicado) nao tem checkbox aqui — fica
+    // invisivel e indeletavel pela tela, e ainda assim sai no bilhete impresso
+    // e puxa aluno da outra escola pro Alunos/Pedidos. Por isso e' descartado
+    // ao abrir; o aviso em renderSessoes() diz quais, antes de salvar.
+    const idsValidos = new Set(pjEscolaClasses.flatMap(y => y.classes.map(c => c.id)));
+    const orfas = [];
+    sessoesTemp = sessions.map(s => {
+      const todas = sessionClassMap[s.id] || [];
+      todas.forEach(id => { if (!idsValidos.has(id)) orfas.push(id); });
+      return {
+        _id: s.id,
+        photo_date: s.photo_date || '',
+        order_deadline: s.order_deadline || '',
+        period: s.period || 'manhã',
+        class_ids: todas.filter(id => idsValidos.has(id)),
+      };
+    });
+
+    pjTurmasOrfas = [];
+    if (orfas.length) {
+      const { data: nomesOrfas } = await supabase
+        .from('school_classes')
+        .select('id, name, year:school_years(name, school:schools(name))')
+        .in('id', [...new Set(orfas)]);
+      pjTurmasOrfas = (nomesOrfas || []).map(c => {
+        const ano = c.year?.name ? `${c.year.name} — ` : '';
+        const esc = c.year?.school?.name ? ` (${c.year.school.name})` : '';
+        return `${ano}${c.name}${esc}`;
+      });
+      // Achou id sem nome? Turma apagada — conta, mas nao da' pra nomear.
+      const semNome = new Set(orfas).size - pjTurmasOrfas.length;
+      if (semNome > 0) pjTurmasOrfas.push(`${semNome} turma(s) já excluída(s)`);
+    }
 
     // Preencher campos
     document.getElementById('mod-proj-title').textContent = 'Editar projeto';
@@ -7809,6 +7876,7 @@ async function editarProjeto(id) {
     document.getElementById('pj-slug-prev').textContent = p.slug || 'slug';
     document.getElementById('pj-ano').value     = p.year || '';
     document.getElementById('pj-escola').value  = p.school_id || '';
+    pjEscolaAnterior = p.school_id || '';   // pra poder voltar se cancelar a troca
     document.getElementById('pj-tipo').value    = p.project_type || 'regular';
     document.getElementById('pj-ativo').checked = p.active !== false;
     document.getElementById('pj-demo').checked  = p.demo_mode === true;
@@ -11808,18 +11876,23 @@ async function loadBilhete() {
   try {
     const sel = document.getElementById('bil-proj-sel');
     const valorAtual = sel.value;
-    sel.innerHTML = '<option value="">Selecione…</option>';
     const { data: projs } = await supabase
       .from('projects')
       .select('id, name, slug, school:schools(name)')
       .eq('active', true)
       .order('name');
-    (projs || []).forEach(p => {
-      const o = document.createElement('option');
-      o.value = p.id;
-      o.textContent = `${p.name}${p.school?.name ? ' — ' + p.school.name : ''}`;
-      sel.appendChild(o);
-    });
+    // Monta a lista inteira e atribui de uma vez, SO' DEPOIS da consulta.
+    // Antes limpava antes do await e ia acrescentando com appendChild depois:
+    // como o clique no menu lateral dispara loadBilhete() sem await e
+    // abrirBilheteProjeto() chama de novo, as duas rodavam juntas, as duas
+    // limpavam no vazio e cada uma acrescentava a lista toda — o dropdown
+    // saia com todos os projetos duplicados. Atribuindo de uma vez, a segunda
+    // chamada sobrescreve a primeira em vez de empilhar.
+    sel.innerHTML = '<option value="">Selecione…</option>' +
+      (projs || []).map(p =>
+        `<option value="${p.id}">${escapeHtml(p.name)}` +
+        `${p.school?.name ? ' — ' + escapeHtml(p.school.name) : ''}</option>`
+      ).join('');
     if (valorAtual) sel.value = valorAtual;
 
     if (!bilheteAppSettings) {
