@@ -7041,6 +7041,7 @@ document.getElementById('btn-pj-copiar-escola').addEventListener('click', async 
         ov_image_url_3: sp?.image_url_3 || null,
         ov_image_url_4: sp?.image_url_4 || null,
         ov_variants_overridden: sp?.variants_overridden || false,
+        ov_featured: sp?.featured === true,
         ov_variants: sp ? (variantesOverride[sp.id] || []) : [],
         default_description: p.description || null,
         default_image_url: p.image_url || null,
@@ -7270,6 +7271,9 @@ function renderPjAvulsos() {
     <div class="avulso-row ${a.available ? '' : 'disabled'}" data-pjav-row="${i}">
       <input type="checkbox" data-pjav-chk="${i}" ${a.available ? 'checked' : ''}>
       <span class="av-nome">${escapeHtml(a.name)} <span style="color:var(--gray-400);font-size:11px">(base: ${fmtMoney(a.base_pcom)} / ${fmtMoney(a.base_psem)})</span>
+        <button type="button" class="btn btn-sm ${a.ov_featured ? 'btn-primary' : 'btn-secondary'}" style="font-size:10px;padding:2px 7px;margin-left:6px" data-pjav-destaque="${i}" title="Destaque deste projeto: sai num card grande no topo do catálogo. Só um por projeto.">
+          ${a.ov_featured ? '⭐ em destaque' : '☆ destacar'}
+        </button>
         <button type="button" class="btn btn-sm ${personalizado ? 'btn-primary' : 'btn-secondary'}" style="font-size:10px;padding:2px 7px;margin-left:6px" data-pjav-ov-btn="${i}" title="Nome, descrição, foto e variações só pra este projeto">
           ${personalizado ? '✓ personalizado' : '✏️ personalizar'}
         </button>
@@ -7293,6 +7297,22 @@ function renderPjAvulsos() {
   }));
   el.querySelectorAll('[data-pjav-ov-btn]').forEach(b => b.addEventListener('click', () => {
     abrirPjavOverride(Number(b.dataset.pjavOvBtn));
+  }));
+  // Um destaque por projeto: marcar um desmarca o anterior. Sem isso, dois
+  // destaques brigariam pelo mesmo espaco no topo do catalogo (e o indice
+  // unico da migration_056 recusaria a gravacao no fim do processo).
+  el.querySelectorAll('[data-pjav-destaque]').forEach(b => b.addEventListener('click', () => {
+    const i = Number(b.dataset.pjavDestaque);
+    const ativando = !pjAvulsosTemp[i].ov_featured;
+    pjAvulsosTemp.forEach(a => { a.ov_featured = false; });
+    pjAvulsosTemp[i].ov_featured = ativando;
+    // Destaque desligado nao aparece no catalogo — ligar um destaque num
+    // produto indisponivel seria marcar algo que ninguem ve.
+    if (ativando) {
+      pjAvulsosTemp[i].available = true;
+      toast(`"${pjAvulsosTemp[i].name}" vai aparecer em destaque no topo do catálogo deste projeto.`, 'ok');
+    }
+    renderPjAvulsos();
   }));
 }
 
@@ -7694,7 +7714,7 @@ async function resetModalProjeto() {
     base_pcom: p.base_price_with_promo, base_psem: p.base_price_without_promo,
     ov_name: null, ov_description: null, ov_image_url: null,
     ov_image_url_2: null, ov_image_url_3: null, ov_image_url_4: null,
-    ov_variants_overridden: false, ov_variants: [],
+    ov_variants_overridden: false, ov_variants: [], ov_featured: false,
     default_description: p.description || null, default_image_url: p.image_url || null,
     default_image_url_2: p.image_url_2 || null, default_image_url_3: p.image_url_3 || null, default_image_url_4: p.image_url_4 || null,
     default_variants: variantesGlobais[p.id] || [],
@@ -7881,6 +7901,7 @@ async function editarProjeto(id) {
         ov_image_url_3: sp?.image_url_3 || null,
         ov_image_url_4: sp?.image_url_4 || null,
         ov_variants_overridden: sp?.variants_overridden || false,
+        ov_featured: sp?.featured === true,
         ov_variants: sp ? (variantesOverride[sp.id] || []) : [],
         default_description: p.description || null,
         default_image_url: p.image_url || null,
@@ -8106,7 +8127,7 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
     await supabase.from('school_prices').delete().eq('project_id', projId);
     const pjAvulsosParaSalvar = pjAvulsosTemp.filter(a =>
       a.available || a.price_with_promo != null || a.price_without_promo != null ||
-      a.ov_name || a.ov_description || a.ov_image_url || a.ov_image_url_2 || a.ov_image_url_3 || a.ov_image_url_4 || a.ov_variants_overridden
+      a.ov_name || a.ov_description || a.ov_image_url || a.ov_image_url_2 || a.ov_image_url_3 || a.ov_image_url_4 || a.ov_variants_overridden || a.ov_featured
     );
     for (const a of pjAvulsosParaSalvar) {
       const { data: spIns, error: spErr } = await supabase.from('school_prices').insert({
@@ -8121,6 +8142,7 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
         image_url_3: a.ov_image_url_3 || null,
         image_url_4: a.ov_image_url_4 || null,
         variants_overridden: a.ov_variants_overridden || false,
+        featured: a.ov_featured === true,
       }).select('id').single();
       if (spErr) throw spErr;
       if (a.ov_variants_overridden && (a.ov_variants || []).length) {

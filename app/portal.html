@@ -82,6 +82,24 @@ button,input,select,textarea{font-family:var(--font)}
 .kits-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:11px;margin-bottom:18px}
 .avulsos-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:11px}
 
+/* DESTAQUE — produto principal do projeto, ocupa o topo do catalogo */
+.dest-card{display:flex;background:var(--white);border:2px solid var(--blue);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:18px;box-shadow:0 4px 16px rgba(75,107,251,.10)}
+.dest-img{width:38%;flex-shrink:0;background:var(--gray-50);display:flex;align-items:center;justify-content:center;cursor:pointer;min-height:220px}
+.dest-img img{width:100%;height:100%;object-fit:contain}
+.dest-body{flex:1;padding:18px 20px;display:flex;flex-direction:column;justify-content:center}
+.dest-faixa{display:inline-block;align-self:flex-start;background:var(--blue);color:#fff;font-size:11px;font-weight:700;letter-spacing:.5px;padding:3px 10px;border-radius:20px;margin-bottom:9px}
+.dest-nome{font-size:21px;font-weight:700;color:var(--gray-900);line-height:1.25;margin-bottom:6px;cursor:pointer}
+.dest-desc{font-size:13px;color:var(--gray-600);line-height:1.5;margin-bottom:12px;cursor:pointer}
+.dest-preco{font-size:25px;font-weight:700;color:var(--blue);margin-bottom:12px}
+.dest-preco-old{font-size:15px;color:var(--gray-400);text-decoration:line-through;font-weight:500;margin-left:7px}
+@media (max-width:640px){
+  .dest-card{flex-direction:column}
+  .dest-img{width:100%;min-height:0;aspect-ratio:4/3}
+  .dest-body{padding:14px 15px}
+  .dest-nome{font-size:18px}
+  .dest-preco{font-size:22px}
+}
+
 /* PRODUCT CARD */
 .pp-card{background:var(--white);border:1px solid var(--gray-200);border-radius:var(--radius-lg);overflow:hidden;transition:all .15s;cursor:pointer}
 .pp-card:hover{border-color:var(--blue);transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.04)}
@@ -798,10 +816,14 @@ body.modo-demo::after{content:'';position:fixed;inset:0;border:4px solid #7C3AED
 
     <div class="cat-layout">
       <div>
-        <div class="sec-title">Escolha seu kit</div>
-        <div class="sec-sub">Cada kit tem seu conteúdo já definido pela escola. O Kit Promocional ainda dá desconto nos avulsos.</div>
-        <div id="kits-grid" class="kits-grid">
-          <div class="loading"><span class="spinner"></span>Carregando kits…</div>
+        <div id="destaque-wrap"></div>
+
+        <div id="kits-section">
+          <div class="sec-title">Escolha seu kit</div>
+          <div class="sec-sub">Cada kit tem seu conteúdo já definido pela escola. O Kit Promocional ainda dá desconto nos avulsos.</div>
+          <div id="kits-grid" class="kits-grid">
+            <div class="loading"><span class="spinner"></span>Carregando kits…</div>
+          </div>
         </div>
 
         <div id="promo-banner" class="promo-banner" style="display:none">
@@ -3107,6 +3129,7 @@ async function loadCatalogo(user) {
       price_with_promo:    sp?.price_with_promo    ?? p.base_price_with_promo,
       price_without_promo: sp?.price_without_promo ?? p.base_price_without_promo,
       variants: (sp?.variants_overridden ? variantesOverridePorProduto[p.id] : variantesPorProduto[p.id]) || null,
+      featured: sp?.featured === true,
     };
   });
 
@@ -3117,10 +3140,16 @@ async function loadCatalogo(user) {
 
 function renderKits() {
   const el = document.getElementById('kits-grid');
+  const sec = document.getElementById('kits-section');
+  // Projeto sem kit nenhum e' caso legitimo (o produto principal e' um
+  // avulso): esconde a secao inteira em vez de dizer "aguarde a escola
+  // configurar", que seria mentira e ainda daria a entender que falta algo.
   if (kits.length === 0) {
-    el.innerHTML = '<div class="cart-empty" style="grid-column:1/-1">Nenhum kit disponível ainda. Aguarde a escola configurar.</div>';
+    if (sec) sec.style.display = 'none';
+    el.innerHTML = '';
     return;
   }
+  if (sec) sec.style.display = '';
   const order = { basico: 1, inter: 2, promo: 3 };
   const sorted = [...kits].sort((a, b) => (order[a.kit_type] || 9) - (order[b.kit_type] || 9));
   el.innerHTML = sorted.map(k => {
@@ -3183,13 +3212,19 @@ function renderAvulsos() {
   if (avulsosDisp.length === 0) {
     el.innerHTML = '<div class="cart-empty" style="grid-column:1/-1">Nenhum avulso disponível nessa escola.</div>';
     document.getElementById('promo-banner').style.display = 'none';
+    renderDestaque(null);
     return;
   }
 
   const isPromo = (kitsCarrinho['promo'] || 0) > 0;
   document.getElementById('promo-banner').style.display = isPromo ? 'flex' : 'none';
 
-  el.innerHTML = avulsosDisp.map(a => {
+  // O destaque sai do topo, entao nao se repete na grade de baixo — ver a
+  // mesma coisa duas vezes na mesma tela confunde mais do que reforca.
+  const destaque = avulsosDisp.find(a => a.featured) || null;
+  renderDestaque(destaque);
+
+  el.innerHTML = avulsosDisp.filter(a => a !== destaque).map(a => {
     const temVar = a.variants && a.variants.length > 0;
     const price = isPromo ? a.price_with_promo : a.price_without_promo;
     const oldPrice = (isPromo && a.price_without_promo > a.price_with_promo) ? a.price_without_promo : null;
@@ -3243,19 +3278,75 @@ function renderAvulsos() {
     renderCart();
     if (avisar) toast('Adicionado ao carrinho!', 'ok');
   };
-  el.querySelectorAll('[data-av-add]').forEach(b => b.addEventListener('click', e => {
+  // Os mesmos botoes existem na grade E no card de destaque, que vive em
+  // outro container — por isso a busca cobre os dois.
+  const wrapDest = document.getElementById('destaque-wrap');
+  const achar = (sel) => [
+    ...el.querySelectorAll(sel),
+    ...(wrapDest ? wrapDest.querySelectorAll(sel) : []),
+  ];
+  achar('[data-av-add]').forEach(b => b.addEventListener('click', e => {
     e.stopPropagation(); mudaAvulso(b.dataset.avAdd, 1, true);
   }));
-  el.querySelectorAll('[data-av-inc]').forEach(b => b.addEventListener('click', e => {
+  achar('[data-av-inc]').forEach(b => b.addEventListener('click', e => {
     e.stopPropagation(); mudaAvulso(b.dataset.avInc, 1, false);
   }));
-  el.querySelectorAll('[data-av-dec]').forEach(b => b.addEventListener('click', e => {
+  achar('[data-av-dec]').forEach(b => b.addEventListener('click', e => {
     e.stopPropagation(); mudaAvulso(b.dataset.avDec, -1, false);
   }));
-  el.querySelectorAll('[data-av-detail]').forEach(b => b.addEventListener('click', () => {
+  achar('[data-av-detail]').forEach(b => b.addEventListener('click', () => {
     const av = avulsosDisp.find(x => x.id === b.dataset.avDetail);
     if (av) abrirDetalhe(av);
   }));
+}
+
+// Card grande do produto em destaque, no topo do catalogo (migration_056).
+// Ocupa o espaco dos kits — pensado pra projeto que nao tem kit nenhum e
+// precisa de um ponto focal, mas funciona junto com kits tambem.
+function renderDestaque(a) {
+  const wrap = document.getElementById('destaque-wrap');
+  if (!wrap) return;
+  if (!a) { wrap.innerHTML = ''; return; }
+
+  const isPromo = (kitsCarrinho['promo'] || 0) > 0;
+  const temVar  = a.variants && a.variants.length > 0;
+  const qty     = temVar ? qtyDoProdutoNoCarrinho(a.id) : (avulsosCarrinho[a.id] || 0);
+  const isUrl   = a.image_url && a.image_url.startsWith('http');
+  const img = isUrl ? `<img src="${escapeHtml(a.image_url)}" alt="">`
+                    : `<span style="font-size:64px">${escapeHtml(a.image_url || '📦')}</span>`;
+
+  let precoHtml;
+  if (temVar) {
+    const precos = a.variants.map(v => Number(isPromo ? v.price_with_promo : v.price_without_promo) || 0);
+    precoHtml = `<div class="dest-preco">a partir de ${fmtMoney(Math.min(...precos))}</div>`;
+  } else {
+    const price = isPromo ? a.price_with_promo : a.price_without_promo;
+    const old   = (isPromo && a.price_without_promo > a.price_with_promo) ? a.price_without_promo : null;
+    precoHtml = `<div class="dest-preco">${fmtMoney(price)}${old ? `<span class="dest-preco-old">${fmtMoney(old)}</span>` : ''}</div>`;
+  }
+
+  const acaoHtml = temVar
+    ? `<button class="pp-add" data-av-detail="${a.id}">${qty > 0 ? `✓ ${qty} no carrinho — editar` : '🛒 Escolher opção'}</button>`
+    : (qty > 0 ? `
+        <div class="pp-card-qty">
+          <button data-av-dec="${a.id}">−</button>
+          <span class="qty-num">${qty}</span>
+          <button data-av-inc="${a.id}">+</button>
+          <span class="pp-incart">✓ no carrinho</span>
+        </div>` : `
+        <button class="pp-add" data-av-add="${a.id}">🛒 Adicionar ao carrinho</button>`);
+
+  wrap.innerHTML = `
+    <div class="dest-card">
+      <div class="dest-img" data-av-detail="${a.id}">${img}</div>
+      <div class="dest-body">
+        <span class="dest-faixa">⭐ DESTAQUE</span>
+        <div class="dest-nome" data-av-detail="${a.id}">${escapeHtml(a.name)}</div>
+        ${a.description ? `<div class="dest-desc" data-av-detail="${a.id}">${escapeHtml(a.description)}</div>` : ''}
+        ${precoHtml}
+        ${acaoHtml}
+      </div>
+    </div>`;
 }
 
 // Soma a quantidade de TODAS as variacoes de um produto no carrinho — o card
