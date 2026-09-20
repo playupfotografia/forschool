@@ -7671,7 +7671,10 @@ async function abrirModalProjeto() {
     supabase.from('bilhete_templates').select('id, name, type').eq('active', true).order('name'),
     supabase.from('authorization_terms').select('id, name, type').eq('active', true).order('name'),
   ]);
-  if (!produtosAtomicos.length) await loadProdutosAtomicos();
+  // Sempre recarrega: com o `if (!produtosAtomicos.length)` de antes, produto
+  // criado na tela de Produtos so' aparecia aqui depois de um F5 — e ate' la'
+  // nao dava pra marcar nem desmarcar ele no projeto.
+  await loadProdutosAtomicos();
 
   document.getElementById('pj-escola').innerHTML = '<option value="">Selecione…</option>' +
     (escResp.data || []).map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('');
@@ -8125,10 +8128,17 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
     // um (em vez de insert em lote) porque quem tem variacao personalizada
     // precisa do id de volta pra gravar school_price_variants na sequencia.
     await supabase.from('school_prices').delete().eq('project_id', projId);
-    const pjAvulsosParaSalvar = pjAvulsosTemp.filter(a =>
-      a.available || a.price_with_promo != null || a.price_without_promo != null ||
-      a.ov_name || a.ov_description || a.ov_image_url || a.ov_image_url_2 || a.ov_image_url_3 || a.ov_image_url_4 || a.ov_variants_overridden || a.ov_featured
-    );
+    // Grava linha pra TODO produto, inclusive o desmarcado.
+    // Antes existia um filtro aqui que descartava o item desmarcado que nao
+    // tivesse preco proprio nem personalizacao. So' que o portal trata
+    // "sem linha" como DISPONIVEL (portal.html: `sp ? sp.available : true`),
+    // enquanto o admin trata "sem linha" como desmarcado
+    // (`available: sp ? sp.available : false`). Os dois liam a mesma ausencia
+    // de linha e concluiam o oposto: produto criado depois que o projeto foi
+    // configurado aparecia SEM TICK na tela e MESMO ASSIM no catalogo do pai,
+    // e desmarcar nao adiantava — nao havia linha pra gravar o `false`.
+    // Gravando sempre, o admin passa a ser a fonte da verdade.
+    const pjAvulsosParaSalvar = pjAvulsosTemp;
     for (const a of pjAvulsosParaSalvar) {
       const { data: spIns, error: spErr } = await supabase.from('school_prices').insert({
         school_id: schoolIdForKits, project_id: projId, product_id: a.product_id,
