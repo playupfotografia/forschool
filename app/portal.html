@@ -1172,6 +1172,27 @@ async function loadSettings() {
   }
 }
 
+// Parcelamento e repasse da taxa podem ser definidos POR PROJETO
+// (migration_054). Em branco no projeto, vale o geral de app_settings.
+// Resolvido na hora do uso, e nao gravado nas variaveis globais, pra nao
+// depender da ordem em que loadSettings() e o projeto sao carregados.
+function maxParcelas() {
+  const n = Number(projeto?.max_installments);
+  return n > 0 ? n : MAX_INSTALLMENTS;
+}
+function repassaTaxa() {
+  const modo = projeto?.surcharge_mode;
+  if (modo) return modo !== 'absorb';
+  return PAY_CFG.repassa;
+}
+// Maior parcelamento em que a PARCELA ainda alcanca o minimo (1 = so' a vista)
+function maiorParcelamento(valor) {
+  for (let n = Math.min(maxParcelas(), 12); n >= 2; n--) {
+    if (Math.ceil((valor / n) * 100) / 100 >= MIN_INSTALLMENT_VALUE) return n;
+  }
+  return 1;
+}
+
 // ====================================================================
 // HELPERS
 // ====================================================================
@@ -1419,7 +1440,7 @@ function renderPaymentMethods(pedido, el) {
   // Link externo (SumUp/MP) — opcional, independe das outras combinacoes.
   if (escola?.payment_external_link && PAY_LINK_URL) {
     const parcelaInfo = total >= MIN_INSTALLMENT_VALUE
-      ? `<div style="font-size:11px;color:var(--green);font-weight:600;margin-top:5px">✓ Disponível em até ${MAX_INSTALLMENTS}× no cartão sem juros</div>`
+      ? `<div style="font-size:11px;color:var(--green);font-weight:600;margin-top:5px">✓ Disponível em até ${maxParcelas()}× no cartão sem juros</div>`
       : `<div style="font-size:11px;color:var(--gray-400);margin-top:5px">Cartão em 1× (parcelamento a partir de ${fmtMoney(MIN_INSTALLMENT_VALUE)})</div>`;
     blocks.push(`
       <div class="pix-block" style="border-color:var(--purple);background:var(--purple-light)">
@@ -1480,7 +1501,7 @@ function blocoEscolhaPagamento(pedido, total) {
   };
 
   if (PAY_CFG.credito) {
-    const c1 = PAY_CFG.repassa ? valorComTaxa(total, (Number(PAY_CFG.feeCredito) || 0) + antec1, PAY_CFG.feeCreditoFixa) : total;
+    const c1 = repassaTaxa() ? valorComTaxa(total, (Number(PAY_CFG.feeCredito) || 0) + antec1, PAY_CFG.feeCreditoFixa) : total;
     economia = c1 - total;
     opts.push(`
       <button type="button" class="pay-opt" onclick="escolherPagamento('${oid}','credito',1)">
@@ -1489,22 +1510,23 @@ function blocoEscolhaPagamento(pedido, total) {
         <div class="pay-opt-sub">${subAcrescimo(c1)}</div>
       </button>`);
 
-    if (MAX_INSTALLMENTS >= 2) {
-      const c2 = PAY_CFG.repassa ? valorComTaxa(total, (Number(PAY_CFG.feeCreditoParc) || 0) + antec2, PAY_CFG.feeCreditoFixa) : total;
-      const parcela = Math.ceil((c2 / 2) * 100) / 100;
-      if (parcela >= MIN_INSTALLMENT_VALUE) {
-        opts.push(`
-          <button type="button" class="pay-opt" onclick="escolherPagamento('${oid}','credito',2)">
-            <div class="pay-opt-head"><span class="pay-opt-nome">💳 Crédito em 2×</span></div>
-            <div class="pay-opt-valor">2× de ${fmtMoney(parcela)}</div>
-            <div class="pay-opt-sub">Total ${fmtMoney(c2)}${c2 > total ? ` · ${subAcrescimo(c2)}` : ''}</div>
-          </button>`);
-      }
+    // Uma opcao por parcelamento possivel (2×, 3×…), ate' o maximo do projeto
+    // ou do geral. Parcela que nao alcanca o minimo nao entra.
+    const c2 = repassaTaxa() ? valorComTaxa(total, (Number(PAY_CFG.feeCreditoParc) || 0) + antec2, PAY_CFG.feeCreditoFixa) : total;
+    for (let n = 2; n <= Math.min(maxParcelas(), 12); n++) {
+      const parcela = Math.ceil((c2 / n) * 100) / 100;
+      if (parcela < MIN_INSTALLMENT_VALUE) continue;
+      opts.push(`
+        <button type="button" class="pay-opt" onclick="escolherPagamento('${oid}','credito',${n})">
+          <div class="pay-opt-head"><span class="pay-opt-nome">💳 Crédito em ${n}×</span></div>
+          <div class="pay-opt-valor">${n}× de ${fmtMoney(parcela)}</div>
+          <div class="pay-opt-sub">Total ${fmtMoney(c2)}${c2 > total ? ` · ${subAcrescimo(c2)}` : ' · sem juros'}</div>
+        </button>`);
     }
   }
 
   if (PAY_CFG.debito) {
-    const d1 = PAY_CFG.repassa ? valorComTaxa(total, PAY_CFG.feeDebito, PAY_CFG.feeDebitoFixa) : total;
+    const d1 = repassaTaxa() ? valorComTaxa(total, PAY_CFG.feeDebito, PAY_CFG.feeDebitoFixa) : total;
     opts.push(`
       <button type="button" class="pay-opt" onclick="escolherPagamento('${oid}','debito',1)">
         <div class="pay-opt-head"><span class="pay-opt-nome">💳 Cartão de débito</span></div>
@@ -1731,10 +1753,10 @@ function blocoCartaoWpp(total, pedido) {
   // ninguem combinar um preco no WhatsApp e receber um link com outro.
   const antec1 = PAY_CFG.antecipa ? (Number(PAY_CFG.antecAvista) || 0) : 0;
   const antec2 = PAY_CFG.antecipa ? (Number(PAY_CFG.antecParc) || 0) : 0;
-  const c1 = PAY_CFG.repassa
+  const c1 = repassaTaxa()
     ? valorComTaxa(total, (Number(PAY_CFG.feeCredito) || 0) + antec1, PAY_CFG.feeCreditoFixa)
     : total;
-  const c2 = PAY_CFG.repassa
+  const c2 = repassaTaxa()
     ? valorComTaxa(total, (Number(PAY_CFG.feeCreditoParc) || 0) + antec2, PAY_CFG.feeCreditoFixa)
     : total;
 
@@ -1760,12 +1782,15 @@ function blocoCartaoWpp(total, pedido) {
 
   const opcoes = [botao('Cartão à vista', fmtMoney(c1), `à vista (${fmtMoney(c1)})`, sub(c1))];
 
-  // Mesmo criterio do fluxo online: o 2x so' vale se a PARCELA alcancar o minimo.
-  const parcela = Math.ceil((c2 / 2) * 100) / 100;
-  if (MAX_INSTALLMENTS >= 2 && parcela >= MIN_INSTALLMENT_VALUE) {
+  // Mesmo criterio do fluxo online: so' vale o parcelamento em que a PARCELA
+  // alcanca o minimo. Aqui vai so' a maior opcao — sao botoes de WhatsApp, e
+  // uma lista deles atrapalharia mais do que ajudaria.
+  const n = maiorParcelamento(c2);
+  const parcela = Math.ceil((c2 / n) * 100) / 100;
+  if (n >= 2) {
     opcoes.push(botao(
-      'Cartão em 2×', `2× de ${fmtMoney(parcela)}`,
-      `em 2× de ${fmtMoney(parcela)} (total ${fmtMoney(c2)})`,
+      `Cartão em ${n}×`, `${n}× de ${fmtMoney(parcela)}`,
+      `em ${n}× de ${fmtMoney(parcela)} (total ${fmtMoney(c2)})`,
       sub(c2)
     ));
   } else {

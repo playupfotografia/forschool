@@ -46,7 +46,7 @@ module.exports = async (req, res) => {
     // ---- 1. Pedido + responsavel + aluno -----------------------------------
     const pedidos = await sb(
       `/orders?id=eq.${encodeURIComponent(orderId)}&select=` +
-      'id,order_number,total_amount,payment_status,gateway,gateway_id,student_id,' +
+      'id,order_number,total_amount,payment_status,gateway,gateway_id,student_id,project_id,' +
       'user_id,payment_link_token,users(name,email,cpf,phone),students(name)'
     );
     const pedido = pedidos?.[0];
@@ -86,8 +86,19 @@ module.exports = async (req, res) => {
     }
 
     // ---- 3. Quanto cobrar ---------------------------------------------------
-    const repassa = (cfg.surcharge_mode || 'pass_on') !== 'absorb';
-    const maxParc = parseInt(cfg.max_installments, 10) || 1;
+    // Parcelamento e repasse podem ser definidos por projeto (migration_054):
+    // em branco no projeto, vale o geral. Resolvido aqui no servidor de
+    // proposito — o navegador manda so' quantas parcelas quer, nunca o valor.
+    let projCfg = null;
+    if (pedido.project_id) {
+      const projs = await sb(
+        `/projects?id=eq.${encodeURIComponent(pedido.project_id)}&select=max_installments,surcharge_mode`
+      );
+      projCfg = projs?.[0] || null;
+    }
+
+    const repassa = (projCfg?.surcharge_mode || cfg.surcharge_mode || 'pass_on') !== 'absorb';
+    const maxParc = parseInt(projCfg?.max_installments, 10) || parseInt(cfg.max_installments, 10) || 1;
     const minParc = Number(cfg.min_installment_value) || 0;
 
     if (metodo !== 'credito') parcelas = 1;

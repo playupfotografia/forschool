@@ -2469,6 +2469,35 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
               <span><b>Link externo</b> — usa o link configurado em "Configurações da empresa"</span>
             </label>
           </div>
+
+          <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-top:12px">Cartão — só deste projeto</div>
+          <div class="form-grid fg2">
+            <div class="form-group">
+              <label class="form-label">Máximo de parcelas</label>
+              <select class="form-select" id="pj-max-parcelas">
+                <option value="">Usar o geral (Configurações)</option>
+                <option value="1">1× (sem parcelamento)</option>
+                <option value="2">2×</option>
+                <option value="3">3×</option>
+                <option value="4">4×</option>
+                <option value="5">5×</option>
+                <option value="6">6×</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Taxa do cartão</label>
+              <select class="form-select" id="pj-surcharge">
+                <option value="">Usar o geral (Configurações)</option>
+                <option value="pass_on">Repassar pro responsável</option>
+                <option value="absorb">Absorver — sem juros pro responsável</option>
+              </select>
+            </div>
+          </div>
+          <div class="slug-hint">
+            Em branco, vale o que está em Configurações. Preenchido, vale só neste projeto —
+            use quando o parcelamento foi combinado com a escola (ex: "3× sem juros").
+            <b>Absorver</b> significa que a taxa do cartão sai do seu bolso, não do responsável.
+          </div>
         </div>
       </div>
 
@@ -7468,7 +7497,7 @@ async function loadProjetos() {
   tbody.innerHTML = '<tr><td colspan="7" class="loading"><span class="spinner"></span>Carregando…</td></tr>';
   try {
     const [projResp, escResp] = await Promise.all([
-      supabase.from('projects').select('id, name, slug, year, project_type, active, demo_mode, registrations_closed, school:schools(id, name)').order('name'),
+      supabase.from('projects').select('id, name, slug, year, project_type, active, demo_mode, registrations_closed, max_installments, surcharge_mode, school:schools(id, name)').order('name'),
       supabase.from('schools').select('id, name').eq('active', true).order('name'),
     ]);
     if (projResp.error) throw projResp.error;
@@ -7601,6 +7630,8 @@ async function resetModalProjeto() {
   document.getElementById('pj-encerrado').checked = false;
   document.getElementById('pj-pix-manual').checked = true;
   document.getElementById('pj-external').checked = false;
+  document.getElementById('pj-max-parcelas').value = '';
+  document.getElementById('pj-surcharge').value = '';
   document.getElementById('pj-inf-badge').style.display = 'none';
   window.updatePjRepLabel();
   sessoesTemp = [];
@@ -7720,6 +7751,8 @@ async function editarProjeto(id) {
     document.getElementById('pj-entrega-retirada').checked = p.pickup_enabled !== false;
     document.getElementById('pj-pix-manual').checked = p.payment_pix_manual !== false;
     document.getElementById('pj-external').checked   = !!p.payment_external_link;
+    document.getElementById('pj-max-parcelas').value = p.max_installments ?? '';
+    document.getElementById('pj-surcharge').value    = p.surcharge_mode || '';
     document.getElementById('pj-rep-tipo').value  = p.repayment_type || 'nenhum';
     document.getElementById('pj-rep-valor').value = p.repayment_value || '';
     document.getElementById('pj-delivery').value  = p.delivery_cost || '';
@@ -7942,6 +7975,9 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
     payment_pix_manual: document.getElementById('pj-pix-manual').checked,
     payment_inter: false,
     payment_external_link: document.getElementById('pj-external').checked,
+    // Em branco = null = "usa o que esta em Configuracoes" (migration_054)
+    max_installments: parseInt(document.getElementById('pj-max-parcelas').value, 10) || null,
+    surcharge_mode:   document.getElementById('pj-surcharge').value || null,
     repayment_type: document.getElementById('pj-rep-tipo').value,
     repayment_value: parseFloat(document.getElementById('pj-rep-valor').value) || 0,
     delivery_cost: parseFloat(document.getElementById('pj-delivery').value) || 0,
@@ -8193,7 +8229,7 @@ window.abrirDrillRapido = async function () {
     if (!projetosCache.length) {
       const { data, error } = await supabase
         .from('projects')
-        .select('id, name, slug, year, project_type, active, demo_mode, school:schools(id, name)')
+        .select('id, name, slug, year, project_type, active, demo_mode, max_installments, surcharge_mode, school:schools(id, name)')
         .order('name');
       if (error) throw error;
       projetosCache = data || [];
@@ -9411,11 +9447,24 @@ let contatoMsgCache = null;   // modelos de mensagem, buscados uma vez
 // o pai ve no portal (gross-up + antecipacao). Uma variavel so' em vez de tres
 // porque o 2x nem sempre existe: assim a frase sai correta nos dois casos, sem
 // deixar buraco no texto.
-function frasesCartao(total, cfg) {
+function frasesCartao(total, cfg, proj) {
   const t = Number(total) || 0;
   if (t <= 0) return '';
-  const repassa = (cfg.surcharge_mode || 'pass_on') !== 'absorb';
-  if (!repassa) return `${fmtMoney(t)} no cartão`;
+  // Projeto manda no que o projeto define; no resto, vale o geral (migration_054)
+  const modo = proj?.surcharge_mode || cfg.surcharge_mode || 'pass_on';
+  const repassa = modo !== 'absorb';
+
+  const minParc = Number(cfg.min_installment_value) || 0;
+  const maxParc = Number(proj?.max_installments) || Number(cfg.max_installments) || 1;
+
+  if (!repassa) {
+    // Sem repasse o valor nao muda, entao a maior parcela que alcanca o
+    // minimo e' a melhor oferta pro pai.
+    const n = maiorParcelamento(t, maxParc, minParc);
+    return n >= 2
+      ? `${fmtMoney(t)} à vista ou ${n}× de ${fmtMoney(Math.ceil((t / n) * 100) / 100)} sem juros`
+      : `${fmtMoney(t)} no cartão`;
+  }
 
   const antecOn = cfg.anticipation_enabled === true;
   const a1 = antecOn ? (Number(cfg.anticipation_fee_percent) || 0) : 0;
@@ -9425,13 +9474,19 @@ function frasesCartao(total, cfg) {
   const c1 = valorComTaxa(t, (Number(cfg.card_fee_percent) || 0) + a1, fix);
   const c2 = valorComTaxa(t, (Number(cfg.card_fee_percent_installment) || 0) + a2, fix);
 
-  const minParc = Number(cfg.min_installment_value) || 0;
-  const maxParc = Number(cfg.max_installments) || 1;
-  const parcela = Math.ceil((c2 / 2) * 100) / 100;
-
-  return (maxParc >= 2 && parcela >= minParc)
-    ? `${fmtMoney(c1)} à vista ou 2× de ${fmtMoney(parcela)}`
+  const n = maiorParcelamento(c2, maxParc, minParc);
+  return n >= 2
+    ? `${fmtMoney(c1)} à vista ou ${n}× de ${fmtMoney(Math.ceil((c2 / n) * 100) / 100)}`
     : `${fmtMoney(c1)} à vista`;
+}
+
+// Maior numero de parcelas (ate' o maximo permitido) em que a PARCELA ainda
+// alcanca o minimo. Devolve 1 quando nem 2x cabe.
+function maiorParcelamento(valor, maxParc, minParc) {
+  for (let n = Math.min(Number(maxParc) || 1, 12); n >= 2; n--) {
+    if (Math.ceil((valor / n) * 100) / 100 >= minParc) return n;
+  }
+  return 1;
 }
 
 // Abre a conversa no WhatsApp com a mensagem certa pra situacao e registra
@@ -9486,7 +9541,7 @@ window.contatarResponsavel = async function (studentId, tipo) {
       // Chave PIX na propria mensagem: no fluxo manual e' o que faz o pai
       // pagar sem ter que voltar ao portal procurar.
       .replaceAll('{chave_pix}', contatoMsgCache.pix_key || '')
-      .replaceAll('{opcoes_cartao}', a.order ? frasesCartao(a.order.total_amount, contatoMsgCache) : '')
+      .replaceAll('{opcoes_cartao}', a.order ? frasesCartao(a.order.total_amount, contatoMsgCache, drillProjeto) : '')
       .replaceAll('{link}', link);
 
     // Frase com variavel vazia vira "as fotos sao dia ." — melhor avisar antes
