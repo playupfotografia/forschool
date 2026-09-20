@@ -203,12 +203,17 @@ tr.pj-demo{background:#FFFBEB}
 tr.pj-demo td:first-child{border-left:4px solid #D97706}
 tr.pj-ativo{background:#F0FDF4}
 tr.pj-ativo td:first-child{border-left:4px solid var(--green)}
+/* Ativo mas sem aceitar cadastro novo: vende so' pra quem ja' tem conta, entao
+   nao adianta divulgar o link. Verde diria o contrario. */
+tr.pj-fechado{background:#F5F3FF}
+tr.pj-fechado td:first-child{border-left:4px solid var(--purple)}
 tr.pj-inativo{background:#FEF2F2}
 tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
 .badge-red{background:var(--red-light);color:#9B1C1C}
 .badge-gray{background:var(--gray-100);color:var(--gray-600)}
 .badge-blue{background:var(--blue-light);color:var(--blue-dark)}
 .badge-orange{background:#FEF3EC;color:#9A3412}
+.badge-purple{background:#EDE9FE;color:#5B21B6}
 .kit-bas{background:var(--c-bas-bg);color:var(--c-bas);font-weight:700}
 .kit-int{background:var(--c-int-bg);color:var(--c-int);font-weight:700}
 .kit-pro{background:var(--c-pro-bg);color:var(--c-pro);font-weight:700}
@@ -7548,16 +7553,23 @@ function renderTabelaProjetos() {
     const tipo = tipoLabel[p.project_type] || p.project_type;
     const cor  = tipoColor[p.project_type] || 'var(--gray-600)';
     // Cor da linha inteira pra bater o olho: amarelo = demonstracao (nao
-    // vende), verde = ativo, vermelho = desativado. A demonstracao vem antes
-    // do ativo de proposito — um projeto pode ser os dois, e o que importa
-    // saber e' que ele nao cobra.
+    // vende), verde = ativo recebendo cadastro, roxo = ativo mas so' pra quem
+    // ja' tem conta, vermelho = desativado. A demonstracao vem antes de tudo
+    // de proposito — um projeto pode ser varias coisas, e o que importa saber
+    // e' que ele nao cobra.
     const status = (p.demo_mode
       ? '<span class="badge badge-yellow">🔎 Demonstração</span>'
       : p.active
         ? '<span class="badge badge-green">Ativo</span>'
         : '<span class="badge badge-gray">Inativo</span>')
-      + (p.registrations_closed ? ' <span class="badge badge-gray" title="Cadastro novo bloqueado no portal — quem já tem conta continua comprando">🔒 Cadastro encerrado</span>' : '');
-    const linhaCls = p.demo_mode ? 'pj-demo' : p.active ? 'pj-ativo' : 'pj-inativo';
+      + (p.registrations_closed ? ' <span class="badge badge-purple" title="Cadastro novo bloqueado no portal — quem já tem conta continua comprando">🔒 Cadastro encerrado</span>' : '');
+    // Demonstracao ganha de tudo: e' o estado que mais engana se passar batido.
+    // Depois separa ativo "recebendo cadastro" (verde) de ativo "so' quem ja'
+    // tem conta" (roxo) — divulgar o link so' faz sentido no primeiro.
+    const linhaCls = p.demo_mode ? 'pj-demo'
+                   : !p.active ? 'pj-inativo'
+                   : p.registrations_closed ? 'pj-fechado'
+                   : 'pj-ativo';
     return `<tr class="${linhaCls}" style="cursor:pointer" title="Clique para abrir o Bilhete deste projeto" data-proj-bil="${p.id}">
       <td style="font-weight:500">${escapeHtml(p.name)}</td>
       <td>${escapeHtml(p.school?.name || '—')}</td>
