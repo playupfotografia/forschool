@@ -11945,7 +11945,7 @@ async function onBilheteProj() {
         .select('id, name, slug, delivery_date, payment_external_link, inf_intro_text, inf_body_html, inf_delivery_text, inf_uniform_text, inf_footer_text, school:schools(id, name)')
         .eq('id', projId).single(),
       supabase.from('project_sessions')
-        .select('id, photo_date, period, order_deadline, project_session_classes(school_class:school_classes(id, name, year:school_years(id, name)))')
+        .select('id, photo_date, period, order_deadline, project_session_classes(school_class:school_classes(id, name, year:school_years(id, name, sort_order)))')
         .eq('project_id', projId).order('photo_date'),
       supabase.from('school_kits')
         .select('*').eq('project_id', projId).eq('available', true),
@@ -11954,6 +11954,25 @@ async function onBilheteProj() {
 
     bilheteProj = projResp.data;
     bilheteProj.sessions = sessResp.data || [];
+
+    // As turmas vem na ordem em que foram gravadas — no bilhete isso sai como
+    // "6º A · 7º A · 6º B", que confunde o pai procurando a turma do filho.
+    // Ordena por ANO e depois por letra. O criterio do ano e' o sort_order de
+    // school_years, nao o nome: por nome, "1º Ano EM" viria antes de "3º Ano
+    // Fund I", que e' o contrario da ordem real da escola.
+    // Ordena aqui, logo depois da consulta, pra a lista da esquerda e o
+    // bilhete impresso sairem iguais — sao dois lugares lendo o mesmo array.
+    bilheteProj.sessions.forEach(s => {
+      (s.project_session_classes || []).sort((a, b) => {
+        const ya = a.school_class?.year, yb = b.school_class?.year;
+        const oa = ya?.sort_order ?? 9999, ob = yb?.sort_order ?? 9999;
+        if (oa !== ob) return oa - ob;
+        const na = ya?.name || '', nb = yb?.name || '';
+        if (na !== nb) return na.localeCompare(nb, 'pt-BR', { numeric: true });
+        return (a.school_class?.name || '').localeCompare(
+          b.school_class?.name || '', 'pt-BR', { numeric: true });
+      });
+    });
     bilheteProj.kits     = kitsResp.data || [];
 
     // Renderiza lista de sessões com prazo por sessão (read-only)
