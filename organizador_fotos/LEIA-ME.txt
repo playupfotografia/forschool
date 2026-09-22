@@ -1,0 +1,44 @@
+For School — Organizador de Fotos
+==================================
+Pacote pra instalar em outro computador.
+
+PASSO 1 — Python
+-----------------
+Se esse computador ainda não tem Python instalado:
+  https://www.python.org/downloads/
+Na instalação, MARQUE a caixinha "Add Python to PATH" (é a causa
+mais comum de erro depois).
+
+PASSO 2 — Extrair
+-------------------
+Extraia esta pasta (clique direito no .zip > Extrair tudo) em
+qualquer lugar, por exemplo "Documentos\For School\organizador_fotos".
+
+PASSO 3 — O arquivo que falta (IMPORTANTE)
+--------------------------------------------
+Por segurança, o arquivo "supabase.local.env" (a chave de acesso ao
+banco) NÃO veio dentro deste zip. Copie ele manualmente do outro
+computador (pen drive, por exemplo) e cole nesta MESMA pasta, do
+lado dos arquivos .py.
+
+Sem esse arquivo, o programa abre e avisa "Falta o arquivo de
+credenciais" — é só colocar ele aqui que resolve.
+
+PASSO 4 — Instalar as dependências
+-------------------------------------
+Dê 2 cliques em: 1_INSTALAR.bat
+(só precisa fazer isso uma vez neste computador)
+
+PASSO 5 — Usar
+----------------
+Dê 2 cliques em: ABRIR_PROGRAMA.bat
+Isso abre a janela do programa (Fase 1 e Fase 2 juntas).
+
+Se preferir os atalhos antigos por linha de comando:
+  2_ORGANIZAR.bat        → só a Fase 1 (organizar por aluno)
+  3_MONTAR_PRODUTOS.bat  → só a Fase 2 (separar por produto)
+
+PRECISA DE INTERNET?
+----------------------
+Fase 1 (ler QR, separar por aluno): funciona sem internet.
+Fase 2 (buscar o pedido de cada aluno no banco): precisa de internet.

@@ -99,7 +99,12 @@ def ler_qr(caminho: Path):
 def sanitizar(nome: str, max_len=60) -> str:
     for c in r'<>:"/\|?*':
         nome = nome.replace(c, '_')
-    return nome.strip('. ')[:max_len] or 'Aluno'
+    # strip() ANTES e DEPOIS do corte: turma com nome de professor colado
+    # junto (ex: "A  Professora Bruna Daiana") faz o corte em max_len cair
+    # no meio de um espaço — pasta/arquivo terminando em espaço, o Windows
+    # cria escondendo o espaço, e o programa trava depois tentando escrever
+    # num caminho que "pra ele" ainda tem o espaço (visto ao vivo 22/09/2026).
+    return nome.strip('. ')[:max_len].strip('. ') or 'Aluno'
 
 
 def supabase_get(table, params):
@@ -346,11 +351,18 @@ class App(tk.Tk):
             self.pasta_saida.set(d)
 
     def _log1(self, msg):
+        # Chamado de dentro da thread da Fase 1 (organizar por aluno) — mexer
+        # na janela direto de outra thread e' o que travava o programa do
+        # nada, sem erro e sem gastar CPU (visto ao vivo em 22/09/2026). O
+        # self.after(0, ...) entrega o trabalho pra thread principal, que e'
+        # a unica que pode mexer com seguranca nos widgets do Tkinter.
+        self.after(0, self._log1_ui, msg)
+
+    def _log1_ui(self, msg):
         self.log1.configure(state='normal')
         self.log1.insert('end', msg + '\n')
         self.log1.see('end')
         self.log1.configure(state='disabled')
-        self.update_idletasks()
 
     def _iniciar_fase1(self):
         origem = self.pasta_origem.get().strip()
@@ -398,6 +410,7 @@ class App(tk.Tk):
         turmas_info = {}   # nome_pasta -> quantas fotos de turma
 
         for i, foto in enumerate(fotos, 1):
+          try:
             dados = ler_qr(foto)
 
             # QR de TURMA (cartao "foto de turma", gerado no admin). Marca o
@@ -469,7 +482,15 @@ class App(tk.Tk):
 
             elif pasta_aluno is not None:
                 fotos_aluno += 1
-                destino = pasta_aluno / foto.name
+                # Foto de aluno leva o nome da pasta (aluno + turma), nao o
+                # nome cru da camera — sem isso nao da' pra saber de quem e'
+                # a foto quando ela sai dessa pasta (ex: copiada avulsa pra
+                # imprimir/mandar pra fora). Foto de turma mantem o nome
+                # original, igual sempre foi.
+                if aluno_atual:
+                    destino = pasta_aluno / f'{aluno_atual} - {fotos_aluno:02d}{foto.suffix.lower()}'
+                else:
+                    destino = pasta_aluno / foto.name
                 shutil.copy2(foto, destino)
                 # aluno_atual None = estamos numa foto de turma: copia, mas nao
                 # registra no indice (foto de turma nao vira produto de aluno).
@@ -481,13 +502,20 @@ class App(tk.Tk):
                             alunos_info[aluno_atual]['bloco_atual'])
                 else:
                     turmas_info[pasta_aluno.name] = turmas_info.get(pasta_aluno.name, 0) + 1
-                self._log1(f'   ✓ {foto.name}')
+                self._log1(f'   ✓ {destino.name}')
 
             else:
                 sem_aluno += 1
                 pasta_sem.mkdir(exist_ok=True)
                 shutil.copy2(foto, pasta_sem / foto.name)
                 self._log1(f'   ⚠ {foto.name} → _sem_aluno')
+          except Exception as e:
+            # Antes, qualquer erro aqui matava a thread em silencio (pythonw
+            # nao tem console pra mostrar o traceback) — o programa parava
+            # de escrever no log e ficava ali pra sempre, parecendo travado,
+            # sem nenhum aviso. Agora aparece na tela e ele segue pra
+            # proxima foto em vez de morrer. Visto ao vivo em 22/09/2026.
+            self._log1(f'❌ ERRO em {foto.name}: {e} — pulando essa foto')
 
         if aluno_atual and aluno_atual in alunos_info:
             alunos_info[aluno_atual]['fotos_count'] = fotos_aluno
@@ -563,11 +591,15 @@ class App(tk.Tk):
         self.log2.pack(fill='x', padx=8, pady=(0,4))
 
     def _log2(self, msg):
+        # Mesmo motivo do _log1: chamado de dentro da thread da Fase 2, tem
+        # que passar pela thread principal via self.after (ver _log1).
+        self.after(0, self._log2_ui, msg)
+
+    def _log2_ui(self, msg):
         self.log2.configure(state='normal')
         self.log2.insert('end', msg + '\n')
         self.log2.see('end')
         self.log2.configure(state='disabled')
-        self.update_idletasks()
 
     def _abrir_organizada(self):
         d = filedialog.askdirectory(title='Selecione a pasta organizada (resultado do Passo 1)')
@@ -754,6 +786,16 @@ class App(tk.Tk):
                                  padx=20, pady=8, cursor='hand2')
         btn_escolher.pack(side='right')
 
+        # Caso real: esqueceu de trocar o QR antes de fotografar o proximo
+        # aluno, e a foto foi parar na pasta errada. Em vez de sair do
+        # programa e mexer nos arquivos na mao, resolve aqui: escolhe o
+        # aluno certo (com busca) e o programa move + renomeia sozinho.
+        btn_mover = tk.Button(rodape, text='➡ Mover p/ outro aluno',
+                              font=('Segoe UI', 10, 'bold'),
+                              bg='#7C3AED', fg='white', relief='flat',
+                              padx=14, pady=8, cursor='hand2')
+        btn_mover.pack(side='right', padx=(0,10))
+
         # ── Lógica ────────────────────────────────────────────────────────────
         img_tk_ref = [None]  # mantém referência para não ser coletado pelo GC
 
@@ -797,9 +839,66 @@ class App(tk.Tk):
         def proximo():
             mostrar(idx[0] + 1)
 
+        def mover_para_outro():
+            destino_key = self._escolher_aluno_destino(excluir=nome_pasta)
+            if not destino_key:
+                return
+
+            pos = idx[0]
+            origem_path = Path(fotos[pos])
+            origem_info  = self.alunos_info[nome_pasta]
+            destino_info = self.alunos_info[destino_key]
+            destino_pasta = Path(destino_info['pasta'])
+            destino_pasta.mkdir(exist_ok=True)
+
+            # Acha o proximo numero livre olhando os arquivos que ja' estao
+            # la' — nunca confia em len(fotos) sozinho, pra nao sobrescrever
+            # foto de quem ja' esta' na pasta se algum numero tiver pulado.
+            numeros = []
+            for f in destino_pasta.glob(f'{destino_key} - *'):
+                try:
+                    numeros.append(int(f.stem.rsplit(' - ', 1)[-1]))
+                except ValueError:
+                    pass
+            novo_num = (max(numeros) + 1) if numeros else 1
+            novo_caminho = destino_pasta / f'{destino_key} - {novo_num:02d}{origem_path.suffix.lower()}'
+
+            try:
+                shutil.move(str(origem_path), str(novo_caminho))
+            except Exception as e:
+                messagebox.showerror('Erro ao mover', str(e))
+                return
+
+            # Tira do aluno errado. `fotos` aqui e' o mesmo objeto de
+            # origem_info['fotos'] (mesma lista, nao copia), entao o pop
+            # ja' atualiza os dois ao mesmo tempo.
+            fotos.pop(pos)
+            if pos < len(origem_info['blocos']):
+                origem_info['blocos'].pop(pos)
+            if pos < len(blocos_lista):
+                blocos_lista.pop(pos)
+
+            # Poe no aluno certo
+            destino_info['fotos'].append(str(novo_caminho))
+            destino_info['blocos'].append(
+                (max(destino_info['blocos']) + 1) if destino_info['blocos'] else 1)
+
+            messagebox.showinfo(
+                'Movido!',
+                f'Foto movida pra {destino_info.get("nome", destino_key)}.\n\n'
+                f'O contador "X foto(s)" da tela anterior só atualiza quando '
+                f'você reabrir esse aluno — mas a foto já está na pasta certa.'
+            )
+
+            if not fotos:
+                win.destroy()
+            else:
+                mostrar(pos % len(fotos))
+
         btn_ant.config(command=anterior)
         btn_prox.config(command=proximo)
         btn_escolher.config(command=escolher)
+        btn_mover.config(command=mover_para_outro)
 
         def tecla(e):
             if e.keysym == 'Left':   anterior()
@@ -819,6 +918,81 @@ class App(tk.Tk):
 
         # Mostra primeira foto
         win.after(100, lambda: mostrar(idx[0]))
+
+    def _escolher_aluno_destino(self, excluir):
+        """Janela pequena com busca pra escolher pra qual aluno uma foto
+        (que foi parar na pasta errada) deveria ter ido. Devolve a chave
+        (nome_pasta) escolhida, ou None se cancelou.
+        """
+        picker = tk.Toplevel(self)
+        picker.title('Mover foto para...')
+        picker.configure(bg=COR_BG)
+        picker.geometry('420x480')
+        picker.transient(self)
+        picker.grab_set()
+
+        tk.Label(picker, text='Pra qual aluno essa foto é de verdade?',
+                 bg=COR_BG, fg=COR_TEXTO, font=('Segoe UI', 10, 'bold')).pack(
+                 pady=(14,6), padx=14, anchor='w')
+
+        busca_var = tk.StringVar()
+        entry = tk.Entry(picker, textvariable=busca_var, font=('Segoe UI', 10))
+        entry.pack(fill='x', padx=14, pady=(0,8))
+        entry.focus_set()
+
+        lista = tk.Listbox(picker, font=('Segoe UI', 10), activestyle='dotbox')
+        lista.pack(fill='both', expand=True, padx=14, pady=(0,10))
+        lista._chaves = []
+
+        opcoes = sorted(
+            [(k, v.get('nome', k), v.get('turma', '')) for k, v in self.alunos_info.items()
+             if k != excluir],
+            key=lambda t: t[1]
+        )
+
+        def atualizar_lista(*_a):
+            termo = busca_var.get().strip().lower()
+            lista.delete(0, 'end')
+            chaves = []
+            for k, nome, turma in opcoes:
+                if termo and termo not in nome.lower():
+                    continue
+                texto = f'{nome}  ({turma})' if turma else nome
+                lista.insert('end', texto)
+                chaves.append(k)
+            lista._chaves = chaves
+            if chaves:
+                lista.selection_set(0)
+
+        atualizar_lista()
+        busca_var.trace_add('write', atualizar_lista)
+
+        resultado = [None]
+
+        def confirmar(event=None):
+            sel = lista.curselection()
+            if not sel:
+                return
+            resultado[0] = lista._chaves[sel[0]]
+            picker.destroy()
+
+        entry.bind('<Return>', confirmar)
+        entry.bind('<Down>', lambda e: lista.focus_set())
+        lista.bind('<Return>', confirmar)
+        lista.bind('<Double-Button-1>', confirmar)
+        picker.bind('<Escape>', lambda e: picker.destroy())
+
+        botoes = tk.Frame(picker, bg=COR_BG)
+        botoes.pack(fill='x', padx=14, pady=(0,14))
+        tk.Button(botoes, text='Cancelar', command=picker.destroy,
+                  bg='#E2E8F0', relief='flat', padx=14, pady=6,
+                  cursor='hand2').pack(side='left')
+        tk.Button(botoes, text='Mover pra cá', command=confirmar,
+                  bg=COR_VERDE, fg='white', relief='flat', padx=14, pady=6,
+                  cursor='hand2').pack(side='right')
+
+        self.wait_window(picker)
+        return resultado[0]
 
     def _montar_tudo(self):
         if not self.alunos_info:
