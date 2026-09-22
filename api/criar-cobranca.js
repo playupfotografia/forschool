@@ -200,7 +200,7 @@ module.exports = async (req, res) => {
           comment: descricao,
           customer: {
             name: resp.name || 'Responsavel',
-            taxID: { taxID: cpf, type: 'BR:CPF' },
+            taxID: cpf,
             email: resp.email || undefined,
             phone: telefoneBR(resp.phone) ? '+55' + telefoneBR(resp.phone) : undefined,
           },
