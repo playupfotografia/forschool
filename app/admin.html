@@ -2226,6 +2226,17 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
     </div>
     <div class="modal-body">
       <div class="form-grid" style="gap:11px">
+        <div class="form-group">
+          <label class="form-label">⚠️ Aviso antes da tela de autorização (opcional)</label>
+          <textarea class="form-input" rows="3" id="trm-warning" placeholder="Ex: IMPORTANTE: autorizar não é o mesmo que comprar!"></textarea>
+          <div class="slug-hint">
+            Abre num popup por cima de tudo assim que a tela de autorização carrega,
+            <b>antes</b> do termo legal e das caixinhas — a primeira coisa que o responsável
+            vê. Deixe em branco pra tela continuar como está hoje, sem popup nenhum. Útil pra
+            projeto tipo mural/grade, onde a família que não vai comprar nada às vezes recusa
+            a autorização achando que é a mesma coisa que comprar.
+          </div>
+        </div>
         <div class="form-grid fg2" style="gap:8px">
           <div class="form-group">
             <label class="form-label">Nome do modelo</label>
@@ -6713,7 +6724,7 @@ async function loadTermos() {
 document.getElementById('btn-novo-termo').addEventListener('click', () => {
   editTermoId = null;
   document.getElementById('mod-trm-title').textContent = 'Novo termo de autorização';
-  ['trm-nome','trm-intro','trm-body','trm-purpose','trm-ind-label','trm-cls-label','trm-ind-desc','trm-cls-desc'].forEach(id => document.getElementById(id).value = '');
+  ['trm-nome','trm-warning','trm-intro','trm-body','trm-purpose','trm-ind-label','trm-cls-label','trm-ind-desc','trm-cls-desc'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('trm-tipo').value = 'regular';
   document.getElementById('trm-mode').value = 'choice';
   document.getElementById('trm-active').checked = true;
@@ -6745,6 +6756,7 @@ async function editarTermo(id) {
     if (error) throw error;
     editTermoId = id;
     document.getElementById('mod-trm-title').textContent = 'Editar termo';
+    document.getElementById('trm-warning').value   = data.warning_banner_text || '';
     document.getElementById('trm-nome').value      = data.name || '';
     document.getElementById('trm-tipo').value      = data.type || 'regular';
     document.getElementById('trm-mode').value      = data.authorization_mode || 'choice';
@@ -6769,6 +6781,7 @@ async function duplicarTermo(id) {
     if (error) throw error;
     editTermoId = null;
     document.getElementById('mod-trm-title').textContent = 'Duplicar termo — ajuste o nome';
+    document.getElementById('trm-warning').value   = data.warning_banner_text || '';
     document.getElementById('trm-nome').value      = (data.name || '') + ' (cópia)';
     document.getElementById('trm-tipo').value      = data.type || 'regular';
     document.getElementById('trm-mode').value      = data.authorization_mode || 'choice';
@@ -6806,6 +6819,7 @@ document.getElementById('btn-salvar-termo').addEventListener('click', async () =
     name: nome,
     type: document.getElementById('trm-tipo').value,
     authorization_mode: document.getElementById('trm-mode').value,
+    warning_banner_text: document.getElementById('trm-warning').value.trim() || null,
     intro_text:   document.getElementById('trm-intro').value.trim() || null,
     body_html:    document.getElementById('trm-body').value.trim() || null,
     purpose_text: document.getElementById('trm-purpose').value.trim() || null,
