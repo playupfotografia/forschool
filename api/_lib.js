@@ -36,6 +36,79 @@ async function asaas(caminho, opts = {}) {
   return corpo;
 }
 
+// --- Woovi (ex-OpenPix) — PIX automatico, alternativa ao Asaas -------------
+// Mesmo formato de erro do asaas(), pra criar-cobranca.js poder tratar os
+// dois gateways do mesmo jeito. Auth e' o AppID cru no header, sem "Bearer".
+async function woovi(caminho, opts = {}) {
+  const base = env('WOOVI_API_URL').replace(/\/$/, '');
+  const r = await fetch(base + caminho, {
+    ...opts,
+    headers: {
+      Authorization: env('WOOVI_APPID'),
+      'Content-Type': 'application/json',
+      ...(opts.headers || {}),
+    },
+  });
+  const texto = await r.text();
+  let corpo = null;
+  try { corpo = texto ? JSON.parse(texto) : null; } catch { corpo = { raw: texto }; }
+  if (!r.ok) {
+    const msg = corpo?.error || corpo?.errors?.[0]?.message || corpo?.raw || `HTTP ${r.status}`;
+    const e = new Error('Woovi: ' + msg);
+    e.status = r.status;
+    e.corpo = corpo;
+    throw e;
+  }
+  return corpo;
+}
+
+// ---------------------------------------------------------------------------
+// Assinatura do webhook da Woovi (x-webhook-signature).
+//
+// E' RSA-SHA256 do corpo CRU da requisicao, verificado com a chave publica
+// da Woovi (a mesma pra todos os webhooks, nao e' por conta). Buscamos a
+// chave em vez de deixar fixa no codigo — se a Woovi trocar, a integracao
+// acompanha sozinha. Guardada em memoria do processo pra nao buscar de novo
+// a cada webhook (a funcao fica "quente" entre invocacoes na Vercel).
+//
+// ⚠️ Precisa do corpo CRU (string), nao do objeto reparseado — reserializar
+// com JSON.stringify pode nao bater byte a byte com o que a Woovi assinou.
+// ---------------------------------------------------------------------------
+const crypto = require('crypto');
+let _chavePublicaWooviCache = null;
+
+async function chavePublicaWoovi() {
+  if (_chavePublicaWooviCache) return _chavePublicaWooviCache;
+  const base = env('WOOVI_API_URL').replace(/\/$/, '');
+  const r = await fetch(base + '/api/v1/webhook/public-keys');
+  if (!r.ok) throw new Error('Woovi: nao consegui buscar a chave publica (HTTP ' + r.status + ')');
+  const corpo = await r.json();
+  // ⚠️ A doc da Woovi mostra um formato (publicKeys, base64) que NAO bate com
+  // a resposta real testada em 21/09/2026: vem "public_keys" (snake_case), e
+  // "key" ja' e' o PEM puro, sem base64 — mesma licao da SumUp, documentacao
+  // nao prova comportamento, so' teste de verdade prova.
+  const atual = (corpo?.public_keys || []).find(k => k.is_current) || corpo?.public_keys?.[0];
+  if (!atual?.key) throw new Error('Woovi: resposta da chave publica em formato inesperado');
+  _chavePublicaWooviCache = atual.key;
+  return _chavePublicaWooviCache;
+}
+
+async function assinaturaWooviValida(corpoCru, assinaturaBase64) {
+  if (!assinaturaBase64) return false;
+  const chave = await chavePublicaWoovi();
+  try {
+    return crypto.verify(
+      'RSA-SHA256',
+      Buffer.from(corpoCru, 'utf8'),
+      chave,
+      Buffer.from(assinaturaBase64, 'base64')
+    );
+  } catch (e) {
+    console.error('assinaturaWooviValida:', e.message);
+    return false;
+  }
+}
+
 // --- Supabase (REST, com service_role — ignora RLS de proposito) -----------
 async function sb(caminho, opts = {}) {
   const base = env('SUPABASE_URL').replace(/\/$/, '');
@@ -536,4 +609,4 @@ async function avisarPedidoPendente(pedido) {
   });
 }
 
-module.exports = { env, asaas, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, resumoFinanceiro, liquidoCrivel, avisarVenda, avisarPedidoPendente, avisarPagamentoDesfeito };
+module.exports = { env, asaas, woovi, assinaturaWooviValida, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, resumoFinanceiro, liquidoCrivel, avisarVenda, avisarPedidoPendente, avisarPagamentoDesfeito };

@@ -1207,6 +1207,23 @@ function repassaTaxa() {
   if (modo) return modo !== 'absorb';
   return PAY_CFG.repassa;
 }
+// PIX automatico ou manual tambem pode ser forcado por projeto
+// (migration_057), mesma cadeia "projeto manda mais que o geral" acima.
+// Em branco, cai na regra de sempre: automatico manda quando ligado no
+// geral, manual so' aparece quando o geral esta desligado.
+function pixAutomaticoAtivo() {
+  const modo = escola?.pix_mode;
+  if (modo === 'automatico') return true;
+  if (modo === 'manual') return false;
+  return PAY_CFG.pix;
+}
+function pixManualDisponivel() {
+  if (!PIX_KEY) return false;
+  const modo = escola?.pix_mode;
+  if (modo === 'automatico') return false;
+  if (modo === 'manual') return true;
+  return !PAY_CFG.pix && !!escola?.payment_pix_manual;
+}
 // Maior parcelamento em que a PARCELA ainda alcanca o minimo (1 = so' a vista)
 function maiorParcelamento(valor) {
   for (let n = Math.min(maxParcelas(), 12); n >= 2; n--) {
@@ -1436,15 +1453,18 @@ function renderPaymentMethods(pedido, el) {
   }
 
   // PIX e cartao sao decididos de forma independente: cada um pode estar
-  // automatico (Asaas) ou manual (chave fixa / link por WhatsApp). Da pra
-  // ter os dois automaticos, os dois manuais, ou um de cada jeito.
-  const canPixManual     = escola?.payment_pix_manual && PIX_KEY;
-  const cartaoAutomatico = PAY_CFG.credito || PAY_CFG.debito;
-  const temAutomatico    = PAY_CFG.pix || cartaoAutomatico;
+  // automatico (Woovi/Asaas) ou manual (chave fixa / link por WhatsApp). Da
+  // pra ter os dois automaticos, os dois manuais, ou um de cada jeito — e o
+  // PIX ainda pode ser forcado por projeto (pixAutomaticoAtivo/
+  // pixManualDisponivel, migration_057), independente dos outros projetos.
+  const pixAuto           = pixAutomaticoAtivo();
+  const canPixManual      = pixManualDisponivel();
+  const cartaoAutomatico  = PAY_CFG.credito || PAY_CFG.debito;
+  const temAutomatico     = pixAuto || cartaoAutomatico;
 
   const blocks = [];
   if (temAutomatico) blocks.push(blocoEscolhaPagamento(pedido, total));
-  if (!PAY_CFG.pix && canPixManual) blocks.push(blocoPixManual(total));
+  if (!pixAuto && canPixManual) blocks.push(blocoPixManual(total));
   if (!cartaoAutomatico) blocks.push(blocoCartaoWpp(total, pedido));
 
   // Inter — placeholder, sempre exibido se marcado, independente do resto.
@@ -1494,9 +1514,9 @@ function blocoEscolhaPagamento(pedido, total) {
   // PIX automatico ou manual: o botao so aparece se for automatico, mas o
   // rotulo de comparacao ("a mais que no PIX") vale pros dois casos —
   // permite cartao automatico + PIX manual, com o texto certo.
-  const pixDisponivel = PAY_CFG.pix || (escola?.payment_pix_manual && PIX_KEY);
+  const pixDisponivel = pixAutomaticoAtivo() || pixManualDisponivel();
 
-  if (PAY_CFG.pix) {
+  if (pixAutomaticoAtivo()) {
     opts.push(`
       <button type="button" class="pay-opt pay-opt-pix" onclick="escolherPagamento('${oid}','pix',1)">
         <div class="pay-opt-head">
@@ -1787,7 +1807,7 @@ function blocoCartaoWpp(total, pedido) {
   const sub = (v) => {
     if (v <= total) return '';
     const dif = fmtMoney(v - total);
-    const pixDisponivel = PAY_CFG.pix || (PIX_KEY && escola?.payment_pix_manual);
+    const pixDisponivel = pixAutomaticoAtivo() || pixManualDisponivel();
     const txt = pixDisponivel
       ? `${dif} a mais que no PIX`
       : `Inclui ${dif} de taxa do cartão`;
@@ -1904,6 +1924,7 @@ async function loadEscola() {
       order_deadline:       data.order_deadline,
       delivery_date:        data.delivery_date,
       payment_pix_manual:   data.payment_pix_manual,
+      pix_mode:             data.pix_mode,
       payment_inter:        data.payment_inter,
       payment_external_link: data.payment_external_link,
       active:               data.active,

@@ -1462,10 +1462,23 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           </div>
 
           <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Métodos habilitados</div>
-          <div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:14px">
+          <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin-bottom:6px">
             <label class="chk-inline" style="gap:6px"><input type="checkbox" id="cfg-pay-pix"> PIX <span style="color:var(--green);font-size:11px;font-weight:600">sem taxa</span></label>
             <label class="chk-inline" style="gap:6px"><input type="checkbox" id="cfg-pay-credit"> Cartão de crédito</label>
             <label class="chk-inline" style="gap:6px"><input type="checkbox" id="cfg-pay-debit"> Cartão de débito</label>
+          </div>
+          <div class="form-group" style="max-width:320px;margin-bottom:14px">
+            <label class="form-label">Motor do PIX automático</label>
+            <select class="form-select" id="cfg-pix-gateway">
+              <option value="asaas">Asaas</option>
+              <option value="woovi">Woovi</option>
+            </select>
+            <div class="slug-hint">
+              Cartão continua sempre no Asaas, não importa essa escolha. Deu problema
+              com o motor ligado (ex: bloqueio de conta)? Troque aqui — some do PIX
+              automático de todo projeto na hora, sem deploy. Cada projeto ainda pode
+              forçar seu próprio modo na aba Dados → Pagamento.
+            </div>
           </div>
           <div class="alert alert-warning" style="font-size:12px;margin-bottom:14px">
             ⚠️ <b>Débito ainda não foi liberado na conta Asaas.</b> Ao criar a cobrança, a API responde
@@ -2464,10 +2477,23 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
 
           <hr class="sep">
           <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px">Métodos de pagamento</div>
-          <div style="display:flex;flex-direction:column;gap:7px;background:var(--gray-50);padding:11px;border-radius:8px">
+          <div class="form-group" style="margin-top:8px">
+            <label class="form-label">PIX deste projeto</label>
+            <select class="form-select" id="pj-pix-mode" style="max-width:360px">
+              <option value="">Usar o geral (Configurações)</option>
+              <option value="automatico">Forçar automático (Woovi/Asaas, mesmo que o geral esteja manual)</option>
+              <option value="manual">Forçar manual (chave fixa, mesmo que o geral esteja automático)</option>
+            </select>
+            <div class="slug-hint">
+              Deixe em branco pra esse projeto seguir o que está em Configurações. Force
+              <b>manual</b> aqui se só este projeto precisar cair pro modo manual (ex: você
+              desconfia de um problema pontual) sem desligar o automático dos outros.
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:7px;background:var(--gray-50);padding:11px;border-radius:8px;margin-top:8px">
             <label class="chk-inline">
               <input type="checkbox" id="pj-pix-manual" checked>
-              <span><b>PIX manual</b> — chave fixa da empresa (pai paga e confirma manualmente)</span>
+              <span><b>PIX manual disponível</b> — chave fixa da empresa (pai paga e confirma manualmente). Só é usada quando o PIX automático acima (geral ou forçado) está desligado.</span>
             </label>
             <label class="chk-inline">
               <input type="checkbox" id="pj-external">
@@ -4823,6 +4849,7 @@ async function loadConfig() {
     document.getElementById('cfg-max-installments').value = data.max_installments ?? 2;
     atualizarDicaParcela();
     document.getElementById('cfg-pay-pix').checked        = data.pay_pix_enabled !== false;
+    document.getElementById('cfg-pix-gateway').value      = data.pix_gateway || 'asaas';
     document.getElementById('cfg-pay-credit').checked     = data.pay_credit_enabled !== false;
     document.getElementById('cfg-pay-debit').checked      = data.pay_debit_enabled === true;
     document.getElementById('cfg-surcharge-mode').value   = data.surcharge_mode || 'pass_on';
@@ -4951,6 +4978,7 @@ document.getElementById('btn-salvar-config').addEventListener('click', async () 
     min_installment_value: parseFloat(document.getElementById('cfg-min-installment').value) || 40,
     max_installments:      parseInt(document.getElementById('cfg-max-installments').value) || 2,
     pay_pix_enabled:    document.getElementById('cfg-pay-pix').checked,
+    pix_gateway:        document.getElementById('cfg-pix-gateway').value || 'asaas',
     pay_credit_enabled: document.getElementById('cfg-pay-credit').checked,
     pay_debit_enabled:  document.getElementById('cfg-pay-debit').checked,
     surcharge_mode:     document.getElementById('cfg-surcharge-mode').value || 'pass_on',
@@ -7737,6 +7765,7 @@ async function resetModalProjeto() {
   document.getElementById('pj-ativo').checked = true;
   document.getElementById('pj-demo').checked = false;
   document.getElementById('pj-encerrado').checked = false;
+  document.getElementById('pj-pix-mode').value = '';
   document.getElementById('pj-pix-manual').checked = true;
   document.getElementById('pj-external').checked = false;
   document.getElementById('pj-max-parcelas').value = '';
@@ -7888,6 +7917,7 @@ async function editarProjeto(id) {
     document.getElementById('pj-entrega-taxa').value     = p.delivery_fee ?? 35;
     document.getElementById('pj-entrega-corte').value    = p.delivery_cutoff_days ?? 5;
     document.getElementById('pj-entrega-retirada').checked = p.pickup_enabled !== false;
+    document.getElementById('pj-pix-mode').value = p.pix_mode || '';
     document.getElementById('pj-pix-manual').checked = p.payment_pix_manual !== false;
     document.getElementById('pj-external').checked   = !!p.payment_external_link;
     document.getElementById('pj-max-parcelas').value = p.max_installments ?? '';
@@ -8112,6 +8142,7 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
     bilhete_template_id: document.getElementById('pj-bilhete').value || null,
     authorization_term_id: document.getElementById('pj-termo').value || null,
     delivery_date: document.getElementById('pj-entrega').value || null,
+    pix_mode: document.getElementById('pj-pix-mode').value || null,
     payment_pix_manual: document.getElementById('pj-pix-manual').checked,
     payment_inter: false,
     payment_external_link: document.getElementById('pj-external').checked,
