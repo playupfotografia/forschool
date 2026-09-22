@@ -39,12 +39,22 @@ async function asaas(caminho, opts = {}) {
 // --- Woovi (ex-OpenPix) — PIX automatico, alternativa ao Asaas -------------
 // Mesmo formato de erro do asaas(), pra criar-cobranca.js poder tratar os
 // dois gateways do mesmo jeito. Auth e' o AppID cru no header, sem "Bearer".
-async function woovi(caminho, opts = {}) {
+//
+// "conta" (opcional) e' o rotulo de projects.woovi_conta (migration_058) —
+// um projeto de socio pode precisar que o PIX caia numa conta Woovi
+// DIFERENTE da padrao (ex: teto de faturamento do MEI). A chave de cada
+// conta extra mora so' na Vercel, nunca no banco — ver comentario na
+// migration. Sem "conta", usa sempre WOOVI_APPID (a de sempre).
+function chaveWooviDaConta(conta) {
+  return conta ? env(`WOOVI_APPID_${String(conta).toUpperCase()}`) : env('WOOVI_APPID');
+}
+
+async function woovi(caminho, opts = {}, conta) {
   const base = env('WOOVI_API_URL').replace(/\/$/, '');
   const r = await fetch(base + caminho, {
     ...opts,
     headers: {
-      Authorization: env('WOOVI_APPID'),
+      Authorization: chaveWooviDaConta(conta),
       'Content-Type': 'application/json',
       ...(opts.headers || {}),
     },
@@ -609,4 +619,58 @@ async function avisarPedidoPendente(pedido) {
   });
 }
 
-module.exports = { env, asaas, woovi, assinaturaWooviValida, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, resumoFinanceiro, liquidoCrivel, avisarVenda, avisarPedidoPendente, avisarPagamentoDesfeito };
+// ---------------------------------------------------------------------------
+// Aviso de PARCELA paga (PIX parcelado, migration_058) — mais leve que
+// avisarVenda: uma parcela paga nao e' a venda inteira confirmada, so' um
+// passo dela. A venda so' conta como confirmada quando a ULTIMA parcela cai
+// (quem chama decide isso, comparando com o total de parcelas restantes).
+// ---------------------------------------------------------------------------
+async function avisarEmailParcelaPaga(pedido, parcela) {
+  const key = process.env.RESEND_API_KEY;
+  const para = process.env.ALERTA_EMAIL;
+  if (!key || !para) return { canal: 'email', enviado: false, motivo: 'nao configurado' };
+
+  const de = process.env.ALERTA_EMAIL_FROM || 'For School <onboarding@resend.dev>';
+  const linhas = [
+    ['Pedido', pedido.order_number || '—'],
+    ['Parcela', `${parcela.installment_number} de ${parcela.total_installments}`],
+    ['Aluno', pedido.student?.name || '—'],
+    ['Escola', pedido.school?.name || '—'],
+    ['Responsável', pedido.user?.name || '—'],
+    ['Valor da parcela', moeda(parcela.value)],
+  ].map(([k, v]) => `<tr><td style="padding:6px 12px 6px 0;color:#666">${k}</td><td style="padding:6px 0;font-weight:600">${v}</td></tr>`)
+   .join('');
+  const html = `<div style="font-family:system-ui,Arial,sans-serif;max-width:480px">
+    <h2 style="color:#27AE60;margin:0 0 4px">💰 Parcela paga</h2>
+    <p style="color:#666;margin:0 0 16px;font-size:14px">Faltam ${parcela.total_installments - parcela.installment_number} parcela(s) pra esse pedido fechar.</p>
+    <table style="border-collapse:collapse;font-size:14px">${linhas}</table>
+  </div>`;
+
+  const r = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: de,
+      to: para.split(',').map((e) => e.trim()).filter(Boolean),
+      subject: [
+        `💰 Parcela ${parcela.installment_number}/${parcela.total_installments}`,
+        pedido.school?.name,
+        moeda(parcela.value),
+        pedido.order_number ? `(${pedido.order_number})` : null,
+      ].filter(Boolean).join(' — '),
+      html,
+    }),
+  });
+  if (!r.ok) throw new Error('Resend HTTP ' + r.status + ': ' + (await r.text()).slice(0, 200));
+  return { canal: 'email', enviado: true };
+}
+
+async function avisarParcelaPaga(pedido, parcela) {
+  const res = await Promise.allSettled([avisarEmailParcelaPaga(pedido, parcela)]);
+  res.forEach((r) => {
+    if (r.status === 'rejected') console.error('aviso de parcela paga falhou:', r.reason?.message || r.reason);
+    else if (!r.value.enviado) console.log(`aviso ${r.value.canal}: ${r.value.motivo}`);
+  });
+}
+
+module.exports = { env, asaas, woovi, assinaturaWooviValida, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, resumoFinanceiro, liquidoCrivel, avisarVenda, avisarPedidoPendente, avisarPagamentoDesfeito, avisarParcelaPaga };

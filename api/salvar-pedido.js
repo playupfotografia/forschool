@@ -17,7 +17,7 @@
 // Header: Authorization: Bearer <access_token do Supabase>
 // ============================================================================
 
-const { asaas, sb, usuarioDoToken, avisarPedidoPendente } = require('./_lib.js');
+const { asaas, woovi, sb, usuarioDoToken, avisarPedidoPendente } = require('./_lib.js');
 
 const KIT_RANK = { promo: 3, inter: 2, basico: 1 };
 const q = (v) => encodeURIComponent(v);
@@ -53,7 +53,7 @@ module.exports = async (req, res) => {
     let projeto = null;
     if (projectId) {
       const projs = await sb(
-        `/projects?id=eq.${q(projectId)}&select=id,school_id,delivery_date,delivery_fee,delivery_cutoff_days,pickup_enabled,payment_pix_manual`
+        `/projects?id=eq.${q(projectId)}&select=id,school_id,delivery_date,delivery_fee,delivery_cutoff_days,pickup_enabled,payment_pix_manual,woovi_conta`
       );
       projeto = projs?.[0];
       if (!projeto || projeto.school_id !== aluno.school_id) {
@@ -232,7 +232,12 @@ module.exports = async (req, res) => {
     total = Math.round((total + taxaEntrega) * 100) / 100;
 
     // ---- 5. Reaproveita o pedido pendente (mantem o numero) ---------------
-    let filtro = `/orders?student_id=eq.${q(studentId)}&payment_status=eq.pending`;
+    // has_paid_installment=false: um pedido parcelado (migration_058) com
+    // alguma parcela ja paga NUNCA pode ser reescrito — teria dinheiro de
+    // verdade por baixo. O portal ja evita isso (carregarPedidoAberto), mas
+    // o preco nunca vem confiado so' do navegador (regra de ouro do
+    // arquivo inteiro), entao o servidor confere de novo aqui.
+    let filtro = `/orders?student_id=eq.${q(studentId)}&payment_status=eq.pending&has_paid_installment=eq.false`;
     if (projectId) filtro += `&project_id=eq.${q(projectId)}`;
     const pendentes = await sb(`${filtro}&select=id,order_number,gateway,gateway_id&order=created_at.desc`);
     const existente = pendentes?.[0];
@@ -251,6 +256,15 @@ module.exports = async (req, res) => {
         } catch (e) {
           if (e.status !== 404) {
             console.error('cancelar cobranca', e.message);
+            return res.status(502).json({ erro: 'Nao consegui atualizar a cobranca. Tente de novo.' });
+          }
+        }
+      } else if (existente.gateway === 'woovi' && existente.gateway_id) {
+        try {
+          await woovi(`/api/v1/charge/${existente.gateway_id}`, { method: 'DELETE' }, projeto?.woovi_conta || null);
+        } catch (e) {
+          if (e.status !== 404) {
+            console.error('cancelar cobranca (woovi)', e.message);
             return res.status(502).json({ erro: 'Nao consegui atualizar a cobranca. Tente de novo.' });
           }
         }

@@ -1538,6 +1538,22 @@ function blocoEscolhaPagamento(pedido, total) {
         <div class="pay-opt-valor">${fmtMoney(total)}</div>
         <div class="pay-opt-sub">Aprovação na hora, sem acréscimo</div>
       </button>`);
+
+    // PIX parcelado (migration_058) — so' aparece se o projeto tiver
+    // habilitado (projeto.pix_parcelas, ver seletor "Parcelar PIX em ate'"
+    // na aba Dados -> Pagamento do projeto no admin). O valor aqui e' so'
+    // estimativa pro pai ver antes de clicar — quem faz a conta de verdade,
+    // parcela por parcela, e' o servidor (api/criar-parcelamento-pix.js).
+    const nParc = parseInt(projeto?.pix_parcelas, 10) || 0;
+    if (nParc >= 2) {
+      const parcelaEstimativa = Math.ceil((total / nParc) * 100) / 100;
+      opts.push(`
+        <button type="button" class="pay-opt" onclick="escolherPagamento('${oid}','pix_parcelado',${nParc})">
+          <div class="pay-opt-head"><span class="pay-opt-nome">💚 PIX em ${nParc}×</span></div>
+          <div class="pay-opt-valor">${nParc}× de ${fmtMoney(parcelaEstimativa)}</div>
+          <div class="pay-opt-sub">Um PIX a cada 30 dias, sem cartão · pode ter pequeno acréscimo se atrasar</div>
+        </button>`);
+    }
   }
 
   let economia = 0;
@@ -1663,6 +1679,76 @@ function vigiarPagamento(orderId, container) {
   }, 4000);
 }
 
+// Cronograma mostrado logo apos escolher "PIX em Nx" — o pai ve todas as
+// datas na hora, nao so' descobre uma parcela de cada vez (regra 17 do
+// CLAUDE.md: todo caminho do portal precisa deixar claro onde a pessoa esta').
+function blocoCronogramaParcelas(parcelas, atual) {
+  if (!parcelas || !parcelas.length) return '';
+  const linhas = parcelas.map(p => {
+    const data = new Date(p.vencimento + 'T00:00:00').toLocaleDateString('pt-BR');
+    const marca = p.numero < atual ? '✓' : (p.numero === atual ? '👉' : '');
+    return `<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13px;${p.numero === atual ? 'font-weight:700' : 'color:var(--gray-500)'}">
+      <span>${marca} Parcela ${p.numero}</span><span>${fmtMoney(p.valor)} — vence ${data}</span>
+    </div>`;
+  }).join('');
+  return `<div class="pay-box" style="margin-top:10px">
+    <div class="pay-box-label" style="margin-bottom:2px">Cronograma das parcelas</div>
+    ${linhas}
+  </div>`;
+}
+
+// Igual vigiarPagamento, mas o pedido parcelado so' vira "paid" quando a
+// ULTIMA parcela cair — entao aqui tambem observamos o pix_payload do
+// pedido MUDAR (a proxima parcela ficando ativa, trocada pelo webhook em
+// woovi-webhook.js) pra trocar o QR sozinho sem o pai reabrir a tela.
+function vigiarParcelamento(orderId, container, payloadInicial) {
+  if (!orderId || !container) return;
+  pararVigia(orderId);
+  const limite = Date.now() + 60 * 60 * 1000; // parcelado fica mais tempo entre uma parcela e outra
+  let payloadVisto = payloadInicial;
+
+  _vigias[orderId] = setInterval(async () => {
+    if (Date.now() > limite) { pararVigia(orderId); return; }
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('payment_status, amount_charged, total_amount, order_number, pix_payload, pix_qr_image')
+        .eq('id', orderId)
+        .maybeSingle();
+      if (error || !data) return;
+
+      if (data.payment_status === 'paid') {
+        pararVigia(orderId);
+        const valor = Number(data.amount_charged ?? data.total_amount) || 0;
+        container.innerHTML = `
+          <div class="pay-ok">
+            <img src="assets/logo-playup.png" alt="Play Up Fotografia" class="pay-ok-logo" onerror="this.style.display='none'">
+            <div class="pay-ok-icon">✓</div>
+            <div class="pay-ok-titulo">Todas as parcelas pagas!</div>
+            <div class="pay-ok-valor">${fmtMoney(valor)}</div>
+            <div style="font-size:12.5px;color:#166534">Pedido ${escapeHtml(data.order_number || '')} está pago. Não precisa enviar comprovante.</div>
+            ${botaoDuvida(data.order_number)}
+          </div>`;
+        toast('Todas as parcelas pagas! 🎉', 'ok');
+        return;
+      }
+
+      if (data.pix_payload && data.pix_payload !== payloadVisto) {
+        payloadVisto = data.pix_payload;
+        toast('Parcela paga! Próxima parcela liberada.', 'ok');
+        container.innerHTML = blocoCobranca({
+          total_amount: data.amount_charged ?? data.total_amount,
+          amount_charged: data.amount_charged ?? data.total_amount,
+          pix_payload: data.pix_payload,
+          pix_qr_image: data.pix_qr_image,
+        });
+      }
+    } catch (e) {
+      // rede oscilando: tenta de novo no proximo ciclo
+    }
+  }, 4000);
+}
+
 // Saida da cobranca ja' gerada.
 //
 // Caso real (15/09/2026): a mae escolheu cartao, se atrapalhou e queria voltar
@@ -1761,6 +1847,27 @@ window.escolherPagamento = async function (orderId, metodo, parcelas) {
   if (erroEl) erroEl.style.display = 'none';
 
   try {
+    const container = (alvo && alvo.id ? document.getElementById(alvo.id) : null) || el;
+
+    if (metodo === 'pix_parcelado') {
+      const r = await fetch('/api/criar-parcelamento-pix', {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify({ order_id: orderId }),
+      });
+      const dados = await r.json();
+      if (!r.ok || !dados.ok) throw new Error(dados.erro || 'Não foi possível gerar o parcelamento.');
+
+      container.innerHTML = blocoCobranca({
+        total_amount: dados.parcelas?.reduce((s, p) => s + p.valor, 0),
+        amount_charged: dados.parcelas?.reduce((s, p) => s + p.valor, 0),
+        pix_payload: dados.pix_payload,
+        pix_qr_image: dados.pix_qr_image,
+      }) + blocoCronogramaParcelas(dados.parcelas, 1);
+      vigiarParcelamento(orderId, container, dados.pix_payload);
+      return;
+    }
+
     const r = await fetch('/api/criar-cobranca', {
       method: 'POST',
       headers: await authHeaders(),
@@ -1769,7 +1876,6 @@ window.escolherPagamento = async function (orderId, metodo, parcelas) {
     const dados = await r.json();
     if (!r.ok || !dados.ok) throw new Error(dados.erro || 'Não foi possível gerar a cobrança.');
 
-    const container = (alvo && alvo.id ? document.getElementById(alvo.id) : null) || el;
     container.innerHTML = blocoCobranca({
       total_amount: dados.valor_base,
       amount_charged: dados.valor_cobrado,
@@ -3041,11 +3147,16 @@ document.getElementById('btn-denied-sair').addEventListener('click', async () =>
 async function carregarPedidoAberto() {
   pedidoAberto = null;
   try {
+    // has_paid_installment=false exclui pedido parcelado com alguma parcela
+    // ja' paga — esse continua "pending" (so' fecha quando a ultima cair),
+    // mas nao pode voltar a ser o carrinho editavel: reescrever um pedido
+    // que ja' tem dinheiro de verdade dentro seria perigoso (migration_058).
     let q = supabase
       .from('orders')
       .select('id, order_number, order_kits(quantity, kit:school_kits(kit_type)), order_items(quantity, product_id)')
       .eq('student_id', student.id)
-      .eq('payment_status', 'pending');
+      .eq('payment_status', 'pending')
+      .eq('has_paid_installment', false);
     if (projeto?.id) q = q.eq('project_id', projeto.id);
     const { data, error } = await q.order('created_at', { ascending: false }).limit(1);
     if (error) throw error;

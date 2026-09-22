@@ -2501,6 +2501,30 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
               desconfia de um problema pontual) sem desligar o automático dos outros.
             </div>
           </div>
+          <div class="form-group" style="margin-top:8px">
+            <label class="form-label">Parcelar PIX em até</label>
+            <select class="form-select" id="pj-pix-parcelas" style="max-width:220px">
+              <option value="">Desligado (só PIX à vista)</option>
+              <option value="2">2×</option>
+              <option value="3">3×</option>
+              <option value="4">4×</option>
+            </select>
+            <div class="slug-hint">
+              Só funciona com o motor automático (Woovi) ligado — cada parcela vira uma cobrança
+              PIX de verdade, uma a cada 30 dias, com pequeno acréscimo (2% de multa + 1% de
+              juros ao mês) se o responsável atrasar. Independe do parcelamento do cartão acima.
+            </div>
+          </div>
+          <div class="form-group" style="margin-top:8px">
+            <label class="form-label">Conta Woovi (avançado)</label>
+            <input class="form-input" id="pj-woovi-conta" placeholder="Deixe em branco = conta padrão" style="max-width:280px">
+            <div class="slug-hint">
+              Só preencha se esse projeto precisar receber PIX numa conta Woovi <b>diferente</b> da
+              padrão (ex: projeto com sócio, pra não estourar o teto de faturamento do MEI). O
+              texto aqui é só um rótulo — a chave de verdade fica guardada na Vercel
+              (<code>WOOVI_APPID_&lt;ROTULO&gt;</code>), nunca aqui.
+            </div>
+          </div>
           <div style="display:flex;flex-direction:column;gap:7px;background:var(--gray-50);padding:11px;border-radius:8px;margin-top:8px">
             <label class="chk-inline">
               <input type="checkbox" id="pj-pix-manual" checked>
@@ -7780,6 +7804,8 @@ async function resetModalProjeto() {
   document.getElementById('pj-demo').checked = false;
   document.getElementById('pj-encerrado').checked = false;
   document.getElementById('pj-pix-mode').value = '';
+  document.getElementById('pj-pix-parcelas').value = '';
+  document.getElementById('pj-woovi-conta').value = '';
   document.getElementById('pj-pix-manual').checked = true;
   document.getElementById('pj-external').checked = false;
   document.getElementById('pj-max-parcelas').value = '';
@@ -7932,6 +7958,8 @@ async function editarProjeto(id) {
     document.getElementById('pj-entrega-corte').value    = p.delivery_cutoff_days ?? 5;
     document.getElementById('pj-entrega-retirada').checked = p.pickup_enabled !== false;
     document.getElementById('pj-pix-mode').value = p.pix_mode || '';
+    document.getElementById('pj-pix-parcelas').value = p.pix_parcelas ?? '';
+    document.getElementById('pj-woovi-conta').value = p.woovi_conta || '';
     document.getElementById('pj-pix-manual').checked = p.payment_pix_manual !== false;
     document.getElementById('pj-external').checked   = !!p.payment_external_link;
     document.getElementById('pj-max-parcelas').value = p.max_installments ?? '';
@@ -8157,6 +8185,8 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
     authorization_term_id: document.getElementById('pj-termo').value || null,
     delivery_date: document.getElementById('pj-entrega').value || null,
     pix_mode: document.getElementById('pj-pix-mode').value || null,
+    pix_parcelas: parseInt(document.getElementById('pj-pix-parcelas').value, 10) || null,
+    woovi_conta: document.getElementById('pj-woovi-conta').value.trim() || null,
     payment_pix_manual: document.getElementById('pj-pix-manual').checked,
     payment_inter: false,
     payment_external_link: document.getElementById('pj-external').checked,

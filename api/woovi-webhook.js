@@ -17,7 +17,7 @@
 // JSON.stringify() pode nao bater byte a byte com o que foi assinado.
 // ============================================================================
 
-const { sb, assinaturaWooviValida, avisarVenda } = require('./_lib.js');
+const { sb, assinaturaWooviValida, avisarVenda, avisarParcelaPaga } = require('./_lib.js');
 
 module.exports.config = { api: { bodyParser: false } };
 
@@ -48,14 +48,104 @@ module.exports = async (req, res) => {
     const evento = body.event;
     const charge = body.charge || {};
 
-    // correlationID guarda "<order_id>-<timestamp>" (setado em criar-cobranca).
-    // O id do pedido e' so' a parte antes do ultimo hifen.
     const correlationID = charge.correlationID || null;
-    const orderId = correlationID ? correlationID.replace(/-\d+$/, '') : null;
-
-    if (!orderId) {
+    if (!correlationID) {
       return res.status(200).json({ ok: true, ignorado: 'evento sem correlationID' });
     }
+
+    // ---- E' o pagamento de uma PARCELA do PIX parcelado (migration_058)? --
+    // O correlationID de uma parcela e' "<pedido>-p<numero>-<timestamp>" —
+    // procurar direto em pix_installments (id exato) e' mais seguro que
+    // tentar recortar o pedido do texto, como o fluxo a vista faz abaixo.
+    if (evento === 'OPENPIX:CHARGE_COMPLETED') {
+      const parcelas = await sb(
+        `/pix_installments?gateway_id=eq.${encodeURIComponent(correlationID)}&select=` +
+        'id,order_id,installment_number,total_installments,value,status'
+      );
+      const parcela = parcelas?.[0];
+      if (parcela) {
+        if (parcela.status === 'paid') {
+          // Reenvio do mesmo evento (a Woovi reenvia se respondermos erro) —
+          // ja processado, so' confirma de novo sem duplicar aviso.
+          return res.status(200).json({ ok: true, evento, parcela: parcela.id, repetido: true });
+        }
+
+        await sb(`/pix_installments?id=eq.${encodeURIComponent(parcela.id)}`, {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify({
+            status: 'paid',
+            paid_at: charge.paidAt || new Date().toISOString(),
+            gateway_status: charge.status || evento,
+          }),
+        });
+
+        const pedidos = await sb(
+          `/orders?id=eq.${encodeURIComponent(parcela.order_id)}&select=id,order_number,is_test,` +
+          'student:students(name),school:schools(name),user:users(name,phone)'
+        );
+        const pedido = pedidos?.[0];
+        if (!pedido) {
+          console.warn('webhook woovi: pedido da parcela nao encontrado', { parcela });
+          return res.status(200).json({ ok: true, ignorado: 'pedido da parcela nao encontrado' });
+        }
+
+        // Quantas parcelas desse pedido ainda faltam pagar (contando a que
+        // acabou de cair, ja marcada 'paid' acima)?
+        const restantes = await sb(
+          `/pix_installments?order_id=eq.${encodeURIComponent(parcela.order_id)}&status=neq.paid&select=id`
+        );
+        const todasPagas = !restantes || restantes.length === 0;
+
+        const patchPedido = { has_paid_installment: true };
+        if (todasPagas) {
+          patchPedido.payment_status = 'paid';
+          patchPedido.paid_at = charge.paidAt || new Date().toISOString();
+        } else {
+          // Ainda falta parcela: a Minha Area (portal.html) le pix_payload/
+          // pix_qr_image do PROPRIO pedido pra desenhar o QR de quem esta'
+          // pendente (renderPaymentMethods) — sem tocar nessa tela, so'
+          // atualizamos esses dois campos pra apontar pra proxima parcela em
+          // aberto. Ela ja existe desde a criacao (todas as N cobrancas
+          // nascem juntas), so' ainda nao tinha vez de aparecer.
+          const proximas = await sb(
+            `/pix_installments?order_id=eq.${encodeURIComponent(parcela.order_id)}&status=neq.paid&` +
+            'select=pix_payload,pix_qr_image&order=installment_number.asc&limit=1'
+          );
+          const proxima = proximas?.[0];
+          if (proxima) {
+            patchPedido.pix_payload = proxima.pix_payload;
+            patchPedido.pix_qr_image = proxima.pix_qr_image;
+          }
+        }
+        await sb(`/orders?id=eq.${encodeURIComponent(pedido.id)}`, {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify(patchPedido),
+        });
+
+        if (!pedido.is_test) {
+          try {
+            if (todasPagas) {
+              // Ultima parcela: e' a venda confirmada de verdade (mesmo
+              // aviso "venda confirmada" do pedido a vista/cartao).
+              await avisarVenda({ ...pedido, payment_method: 'pix_parcelado', amount_charged: parcela.value });
+            } else {
+              await avisarParcelaPaga(pedido, parcela);
+            }
+          } catch (e) {
+            console.error('aviso de parcela (woovi)', e.message);
+          }
+        }
+
+        return res.status(200).json({ ok: true, evento, parcela: parcela.id, pedido: pedido.id, todasPagas });
+      }
+    }
+
+    // ---- Fluxo a vista (existente) ------------------------------------------
+    // correlationID guarda "<order_id>-<timestamp>" (setado em criar-cobranca).
+    // O id do pedido e' so' a parte antes do ultimo hifen.
+    const orderId = correlationID.replace(/-\d+$/, '');
 
     const pedidos = await sb(
       `/orders?id=eq.${encodeURIComponent(orderId)}&select=id,order_number,payment_status,payment_method,is_test,` +

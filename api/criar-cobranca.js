@@ -87,10 +87,11 @@ module.exports = async (req, res) => {
     let projCfg = null;
     if (pedido.project_id) {
       const projs = await sb(
-        `/projects?id=eq.${encodeURIComponent(pedido.project_id)}&select=max_installments,surcharge_mode,pix_mode`
+        `/projects?id=eq.${encodeURIComponent(pedido.project_id)}&select=max_installments,surcharge_mode,pix_mode,woovi_conta`
       );
       projCfg = projs?.[0] || null;
     }
+    const wooviConta = projCfg?.woovi_conta || null;
 
     // pix_mode do projeto manda MAIS que o geral quando preenchido — e' o que
     // permite forcar um projeto especifico pra automatico (ou manual) mesmo
@@ -177,7 +178,7 @@ module.exports = async (req, res) => {
       // abertas do mesmo pedido.
       if (pedido.gateway === 'woovi' && pedido.gateway_id) {
         try {
-          await woovi(`/api/v1/charge/${encodeURIComponent(pedido.gateway_id)}`, { method: 'DELETE' });
+          await woovi(`/api/v1/charge/${encodeURIComponent(pedido.gateway_id)}`, { method: 'DELETE' }, wooviConta);
         } catch (e) {
           if (e.status !== 404) {
             console.error('cancelar cobranca anterior (woovi)', e.message);
@@ -205,7 +206,7 @@ module.exports = async (req, res) => {
             phone: telefoneBR(resp.phone) ? '+55' + telefoneBR(resp.phone) : undefined,
           },
         }),
-      });
+      }, wooviConta);
 
       pixPayload = cob.charge?.brCode || null;
       pixQr = cob.charge?.qrCodeImage || null;
