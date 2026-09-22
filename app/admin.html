@@ -3805,7 +3805,7 @@ function pilhaDoPedido(p) {
 }
 
 const PILHA_INFO = {
-  caiu:       { nome: '💵 Caiu pelo Asaas',      cor: 'var(--green)',  dica: 'Bata o total com o extrato do Asaas' },
+  caiu:       { nome: '💵 Caiu pelo gateway',    cor: 'var(--green)',  dica: 'Bata o total com o extrato do Asaas / Woovi' },
   aguardando: { nome: '⏳ Confirmado, não caiu', cor: 'var(--orange)', dica: 'Cartão confirmado — acompanhe até creditar' },
   mao:        { nome: '✋ Pago na mão',           cor: 'var(--blue)',   dica: 'Confira no extrato do banco, um a um' },
   pendente:   { nome: '⌛ Pendente',              cor: 'var(--gray-400)', dica: 'Pagou e você não viu?' },
@@ -3847,28 +3847,37 @@ function pararAutoRefreshPedidos() {
 // Mostra se veio do Asaas (automatico) ou se e' pagamento manual, como antes.
 const METODO_LABEL = {
   pix: 'PIX',
+  pix_parcelado: 'PIX parcelado',
   cartao_1x: 'Cartão 1×',
   cartao_2x: 'Cartão 2×',
   cartao_debito: 'Débito',
   dinheiro: 'Dinheiro',
   outro: 'Outro',
 };
+
+// ⚠️ "Automatico" nao e' mais sinonimo de Asaas (migration_057/058): o PIX
+// pode ser confirmado pela Woovi, por webhook, exatamente como o cartao do
+// Asaas. Checar so' 'asaas' marcava todo pedido pago pela Woovi como
+// "manual" — e manual, na conferencia de caixa, quer dizer "vai ter que
+// conferir no extrato um a um", justo o trabalho que a Woovi eliminou.
+const GATEWAYS_AUTOMATICOS = new Set(['asaas', 'woovi']);
+
 function rotuloMetodo(p) {
   if (!p.payment_method) return '<span style="color:var(--gray-400)">—</span>';
   const nome = METODO_LABEL[p.payment_method] || p.payment_method.toUpperCase();
-  const auto = p.gateway === 'asaas'
-    ? '<span title="Cobrança gerada pelo Asaas — confirmação automática" style="background:var(--green-light);color:var(--green);font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:20px;margin-left:5px">AUTO</span>'
+  const auto = GATEWAYS_AUTOMATICOS.has(p.gateway)
+    ? `<span title="Cobrança gerada pelo ${p.gateway === 'woovi' ? 'Woovi' : 'Asaas'} — confirmação automática" style="background:var(--green-light);color:var(--green);font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:20px;margin-left:5px">AUTO</span>`
     : '<span title="Pagamento manual — confirmado pelo admin" style="color:var(--gray-400);font-size:10px;margin-left:5px">manual</span>';
   return `<span style="font-size:12px;color:var(--gray-700)">${escapeHtml(nome)}</span>${auto}`;
 }
 
-// Forma de pagamento EDITAVEL — so' pra pedido manual (gateway != asaas). O
-// pago pelo Asaas ja' vem preenchido sozinho pelo webhook (rotuloMetodo com
-// selo AUTO) e nao faz sentido deixar sobrescrever isso na mao. Usado em
-// Alunos & Pedidos e no modal de detalhes do pedido — os dois unicos lugares
-// que precisavam disso pra o recibo sair com a forma certa.
+// Forma de pagamento EDITAVEL — so' pra pedido manual. O que foi pago por
+// gateway (Asaas ou Woovi) ja' vem preenchido sozinho pelo webhook
+// (rotuloMetodo com selo AUTO) e nao faz sentido deixar sobrescrever isso na
+// mao. Usado em Alunos & Pedidos e no modal de detalhes do pedido — os dois
+// unicos lugares que precisavam disso pra o recibo sair com a forma certa.
 function celulaMetodoPagamento(o) {
-  if (o.gateway === 'asaas') return rotuloMetodo(o);
+  if (GATEWAYS_AUTOMATICOS.has(o.gateway)) return rotuloMetodo(o);
   const opts = ['', ...Object.keys(METODO_LABEL)].map(v =>
     `<option value="${v}" ${o.payment_method === v ? 'selected' : ''}>${v ? METODO_LABEL[v] : '— forma —'}</option>`
   ).join('');
@@ -3970,6 +3979,27 @@ async function loadPedidos() {
       // pra "nada fica marcado" nao virar misterio se a migracao nao rodou.
       if (chkErr) console.error('order_checks:', chkErr.message);
       (chks || []).forEach(c => { conferidoPorPedido[c.order_id] = c; });
+    }
+
+    // PIX parcelado (migration_058): mesmo resumo "X de Y pagas" que Alunos &
+    // Pedidos mostra — as duas telas tem que dizer a mesma coisa sobre o mesmo
+    // pedido. So' busca se existir pedido parcelado.
+    {
+      const idsParcelados = pedidosCache.filter(p => p.payment_method === 'pix_parcelado').map(p => p.id);
+      if (idsParcelados.length) {
+        const { data: pcs, error: pcErr } = await supabase
+          .from('pix_installments')
+          .select('order_id, total_installments, status')
+          .in('order_id', idsParcelados);
+        if (pcErr) console.error('pix_installments:', pcErr.message);
+        const resumo = {};
+        (pcs || []).forEach(p => {
+          const r = resumo[p.order_id] || (resumo[p.order_id] = { pagas: 0, total: p.total_installments, atrasada: false });
+          if (p.status === 'paid') r.pagas++;
+          if (p.status === 'atrasada') r.atrasada = true;
+        });
+        pedidosCache.forEach(p => { if (resumo[p.id]) p.parcelasResumo = resumo[p.id]; });
+      }
     }
 
     // Duplicidade de cadastro (migration_035): mapa student_id -> pedido
@@ -4101,7 +4131,13 @@ function filtrarPedidos() {
     const kitBadge = p.kit_type
       ? `<span class="badge ${kitClass[p.kit_type] || 'badge-gray'}">${kitMap[p.kit_type] || p.kit_type}</span>`
       : '<span style="color:var(--gray-400);font-size:11px">só avulsos</span>';
-    const metBadge = rotuloMetodo(p);
+    const pr = p.parcelasResumo;
+    const metBadge = rotuloMetodo(p)
+      + (pr
+        ? `<div style="font-size:10px;font-weight:600;color:${pr.atrasada ? 'var(--red)' : (pr.pagas >= pr.total ? 'var(--green)' : 'var(--orange)')}"
+             title="${pr.atrasada ? 'Tem parcela atrasada — cobrança manual' : 'Só entregue o material com todas as parcelas pagas'}">
+             ${pr.atrasada ? '🔴 ' : ''}${pr.pagas}/${pr.total} parcelas pagas</div>`
+        : '');
     // O pai pode ter pago mais que o preco de tabela (taxa do cartao repassada).
     // total_amount continua sendo a receita da Play Up; amount_charged e' o que
     // saiu do bolso do responsavel.
@@ -4250,6 +4286,19 @@ async function abrirDetalhesPedido(id) {
       .single();
     if (error) throw error;
     pedModalAtual = ped;
+
+    // PIX parcelado (migration_058): cada parcela e' uma cobranca separada na
+    // Woovi, sem coluna nenhuma em orders que diga "2 de 3 pagas" — busca a
+    // parte pra montar o cronograma abaixo.
+    let parcelas = [];
+    if (ped.payment_method === 'pix_parcelado') {
+      const { data: pd } = await supabase
+        .from('pix_installments')
+        .select('installment_number,total_installments,value,due_date,status,attempt,paid_at')
+        .eq('order_id', ped.id)
+        .order('installment_number');
+      parcelas = pd || [];
+    }
 
     title.textContent = `Pedido ${ped.order_number || '—'}`;
 
@@ -4414,6 +4463,33 @@ async function abrirDetalhesPedido(id) {
             </div>
           </div>
         </div>
+        ${parcelas.length ? `
+        <div class="card" style="border-color:var(--gray-100)">
+          <div class="card-header" style="padding:9px 13px"><div class="card-title" style="font-size:12px">Parcelas (PIX em ${parcelas[0].total_installments}x)</div></div>
+          <div class="card-body" style="padding:0">
+            <table style="font-size:13px">
+              <thead><tr><th style="padding:7px 13px">Parcela</th><th style="text-align:right">Valor</th><th>Vencimento</th><th>Situação</th></tr></thead>
+              <tbody>
+                ${parcelas.map(p => {
+                  const venc = new Date(p.due_date + 'T00:00:00').toLocaleDateString('pt-BR');
+                  const sit = p.status === 'paid'
+                    ? `<span class="badge badge-green">✓ paga${p.paid_at ? ' em ' + new Date(p.paid_at).toLocaleDateString('pt-BR') : ''}</span>`
+                    : p.status === 'atrasada'
+                    ? '<span class="badge badge-red">🔴 atrasada</span>'
+                    : p.status === 'active'
+                    ? `<span class="badge badge-yellow">⏳ aguardando${p.attempt > 1 ? ` (${p.attempt}ª tentativa)` : ''}</span>`
+                    : `<span class="badge badge-gray">${escapeHtml(p.status)}</span>`;
+                  return `<tr>
+                    <td style="padding:7px 13px;font-weight:600">${p.installment_number}/${p.total_installments}</td>
+                    <td style="text-align:right">${fmtMoney(p.value)}</td>
+                    <td>${venc}</td>
+                    <td>${sit}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>` : ''}
       </div>
     `;
 
@@ -8642,6 +8718,29 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       (chks || []).forEach(c => { conferidoPorPedido[c.order_id] = c; });
     }
 
+    // 4b-ter. PIX parcelado (migration_058): o pedido so' vira "pago" quando a
+    // ULTIMA parcela cai, entao ate' la' ele aparece como pendente mesmo ja'
+    // tendo dinheiro real dentro. Sem este resumo nao dava pra ver "2 de 3
+    // pagas" em tela nenhuma — so' consultando pix_installments no Supabase.
+    // So' busca se existir pedido parcelado nesta leva (hoje, quase nenhum).
+    {
+      const idsParcelados = pedidosRaw.filter(p => p.payment_method === 'pix_parcelado').map(p => p.id);
+      if (idsParcelados.length) {
+        const { data: pcs, error: pcErr } = await supabase
+          .from('pix_installments')
+          .select('order_id, total_installments, status')
+          .in('order_id', idsParcelados);
+        if (pcErr) console.error('pix_installments:', pcErr.message);
+        const resumo = {};
+        (pcs || []).forEach(p => {
+          const r = resumo[p.order_id] || (resumo[p.order_id] = { pagas: 0, total: p.total_installments, atrasada: false });
+          if (p.status === 'paid') r.pagas++;
+          if (p.status === 'atrasada') r.atrasada = true;
+        });
+        pedidosRaw.forEach(p => { if (resumo[p.id]) p.parcelasResumo = resumo[p.id]; });
+      }
+    }
+
     // 4c. Quem ja' foi fotografado NESTE projeto (migration_042). Marcacao
     // manual do Daniel na conferencia — nao tem nada a ver com arquivo de
     // foto; e' so' o "ja' passou pela camera".
@@ -9173,7 +9272,18 @@ function filtrarDrillAlunos() {
 
       // Mesmo rotulo da tela de Pedidos (com o selo AUTO/manual), pra as duas
       // telas nao descreverem o mesmo pagamento de jeitos diferentes.
+      // PIX parcelado: "2 de 3 pagas" logo abaixo da forma. O material só é
+      // entregue com TODAS pagas, então esse número é o que decide entrega —
+      // precisa estar visível na lista, não escondido dentro do modal.
+      const pr = o.parcelasResumo;
+      const parcelasCell = pr
+        ? `<div style="font-size:10px;font-weight:600;color:${pr.atrasada ? 'var(--red)' : (pr.pagas >= pr.total ? 'var(--green)' : 'var(--orange)')}"
+             title="${pr.atrasada ? 'Tem parcela atrasada — cobrança manual' : 'Só entregue o material com todas as parcelas pagas'}">
+             ${pr.atrasada ? '🔴 ' : ''}${pr.pagas}/${pr.total} parcelas pagas</div>`
+        : '';
+
       formaCell = celulaMetodoPagamento(o)
+        + parcelasCell
         + (Number(o.amount_charged) > Number(o.total_amount || 0)
             ? `<div style="font-size:10px;color:var(--gray-500)">pagou ${fmtMoney(Number(o.amount_charged))}</div>`
             : '');

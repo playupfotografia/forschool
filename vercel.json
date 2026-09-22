@@ -9,5 +9,8 @@
     { "source": "/pagar/:token", "destination": "/app/pagamento.html?token=:token" },
     { "source": "/", "destination": "/app/portal.html" },
     { "source": "/:slug", "destination": "/app/portal.html" }
+  ],
+  "crons": [
+    { "path": "/api/cron-parcelas-atrasadas", "schedule": "0 12 * * *" }
   ]
 }

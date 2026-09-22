@@ -673,4 +673,114 @@ async function avisarParcelaPaga(pedido, parcela) {
   });
 }
 
-module.exports = { env, asaas, woovi, assinaturaWooviValida, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, resumoFinanceiro, liquidoCrivel, avisarVenda, avisarPedidoPendente, avisarPagamentoDesfeito, avisarParcelaPaga };
+// ---------------------------------------------------------------------------
+// Lembrete de parcela perto do vencimento (chamado pelo robo diario,
+// api/cron-parcelas-atrasadas.js) — so' informativo, o pai ja' recebeu o
+// mesmo QR na hora da compra.
+// ---------------------------------------------------------------------------
+async function avisarEmailLembreteParcela(pedido, parcela) {
+  const key = process.env.RESEND_API_KEY;
+  const para = process.env.ALERTA_EMAIL;
+  if (!key || !para) return { canal: 'email', enviado: false, motivo: 'nao configurado' };
+
+  const de = process.env.ALERTA_EMAIL_FROM || 'For School <onboarding@resend.dev>';
+  const linhas = [
+    ['Pedido', pedido.order_number || '—'],
+    ['Parcela', `${parcela.installment_number} de ${parcela.total_installments}`],
+    ['Aluno', pedido.student?.name || '—'],
+    ['Escola', pedido.school?.name || '—'],
+    ['Responsável', pedido.user?.name || '—'],
+    ['Valor', moeda(parcela.value)],
+    ['Vencimento', parcela.due_date],
+  ].map(([k, v]) => `<tr><td style="padding:6px 12px 6px 0;color:#666">${k}</td><td style="padding:6px 0;font-weight:600">${v}</td></tr>`)
+   .join('');
+  const html = `<div style="font-family:system-ui,Arial,sans-serif;max-width:480px">
+    <h2 style="color:#E3815A;margin:0 0 4px">⏰ Parcela vence em breve</h2>
+    <p style="color:#666;margin:0 0 16px;font-size:14px">Aviso informativo — o pai já recebeu o mesmo QR na hora da compra.</p>
+    <table style="border-collapse:collapse;font-size:14px">${linhas}</table>
+  </div>`;
+
+  const r = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: de,
+      to: para.split(',').map((e) => e.trim()).filter(Boolean),
+      subject: [
+        `⏰ Parcela ${parcela.installment_number}/${parcela.total_installments} vence em breve`,
+        pedido.school?.name,
+        pedido.order_number ? `(${pedido.order_number})` : null,
+      ].filter(Boolean).join(' — '),
+      html,
+    }),
+  });
+  if (!r.ok) throw new Error('Resend HTTP ' + r.status + ': ' + (await r.text()).slice(0, 200));
+  return { canal: 'email', enviado: true };
+}
+
+async function avisarLembreteParcela(pedido, parcela) {
+  const res = await Promise.allSettled([avisarEmailLembreteParcela(pedido, parcela)]);
+  res.forEach((r) => {
+    if (r.status === 'rejected') console.error('lembrete de parcela falhou:', r.reason?.message || r.reason);
+    else if (!r.value.enviado) console.log(`lembrete ${r.value.canal}: ${r.value.motivo}`);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Parcela ficou ATRASADA — a 2a tentativa automatica tambem venceu sem
+// pagar. Daqui pra frente e' acompanhamento manual (WhatsApp), mesmo padrao
+// do PIX manual comum — mas sem esse aviso ninguem saberia que aconteceu a
+// nao ser consultando pix_installments direto no Supabase.
+// ---------------------------------------------------------------------------
+async function avisarEmailParcelaAtrasada(pedido, parcela) {
+  const key = process.env.RESEND_API_KEY;
+  const para = process.env.ALERTA_EMAIL;
+  if (!key || !para) return { canal: 'email', enviado: false, motivo: 'nao configurado' };
+
+  const de = process.env.ALERTA_EMAIL_FROM || 'For School <onboarding@resend.dev>';
+  const linhas = [
+    ['Pedido', pedido.order_number || '—'],
+    ['Parcela', `${parcela.installment_number} de ${parcela.total_installments}`],
+    ['Aluno', pedido.student?.name || '—'],
+    ['Escola', pedido.school?.name || '—'],
+    ['Responsável', pedido.user?.name || '—'],
+    ['Valor', moeda(parcela.value)],
+  ].map(([k, v]) => `<tr><td style="padding:6px 12px 6px 0;color:#666">${k}</td><td style="padding:6px 0;font-weight:600">${v}</td></tr>`)
+   .join('');
+  const html = `<div style="font-family:system-ui,Arial,sans-serif;max-width:480px">
+    <h2 style="color:#E74C3C;margin:0 0 4px">🔴 Parcela atrasada</h2>
+    <p style="color:#666;margin:0 0 16px;font-size:14px">
+      Duas tentativas automáticas sem pagar. A partir daqui é acompanhamento
+      manual — chame o responsável por WhatsApp.
+    </p>
+    <table style="border-collapse:collapse;font-size:14px">${linhas}</table>
+    ${pedido.user?.phone ? `<p style="margin:16px 0 0"><a href="https://wa.me/55${pedido.user.phone.replace(/\D/g,'')}" style="color:#27AE60;font-weight:600">💬 Chamar no WhatsApp</a></p>` : ''}
+  </div>`;
+
+  const r = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: de,
+      to: para.split(',').map((e) => e.trim()).filter(Boolean),
+      subject: [
+        '🔴 Parcela atrasada',
+        pedido.school?.name,
+        pedido.order_number ? `(${pedido.order_number})` : null,
+      ].filter(Boolean).join(' — '),
+      html,
+    }),
+  });
+  if (!r.ok) throw new Error('Resend HTTP ' + r.status + ': ' + (await r.text()).slice(0, 200));
+  return { canal: 'email', enviado: true };
+}
+
+async function avisarParcelaAtrasada(pedido, parcela) {
+  const res = await Promise.allSettled([avisarEmailParcelaAtrasada(pedido, parcela)]);
+  res.forEach((r) => {
+    if (r.status === 'rejected') console.error('aviso de parcela atrasada falhou:', r.reason?.message || r.reason);
+    else if (!r.value.enviado) console.log(`aviso ${r.value.canal}: ${r.value.motivo}`);
+  });
+}
+
+module.exports = { env, asaas, woovi, assinaturaWooviValida, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, resumoFinanceiro, liquidoCrivel, avisarVenda, avisarPedidoPendente, avisarPagamentoDesfeito, avisarParcelaPaga, avisarLembreteParcela, avisarParcelaAtrasada };
