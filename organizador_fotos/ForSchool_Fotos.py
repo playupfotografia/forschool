@@ -614,6 +614,14 @@ class App(tk.Tk):
             return
         with open(indice_path, encoding='utf-8') as f:
             alunos_info = json.load(f)
+        # O indice guarda caminho completo (ex: D:\DCIM\...). Se a pasta foi
+        # movida (tirada do cartao pro HD), esses caminhos apontam pro nada.
+        # A estrutura e' sempre <pasta>/<aluno>/<foto>, entao recalcula a
+        # partir da pasta que foi aberta agora. Visto ao vivo em 23/09/2026.
+        for nome_pasta, info in alunos_info.items():
+            nova = pasta / nome_pasta
+            info['pasta'] = str(nova)
+            info['fotos'] = [str(nova / Path(f).name) for f in info.get('fotos', [])]
         self.alunos_info = alunos_info
         self._pasta_organizada = pasta
         self._carregar_aba2(pasta, alunos_info)
@@ -624,6 +632,18 @@ class App(tk.Tk):
         for w in self.frame_alunos.winfo_children():
             w.destroy()
         self.foto_vars = {}
+        self._linhas_pendentes = set()
+
+        # Escolhas ficam gravadas na propria pasta: fechar o programa (ou ele
+        # travar) antes de "Montar e salvar tudo" nao perde horas de escolha.
+        self._escolhas_salvas = {}
+        arq = Path(pasta_saida) / '_escolhas.json'
+        if arq.exists():
+            try:
+                with open(arq, encoding='utf-8') as f:
+                    self._escolhas_salvas = json.load(f)
+            except Exception:
+                self._escolhas_salvas = {}
 
         if not alunos_info:
             tk.Label(self.frame_alunos, text='Nenhum aluno encontrado.',
@@ -689,11 +709,36 @@ class App(tk.Tk):
                  font=('Segoe UI', 9), width=20, anchor='w').pack(side='left')
 
         nomes_fotos = [Path(f).name for f in fotos]
-        var = tk.StringVar(value=nomes_fotos[0])
+        salvas = self._escolhas_salvas.setdefault(nome_pasta, {})
+        ja_escolhida = salvas.get(tema) if salvas.get(tema) in nomes_fotos else None
+        var = tk.StringVar(value=ja_escolhida or nomes_fotos[0])
         self.foto_vars[nome_pasta][tema] = (var, fotos)
 
-        tk.Label(linha, textvariable=var, bg='white', fg=COR_CINZA,
-                 font=('Segoe UI', 9), width=26, anchor='w').pack(side='left', padx=6)
+        # O nome do arquivo comeca com o nome do aluno (igual em todas), entao
+        # mostrar o nome cortado deixava todas as fotos com a mesma cara. Mostra
+        # so' o numero da foto, e deixa claro o que ainda nao foi escolhido.
+        lbl = tk.Label(linha, text='', bg='white', font=('Segoe UI', 9, 'bold'),
+                       width=26, anchor='w')
+        lbl.pack(side='left', padx=6)
+
+        def atualizar_rotulo():
+            nome_arq = var.get()
+            if tema in salvas and salvas[tema] == nome_arq:
+                num = Path(nome_arq).stem.rsplit(' - ', 1)[-1]
+                txt = f'✅ Foto {num}'
+                if blocos and nome_arq in nomes_fotos and len(blocos) == len(nomes_fotos):
+                    txt += f'  (bloco {blocos[nomes_fotos.index(nome_arq)]})'
+                lbl.config(text=txt, fg=COR_VERDE)
+            else:
+                lbl.config(text='— ainda não escolhida', fg=COR_CINZA)
+
+        def ao_escolher(*_):
+            salvas[tema] = var.get()
+            atualizar_rotulo()
+            self._salvar_escolhas()
+
+        atualizar_rotulo()
+        var.trace_add('write', ao_escolher)
 
         def abrir_visor(np=nome_pasta, v=var, fl=fotos, t=rot, bl=blocos):
             self._abrir_visor(np, v, fl, t, bl)
@@ -701,6 +746,16 @@ class App(tk.Tk):
                   bg=COR_AZUL, fg='white', relief='flat',
                   font=('Segoe UI', 9, 'bold'), padx=10, pady=2,
                   cursor='hand2').pack(side='right')
+
+    def _salvar_escolhas(self):
+        pasta = getattr(self, '_pasta_organizada', None)
+        if not pasta:
+            return
+        try:
+            with open(Path(pasta) / '_escolhas.json', 'w', encoding='utf-8') as f:
+                json.dump(self._escolhas_salvas, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            messagebox.showwarning('Aviso', f'Não consegui salvar a escolha no disco:\n{e}')
 
     def _abrir_visor(self, nome_pasta, var, fotos, tema='', blocos=None):
         """Abre janela de visualização de fotos com navegação por teclado.
@@ -799,7 +854,7 @@ class App(tk.Tk):
         # ── Lógica ────────────────────────────────────────────────────────────
         img_tk_ref = [None]  # mantém referência para não ser coletado pelo GC
 
-        def mostrar(i):
+        def mostrar(i, tentativa=0):
             idx[0] = i % len(fotos)
             path = Path(fotos[idx[0]])
             txt = f'{idx[0]+1} / {len(fotos)}  —  {path.name}'
@@ -825,9 +880,28 @@ class App(tk.Tk):
                 ch = canvas.winfo_height() or 560
                 canvas.create_image(cw//2, ch//2, anchor='center', image=photo)
             except Exception as e:
+                # A foto pode ter acabado de ser copiada pela Fase 1 (que roda
+                # numa thread separada e pode ainda estar em andamento — nada
+                # trava a Aba 2 enquanto isso) ou o Windows/antivirus segurou o
+                # arquivo por uma fração de segundo logo depois de criado.
+                # Tenta de novo antes de desistir, em vez de mostrar erro numa
+                # foto que na verdade existe. Visto ao vivo em 22/09/2026.
+                if tentativa < 5:
+                    canvas.delete('all')
+                    cw = canvas.winfo_width() or 860
+                    ch = canvas.winfo_height() or 560
+                    canvas.create_text(cw//2, ch//2, text='Carregando…',
+                                       fill='#8888aa', font=('Segoe UI', 12))
+                    win.after(400, lambda: mostrar(i, tentativa + 1))
+                    return
                 canvas.delete('all')
-                canvas.create_text(430, 280, text=f'Erro ao carregar\n{e}',
-                                   fill='red', font=('Segoe UI', 12))
+                cw = canvas.winfo_width() or 860
+                ch = canvas.winfo_height() or 560
+                canvas.create_text(cw//2, ch//2,
+                                   text=f'Não consegui abrir esta foto:\n{path.name}\n\n{e}\n\nClique aqui pra tentar de novo',
+                                   fill='red', font=('Segoe UI', 12), justify='center', width=cw-60)
+                canvas.tag_bind('all', '<Button-1>', lambda e: mostrar(i, 0))
+                canvas.bind('<Button-1>', lambda e: mostrar(i, 0))
 
         def escolher():
             var.set(Path(fotos[idx[0]]).name)
@@ -869,6 +943,12 @@ class App(tk.Tk):
                 messagebox.showerror('Erro ao mover', str(e))
                 return
 
+            # Mantem o bloco (volta do QR) de onde a foto veio: a foto de outra
+            # crianca no meio do bloco de Natal do aluno errado tambem e' de
+            # Natal. Antes cada foto movida virava um bloco novo.
+            bloco_origem = (origem_info['blocos'][pos]
+                            if pos < len(origem_info['blocos']) else 1)
+
             # Tira do aluno errado. `fotos` aqui e' o mesmo objeto de
             # origem_info['fotos'] (mesma lista, nao copia), entao o pop
             # ja' atualiza os dois ao mesmo tempo.
@@ -880,15 +960,28 @@ class App(tk.Tk):
 
             # Poe no aluno certo
             destino_info['fotos'].append(str(novo_caminho))
-            destino_info['blocos'].append(
-                (max(destino_info['blocos']) + 1) if destino_info['blocos'] else 1)
+            destino_info['blocos'].append(bloco_origem)
 
-            messagebox.showinfo(
-                'Movido!',
-                f'Foto movida pra {destino_info.get("nome", destino_key)}.\n\n'
-                f'O contador "X foto(s)" da tela anterior só atualiza quando '
-                f'você reabrir esse aluno — mas a foto já está na pasta certa.'
-            )
+            # Aluno criado agora (QR nao lido): ganha a linha na Aba 2 assim
+            # que tem a 1a foto. As proximas entram na mesma lista (mesmo
+            # objeto), entao a linha nao precisa ser redesenhada.
+            if destino_key in self._linhas_pendentes:
+                self._linhas_pendentes.discard(destino_key)
+                self._linha_aluno(destino_key, destino_info, destino_info['fotos'])
+            # Sem isso, reabrir a pasta depois traria a foto de volta no aluno
+            # errado (apontando pra um arquivo que ja' saiu de la').
+            try:
+                pasta_org = getattr(self, '_pasta_organizada', None)
+                if pasta_org:
+                    with open(Path(pasta_org) / '_indice_alunos.json', 'w', encoding='utf-8') as f:
+                        json.dump(self.alunos_info, f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                messagebox.showwarning('Aviso',
+                    f'A foto foi movida, mas não consegui atualizar o índice:\n{e}')
+
+            # Aviso no titulo em vez de janela: mover 10+ fotos de uma crianca
+            # com um "OK" pra clicar a cada uma cansa.
+            win.title(f'Escolher foto   —   ✓ movida pra {destino_info.get("nome", destino_key)}')
 
             if not fotos:
                 win.destroy()
@@ -982,6 +1075,11 @@ class App(tk.Tk):
         lista.bind('<Double-Button-1>', confirmar)
         picker.bind('<Escape>', lambda e: picker.destroy())
 
+        tk.Label(picker, text='Só aparecem alunos que já têm pasta. Não achou?\n'
+                              'Clique em "➕ Aluno sem pasta" pra buscar no cadastro.',
+                 bg=COR_BG, fg=COR_LARANJA, font=('Segoe UI', 9), justify='left').pack(
+                 anchor='w', padx=14, pady=(0,6), before=lista)
+
         botoes = tk.Frame(picker, bg=COR_BG)
         botoes.pack(fill='x', padx=14, pady=(0,14))
         tk.Button(botoes, text='Cancelar', command=picker.destroy,
@@ -991,7 +1089,161 @@ class App(tk.Tk):
                   bg=COR_VERDE, fg='white', relief='flat', padx=14, pady=6,
                   cursor='hand2').pack(side='right')
 
+        # Caso real (23/09/2026): a ficha da Antonella foi fotografada mas o QR
+        # nao foi lido — ela nao ganhou pasta, e as fotos dela cairam na do
+        # aluno anterior. Sem isso nao havia pra onde mover.
+        def criar_novo():
+            k = self._criar_aluno_novo(picker, busca_var.get().strip())
+            if k:
+                resultado[0] = k
+                picker.destroy()
+        tk.Button(botoes, text='➕ Aluno sem pasta', command=criar_novo,
+                  bg='#E8EEFF', fg=COR_AZUL, relief='flat', padx=10, pady=6,
+                  cursor='hand2').pack(side='left', padx=8)
+
         self.wait_window(picker)
+        return resultado[0]
+
+    def _criar_aluno_novo(self, parent, termo_inicial=''):
+        """Cria pasta + registro pra um aluno cujo QR nao foi lido na Fase 1.
+        Busca no cadastro de preferencia: com o id certo, a montagem acha o
+        pedido dele; digitado a mao, sai como "so' autorizou"."""
+        dlg = tk.Toplevel(parent)
+        dlg.title('Criar pasta de aluno')
+        dlg.configure(bg=COR_BG)
+        dlg.geometry('480x560')
+        dlg.transient(parent)
+        dlg.grab_set()
+
+        tk.Label(dlg, text='Aluno que ficou sem pasta (o QR da ficha não foi lido)',
+                 bg=COR_BG, fg=COR_TEXTO, font=('Segoe UI', 10, 'bold')).pack(
+                 anchor='w', padx=14, pady=(14,2))
+        tk.Label(dlg, text='1) Busque pelo nome no cadastro — assim o programa acha o pedido.',
+                 bg=COR_BG, fg=COR_CINZA, font=('Segoe UI', 9)).pack(anchor='w', padx=14)
+
+        linha_b = tk.Frame(dlg, bg=COR_BG)
+        linha_b.pack(fill='x', padx=14, pady=(6,4))
+        busca = tk.Entry(linha_b, font=('Segoe UI', 10))
+        busca.pack(side='left', fill='x', expand=True)
+        busca.focus_set()
+
+        lista = tk.Listbox(dlg, font=('Segoe UI', 10), height=7)
+        lista.pack(fill='x', padx=14)
+        achados = []
+        aluno_id = ['']
+
+        tk.Label(dlg, text='2) Confira (ou preencha à mão se não achar):',
+                 bg=COR_BG, fg=COR_CINZA, font=('Segoe UI', 9)).pack(anchor='w', padx=14, pady=(10,2))
+        campos = {}
+        for rot in ('Nome', 'Série/Ano', 'Turma'):
+            f = tk.Frame(dlg, bg=COR_BG)
+            f.pack(fill='x', padx=14, pady=2)
+            tk.Label(f, text=rot, bg=COR_BG, fg=COR_TEXTO, width=10, anchor='w',
+                     font=('Segoe UI', 9)).pack(side='left')
+            e = tk.Entry(f, font=('Segoe UI', 10))
+            e.pack(side='left', fill='x', expand=True)
+            campos[rot] = e
+
+        lbl_cad = tk.Label(dlg, text='', bg=COR_BG, font=('Segoe UI', 9))
+        lbl_cad.pack(anchor='w', padx=14, pady=(4,0))
+
+        def buscar(event=None):
+            termo = busca.get().strip()
+            if len(termo) < 3:
+                messagebox.showinfo('Busca', 'Digite pelo menos 3 letras do nome.', parent=dlg)
+                return
+            try:
+                rows = supabase_get('students', {
+                    'select': 'id,name,class:school_classes(name,year:school_years(name))',
+                    'name': f'ilike.*{termo}*', 'order': 'name', 'limit': '30'})
+            except Exception as e:
+                messagebox.showerror('Busca', f'Não consegui buscar no cadastro (internet?):\n{e}', parent=dlg)
+                return
+            lista.delete(0, 'end')
+            achados.clear()
+            for r in rows:
+                cl = r.get('class') or {}
+                ano = (cl.get('year') or {}).get('name', '')
+                turma = cl.get('name', '')
+                achados.append((r['id'], r['name'], ano, turma))
+                lista.insert('end', f"{r['name']}  —  {ano}  —  Turma {turma}")
+            if not rows:
+                lista.insert('end', '(ninguém com esse nome no cadastro)')
+
+        def selecionar(event=None):
+            sel = lista.curselection()
+            if not sel or sel[0] >= len(achados):
+                return
+            i, nome, ano, turma = achados[sel[0]]
+            for rot, val in (('Nome', nome), ('Série/Ano', ano), ('Turma', turma)):
+                campos[rot].delete(0, 'end')
+                campos[rot].insert(0, val)
+            aluno_id[0] = i
+            lbl_cad.config(text='✓ Ligado ao cadastro — o pedido vai ser encontrado na montagem.',
+                           fg=COR_VERDE)
+
+        def digitou(event=None):
+            # mexeu no nome a mao: deixa de ser o aluno do cadastro
+            if aluno_id[0]:
+                aluno_id[0] = ''
+                lbl_cad.config(text='⚠ Preenchido à mão — sem ligação com o cadastro, sai como "só autorizou".',
+                               fg=COR_LARANJA)
+
+        tk.Button(linha_b, text='🔍 Buscar', command=buscar, bg=COR_AZUL, fg='white',
+                  relief='flat', padx=10, cursor='hand2').pack(side='left', padx=(6,0))
+        busca.bind('<Return>', buscar)
+        lista.bind('<<ListboxSelect>>', selecionar)
+        campos['Nome'].bind('<Key>', digitou)
+
+        # O que ja' foi digitado na janela anterior vira a busca, sem redigitar
+        if termo_inicial:
+            busca.insert(0, termo_inicial)
+            if len(termo_inicial) >= 3:
+                dlg.after(50, buscar)
+
+        resultado = [None]
+
+        def criar():
+            nome  = campos['Nome'].get().strip()
+            ano   = campos['Série/Ano'].get().strip()
+            turma = campos['Turma'].get().strip()
+            if not nome:
+                messagebox.showwarning('Falta o nome', 'Preencha pelo menos o nome.', parent=dlg)
+                return
+            # Mesmo formato da Fase 1, pra pasta ficar igual se o QR tivesse lido
+            partes = [nome] + ([ano] if ano else []) + ([f'Turma {turma}'] if turma else [])
+            chave = sanitizar(' - '.join(partes))
+            if chave in self.alunos_info:
+                messagebox.showinfo('Já existe', 'Esse aluno já tem pasta — a foto vai pra ela.', parent=dlg)
+                resultado[0] = chave
+                dlg.destroy()
+                return
+            pasta = Path(self._pasta_organizada) / chave
+            try:
+                pasta.mkdir(exist_ok=True)
+            except Exception as e:
+                messagebox.showerror('Erro', f'Não consegui criar a pasta:\n{e}', parent=dlg)
+                return
+            self.alunos_info[chave] = {
+                'id': aluno_id[0], 'nome': nome, 'turma': turma, 'ano': ano,
+                'escola': '', 'pasta': str(pasta), 'fotos': [], 'blocos': [],
+                'bloco_atual': 1,
+            }
+            # A linha dela na Aba 2 so' e' desenhada depois da 1a foto chegar
+            # (linha sem foto nao tem botao de escolher).
+            self._linhas_pendentes.add(chave)
+            resultado[0] = chave
+            dlg.destroy()
+
+        rod = tk.Frame(dlg, bg=COR_BG)
+        rod.pack(fill='x', side='bottom', padx=14, pady=14)
+        tk.Button(rod, text='Cancelar', command=dlg.destroy, bg='#E2E8F0',
+                  relief='flat', padx=14, pady=6, cursor='hand2').pack(side='left')
+        tk.Button(rod, text='Criar pasta e mover a foto', command=criar, bg=COR_VERDE,
+                  fg='white', relief='flat', padx=14, pady=6, cursor='hand2').pack(side='right')
+
+        dlg.bind('<Escape>', lambda e: dlg.destroy())
+        self.wait_window(dlg)
         return resultado[0]
 
     def _montar_tudo(self):
