@@ -2881,6 +2881,9 @@ async function selecionarFilho(idx) {
     .select('id')
     .eq('student_id', student.id)
     .eq('project_id', projeto.id)
+    // So' cancelado nao conta: quem desistiu volta pra comprar, nao pra Minha
+    // Area (o historico continua la', no botao do topo) — 24/09/2026.
+    .not('payment_status', 'in', '(cancelled,refunded)')
     .limit(1);
   if (pedidosExist && pedidosExist.length > 0) {
     await loadMinhaConta();
@@ -2956,6 +2959,7 @@ async function afterLogin(user) {
     .select('id')
     .eq('student_id', student.id)
     .eq('project_id', projeto.id)
+    .not('payment_status', 'in', '(cancelled,refunded)')   // igual selecionarFilho
     .limit(1);
 
   if (pedidosExist && pedidosExist.length > 0) {

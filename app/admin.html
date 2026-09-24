@@ -8702,7 +8702,11 @@ async function abrirDrillProjeto(projectId, opts = {}) {
     const alunoIds = alunosRaw.map(a => a.id);
     let pedidosRaw = [];
     if (alunoIds.length) {
-      const { data: peds } = await supabase
+      // So' pedidos DESTE projeto: o aluno e' achado pela turma, e a mesma
+      // turma pode estar em dois projetos da escola — sem esse filtro, o pedido
+      // de um projeto aparecia (e somava na receita) do outro (24/09/2026).
+      // Pedido antigo sem project_id continua aparecendo, pra nao sumir nada.
+      const { data: peds, error: pedErr } = await supabase
         .from('orders')
         .select(`
           id, order_number, kit_type, total_amount, payment_status, payment_proof_url, paid_at, created_at,
@@ -8712,7 +8716,9 @@ async function abrirDrillProjeto(projectId, opts = {}) {
           items:order_items(id, quantity, unit_price, variant_name, product:products(id, name))
         `)
         .in('student_id', alunoIds)
+        .or(`project_id.eq.${projectId},project_id.is.null`)
         .order('created_at', { ascending: false });
+      if (pedErr) throw pedErr;
       pedidosRaw = peds || [];
     }
 
