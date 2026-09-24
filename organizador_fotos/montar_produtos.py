@@ -56,14 +56,19 @@ def buscar_pedido(aluno_id: str) -> list:
         return []
 
     # Busca orders do aluno
+    # Mesma regra do ForSchool_Fotos.py: cancelado nao gera produto; vale o
+    # pago mais recente, senao o mais recente em aberto.
     orders = supabase_get('orders', {
         'student_id': f'eq.{aluno_id}',
+        'payment_status': 'not.in.(cancelled,refunded)',
         'select': 'id,payment_status',
+        'order': 'created_at.desc',
     })
     if not orders:
         return []
 
-    order_id = orders[0]['id']
+    escolhido = next((o for o in orders if o.get('payment_status') == 'paid'), orders[0])
+    order_id = escolhido['id']
     produtos = []
     vistos   = set()
 

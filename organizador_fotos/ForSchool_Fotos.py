@@ -143,13 +143,24 @@ def buscar_pedido_debug(aluno_id):
         debug.append('⚠ aluno sem ID no QR code')
         return [], debug
 
-    orders = supabase_get('orders', {'student_id': f'eq.{aluno_id}', 'select': 'id,payment_status'})
+    # Pedido cancelado/estornado nao gera produto. Antes pegava o 1o pedido
+    # que o banco devolvesse, em qualquer ordem — com um pedido cancelado e
+    # outro novo pago (o responsavel pode cancelar desde 24/09/2026), podia
+    # montar os produtos do pedido errado. Vale o PAGO mais recente; sem
+    # pago, o mais recente em aberto.
+    orders = supabase_get('orders', {
+        'student_id': f'eq.{aluno_id}',
+        'payment_status': 'not.in.(cancelled,refunded)',
+        'select': 'id,payment_status',
+        'order': 'created_at.desc',
+    })
     debug.append(f'orders encontrados: {len(orders)}')
     if not orders:
         return [], debug
 
-    order_id = orders[0]['id']
-    status   = orders[0].get('payment_status', '?')
+    escolhido = next((o for o in orders if o.get('payment_status') == 'paid'), orders[0])
+    order_id = escolhido['id']
+    status   = escolhido.get('payment_status', '?')
     debug.append(f'order_id={order_id[:8]}... status={status}')
 
     produtos = []

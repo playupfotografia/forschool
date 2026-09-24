@@ -641,6 +641,58 @@ async function avisarPedidoPendente(pedido) {
 }
 
 // ---------------------------------------------------------------------------
+// Aviso de pedido CANCELADO PELO RESPONSÁVEL (migration_060) — pra saber
+// quem desistiu e poder chamar no WhatsApp, se fizer sentido. Cancelamento
+// feito pelo admin não avisa (quem cancelou já sabe).
+// ---------------------------------------------------------------------------
+async function avisarEmailPedidoCancelado(pedido) {
+  const key = process.env.RESEND_API_KEY;
+  const para = process.env.ALERTA_EMAIL;
+  if (!key || !para) return { canal: 'email', enviado: false, motivo: 'nao configurado' };
+
+  const de = process.env.ALERTA_EMAIL_FROM || 'For School <onboarding@resend.dev>';
+  const linhas = linhasDoPedidoPendente(pedido)
+    .map(([k, v]) => `<tr><td style="padding:6px 12px 6px 0;color:#666">${k}</td><td style="padding:6px 0;font-weight:600">${v}</td></tr>`)
+    .join('');
+  const tel = String(pedido.user?.phone || '').replace(/\D/g, '');
+  const html = `<div style="font-family:system-ui,Arial,sans-serif;max-width:480px">
+    <h2 style="color:#E3815A;margin:0 0 4px">✕ Pedido cancelado pelo responsável</h2>
+    <p style="color:#666;margin:0 0 16px;font-size:14px">
+      O responsável desistiu deste pedido pela Minha Área. A cobrança em aberto
+      foi cancelada junto. O pedido continua no admin, marcado como cancelado.
+    </p>
+    <table style="border-collapse:collapse;font-size:14px">${linhas}</table>
+    ${tel ? `<p style="margin:16px 0 0"><a href="https://wa.me/55${tel}" style="color:#27AE60;font-weight:600">💬 Chamar no WhatsApp</a></p>` : ''}
+  </div>`;
+
+  const r = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: de,
+      to: para.split(',').map((e) => e.trim()).filter(Boolean),
+      subject: [
+        '✕ Pedido cancelado',
+        pedido.school?.name,
+        moeda(pedido.total_amount),
+        pedido.order_number ? `(${pedido.order_number})` : null,
+      ].filter(Boolean).join(' — '),
+      html,
+    }),
+  });
+  if (!r.ok) throw new Error('Resend HTTP ' + r.status + ': ' + (await r.text()).slice(0, 200));
+  return { canal: 'email', enviado: true };
+}
+
+async function avisarPedidoCancelado(pedido) {
+  const res = await Promise.allSettled([avisarEmailPedidoCancelado(pedido)]);
+  res.forEach((r) => {
+    if (r.status === 'rejected') console.error('aviso de pedido cancelado falhou:', r.reason?.message || r.reason);
+    else if (!r.value.enviado) console.log(`aviso ${r.value.canal}: ${r.value.motivo}`);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Aviso de PARCELA paga (PIX parcelado, migration_058) — mais leve que
 // avisarVenda: uma parcela paga nao e' a venda inteira confirmada, so' um
 // passo dela. A venda so' conta como confirmada quando a ULTIMA parcela cai
@@ -804,4 +856,4 @@ async function avisarParcelaAtrasada(pedido, parcela) {
   });
 }
 
-module.exports = { env, asaas, woovi, assinaturaWooviValida, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, dividirProporcional, resumoFinanceiro, liquidoCrivel, avisarVenda, avisarPedidoPendente, avisarPagamentoDesfeito, avisarParcelaPaga, avisarLembreteParcela, avisarParcelaAtrasada };
+module.exports = { env, asaas, woovi, assinaturaWooviValida, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, dividirProporcional, resumoFinanceiro, liquidoCrivel, avisarVenda, avisarPedidoPendente, avisarPedidoCancelado, avisarPagamentoDesfeito, avisarParcelaPaga, avisarLembreteParcela, avisarParcelaAtrasada };

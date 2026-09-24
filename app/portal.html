@@ -1145,6 +1145,7 @@ let student = null;           // aluno do pai logado
 // carrinho E' esse pedido: finalizar reescreve ele em vez de criar outro.
 let pedidoAberto = null;       // { id, order_number }
 let _pedidoEmPagamento = null;  // pedido mostrado na tela de pagamento agora
+let _pedidosPorId = {};         // idem, por id (a Minha Area mostra varios de uma vez)
 // Entrega individual: so' entra em cena quando o pedido e' de ultima hora e
 // nao alcanca mais o lote que vai pra escola.
 let entregaMetodo = null;      // 'retirada' | 'motoboy'
@@ -1460,6 +1461,7 @@ function renderPaymentMethods(pedido, el) {
   // Guardado pra "escolher outra forma de pagamento" poder remontar a tela de
   // escolha sem ir buscar o pedido de novo no banco.
   _pedidoEmPagamento = pedido;
+  if (pedido?.id) _pedidosPorId[pedido.id] = pedido;
 
   if (pedido?.pix_payload || pedido?.pix_qr_image || pedido?.checkout_url) {
     el.innerHTML = blocoCobranca(pedido);
@@ -1771,21 +1773,26 @@ function vigiarParcelamento(orderId, container, payloadInicial) {
 // forma — senao ela poderia ficar com duas cobrancas abertas do mesmo pedido.
 function botaoTrocarPagamento(pedido) {
   if (!pedido?.id) return '';
-  return `<button type="button" class="pay-trocar" onclick="trocarFormaPagamento('${pedido.id}')">
+  return `<button type="button" class="pay-trocar" onclick="trocarFormaPagamento('${pedido.id}', this)">
     ↩ Escolher outra forma de pagamento
   </button>`;
 }
 
-window.trocarFormaPagamento = function (orderId) {
-  const el = document.getElementById('confirm-payment-methods');
+window.trocarFormaPagamento = function (orderId, botao) {
+  // Redesenha ONDE o pai clicou. Antes ia sempre pra tela de confirmacao —
+  // na Minha Area (mc-pay-<pedido>) ela esta' escondida, e o botao parecia
+  // nao fazer nada (visto em 24/09/2026).
+  const el = botao?.closest('#confirm-payment-methods, [id^="mc-pay-"]')
+    || document.getElementById('confirm-payment-methods');
   if (!el) return;
   pararVigia(orderId);
   // Reaproveita o pedido inteiro que ja' esta' na tela (tem total_amount, que
   // os blocos de escolha precisam pra mostrar os valores certos) e zera so' os
   // campos de cobranca — e' o que faz renderPaymentMethods montar a tela de
-  // escolha de novo em vez de repetir o bloco da cobranca.
-  const base = (_pedidoEmPagamento && _pedidoEmPagamento.id === orderId)
-    ? _pedidoEmPagamento : { id: orderId };
+  // escolha de novo em vez de repetir o bloco da cobranca. Por id: a Minha
+  // Area pode ter mais de um pedido pendente na tela ao mesmo tempo.
+  const base = _pedidosPorId[orderId]
+    || ((_pedidoEmPagamento && _pedidoEmPagamento.id === orderId) ? _pedidoEmPagamento : { id: orderId });
   renderPaymentMethods({ ...base, pix_payload: null, pix_qr_image: null, checkout_url: null }, el);
 };
 
@@ -1849,8 +1856,14 @@ window.escolherPagamento = async function (orderId, metodo, parcelas) {
     return;
   }
 
-  const alvo = document.querySelector('.pay-lista')?.closest('div[id]') || el;
-  const erroEl = document.getElementById('pay-erro');
+  // A lista de botoes DESTE pedido, e visivel — a Minha Area pode ter mais de
+  // um pedido pendente, e a tela de confirmacao (escondida) pode ter sobrado
+  // de antes com outra lista. Pegar "a primeira .pay-lista" desenhava a
+  // cobranca no lugar errado.
+  const lista = [...document.querySelectorAll('.pay-lista')]
+    .find(x => x.offsetParent !== null && x.querySelector(`[onclick*="${orderId}"]`));
+  const alvo = lista?.closest('div[id]') || el;
+  const erroEl = alvo.querySelector('.pay-erro') || document.getElementById('pay-erro');
   const botoes = document.querySelectorAll('.pay-opt');
   botoes.forEach(b => { b.disabled = true; b.style.opacity = '.55'; });
   if (erroEl) erroEl.style.display = 'none';
@@ -2990,6 +3003,7 @@ async function loadMinhaConta() {
     .select(`
       id, order_number, payment_status, total_amount, created_at, kit_type,
       amount_charged, installments, pix_payload, pix_qr_image, checkout_url, payment_group_id,
+      has_paid_installment, cancelled_at,
       order_kits(quantity, kit:school_kits(name, kit_type)),
       order_items(quantity, product:products(name))
     `)
@@ -3049,12 +3063,13 @@ async function loadMinhaConta() {
             <span class="mc-status ${statusCls}">${statusLabel}</span>
           </div>
           <div class="mc-order-kit">${detalhe || '—'}</div>
-          <div class="mc-order-detail">Pedido em ${data}</div>
+          <div class="mc-order-detail">Pedido em ${data}${p.payment_status === 'cancelled' && p.cancelled_at ? ` · cancelado em ${new Date(p.cancelled_at).toLocaleDateString('pt-BR')}` : ''}</div>
           <div class="mc-order-total">${fmtMoney(p.total_amount || 0)}</div>
           ${p.payment_status === 'pending'
             ? (pedidoVinculadoPago
                 ? `<div class="mc-dup-aviso">✓ Já identificamos o pagamento deste aluno (feito através de outro cadastro, pedido nº ${escapeHtml(pedidoVinculadoPago.order_number || '')}) — está tudo certo! Obrigada pelo pedido 💛</div>`
-                : `<div id="mc-pay-${p.order_number}" style="margin-top:10px"></div>`)
+                : `<div id="mc-pay-${p.order_number}" style="margin-top:10px"></div>
+                   ${p.has_paid_installment ? '' : botaoDesistirPedido(p)}`)
             : ''}
         </div>
       </div>`;
@@ -3415,8 +3430,47 @@ function renderAvisoPedidoAberto() {
   if (!pedidoAberto) { el.style.display = 'none'; return; }
   el.style.display = 'block';
   el.innerHTML = `🛒 Você tem o pedido <b>${escapeHtml(pedidoAberto.order_number)}</b> aguardando pagamento.
-    Os itens dele já estão no seu carrinho — pode adicionar, tirar ou trocar à vontade e finalizar de novo.`;
+    Os itens dele já estão no seu carrinho — pode adicionar, tirar ou trocar à vontade e finalizar de novo.
+    ${botaoDesistirPedido(pedidoAberto)}`;
 }
+
+// ---------------------------------------------------------------------------
+// Responsável desiste do pedido pendente (migration_060). Antes nao tinha
+// saida: o pedido pendente e' o carrinho, carrinho vazio nao finaliza, e o
+// aviso amarelo ficava pra sempre. O pedido vira "cancelado" (nao some) —
+// o admin continua vendo no historico, e recebe e-mail avisando.
+// ---------------------------------------------------------------------------
+function botaoDesistirPedido(p) {
+  if (!p?.id || projeto?.demo_mode) return '';
+  return `<button type="button" class="pay-trocar" style="color:var(--red);margin-top:8px"
+            onclick="desistirDoPedido('${p.id}','${escapeHtml(p.order_number || '')}')">
+    ✕ Desistir deste pedido
+  </button>`;
+}
+
+window.desistirDoPedido = async function (orderId, orderNumber) {
+  if (!confirm(
+    `Tem certeza que quer cancelar o pedido ${orderNumber}?\n\n` +
+    '• Se você já gerou um PIX ou link de cartão, ele deixa de valer.\n' +
+    '• Se mudar de ideia, é só montar um pedido novo.'
+  )) return;
+  try {
+    const r = await fetch('/api/cancelar-pedido', {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: JSON.stringify({ order_id: orderId }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.erro || 'Não foi possível cancelar o pedido.');
+    pararVigia(orderId);
+    toast(`Pedido ${orderNumber} cancelado.`, 'ok');
+    // Volta pro catalogo, com o carrinho vazio: e' onde ele decide se monta
+    // outro pedido ou nao.
+    await loadCatalogo(_filhosUser || currentUser);
+  } catch (err) {
+    toast(err.message, 'warn');
+  }
+};
 
 async function loadCatalogo(user) {
   show('screen-catalogo');

@@ -3978,7 +3978,7 @@ async function loadPedidos() {
         payment_proof_url, paid_at, created_at, source, notes,
         gateway, gateway_status, installments, amount_charged, surcharge_amount,
         net_amount, gateway_fee, credit_expected_date, credited_at, updated_at,
-        delivery_method, delivery_fee, delivery_address,
+        delivery_method, delivery_fee, delivery_address, cancelled_at, cancelled_by,
         student:students(id, name, duplicate_of_student_id),
         user:users(id, name),
         school:schools(id, name, slug)
@@ -4149,6 +4149,7 @@ function filtrarPedidos() {
                   : dupPago ? `<span class="badge badge-blue" title="Mesma criança, cadastro diferente — pedido lá: ${escapeHtml(dupPago.order_number || '')}, pago">🔗 Duplicado ✓ Pago</span>`
                   : p.payment_status === 'pending' ? '<span class="badge badge-yellow">Pendente</span>'
                   : p.payment_status === 'refunded' ? '<span class="badge badge-gray">Reembolsado</span>'
+                  : p.payment_status === 'cancelled' ? `<span class="badge badge-red">Cancelado</span><div style="font-size:10px;color:var(--red)">${descreverCancelamento(p).replace(/^cancelado ?/, '')}</div>`
                   : `<span class="badge badge-red">${escapeHtml(p.payment_status)}</span>`;
     const kitBadge = p.kit_type
       ? `<span class="badge ${kitClass[p.kit_type] || 'badge-gray'}">${kitMap[p.kit_type] || p.kit_type}</span>`
@@ -4335,6 +4336,7 @@ async function abrirDetalhesPedido(id) {
 
     const stBadge = ped.payment_status === 'paid'    ? '<span class="badge badge-green">Pago</span>'
                   : ped.payment_status === 'pending' ? '<span class="badge badge-yellow">Pendente</span>'
+                  : ped.payment_status === 'cancelled' ? `<span class="badge badge-red">${escapeHtml(descreverCancelamento(ped).replace(/^c/, 'C'))}</span>`
                   : `<span class="badge badge-gray">${escapeHtml(ped.payment_status)}</span>`;
 
     const itemsFromKit = (ped.items || []).filter(it => it.from_kit_id);
@@ -8705,7 +8707,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
         .select(`
           id, order_number, kit_type, total_amount, payment_status, payment_proof_url, paid_at, created_at,
           gateway, gateway_status, credit_expected_date, credited_at, updated_at,
-          payment_method, installments, amount_charged,
+          payment_method, installments, amount_charged, cancelled_at, cancelled_by,
           student_id,
           items:order_items(id, quantity, unit_price, variant_name, product:products(id, name))
         `)
@@ -8714,9 +8716,19 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       pedidosRaw = peds || [];
     }
 
-    // Mapa student_id → pedido
+    // Mapa student_id → pedido. Vale o pedido ATIVO mais recente; cancelado/
+    // estornado so' aparece se o aluno nao tiver nenhum outro. Antes ficava o
+    // ultimo da lista (o MAIS ANTIGO) — com o responsavel podendo cancelar
+    // (migration_060), um P0138 cancelado taparia o P0140 pago feito depois.
+    // Os cancelados que ficaram "por tras" viram historico na linha do aluno.
+    const inativo = p => p.payment_status === 'cancelled' || p.payment_status === 'refunded';
     const pedidosPorAluno = {};
-    pedidosRaw.forEach(p => { pedidosPorAluno[p.student_id] = p; });
+    const canceladosPorAluno = {};
+    pedidosRaw.forEach(p => {
+      if (inativo(p)) (canceladosPorAluno[p.student_id] = canceladosPorAluno[p.student_id] || []).push(p);
+      const atual = pedidosPorAluno[p.student_id];
+      if (!atual || (inativo(atual) && !inativo(p))) pedidosPorAluno[p.student_id] = p;
+    });
 
     // 4b. Ultimo contato de cada aluno NESTE projeto. Por projeto de proposito:
     // quem foi contatado na campanha de 2026 nao pode aparecer como "ja
@@ -8835,6 +8847,8 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       autorizacao: !a.authorization_date ? 'pendente'
                  : (a.authorize_individual || a.authorize_class) ? 'ok' : 'recusou',
       order: pedidosPorAluno[a.id] || null,
+      // Historico: pedidos cancelados/estornados alem do que esta' na linha
+      cancelados: (canceladosPorAluno[a.id] || []).filter(c => c.id !== pedidosPorAluno[a.id]?.id),
       contato: contatoPorAluno[a.id] || null,
       fotoEm:     fotoPorAluno[a.id]?.em || null,
       fotoStatus: fotoPorAluno[a.id]?.status || null,   // 'foto' | 'faltou' | 'refazer' | null
@@ -9334,9 +9348,17 @@ function filtrarDrillAlunos() {
       } else if (o.payment_status === 'cancelled') {
         // Reativar volta so' pra pendente — nunca pra "pago" sozinho, pra nao
         // fingir que um dinheiro que nunca foi conferido de novo caiu.
-        stCell = `<button class="btn btn-sm badge-red" style="border:none;cursor:pointer;font-weight:600" onclick="drillReativarPedido('${o.id}')" title="Cancelado — clique pra reativar (volta pra pendente)">✕ Cancelado</button>`;
+        stCell = `<button class="btn btn-sm badge-red" style="border:none;cursor:pointer;font-weight:600" onclick="drillReativarPedido('${o.id}')" title="Cancelado — clique pra reativar (volta pra pendente)">✕ Cancelado</button>`
+               + (o.cancelled_by || o.cancelled_at ? `<div style="font-size:10px;color:var(--red)">${descreverCancelamento(o)}</div>` : '');
       } else {
         stCell = `<span class="badge badge-gray">${escapeHtml(o.payment_status)}</span>`;
+      }
+
+      // Historico: pedido(s) cancelado(s) antes do que esta' na linha. Sem
+      // isso, um P0138 cancelado sumiria de vista assim que o P0140 existisse.
+      if (a.cancelados?.length) {
+        const lista = a.cancelados.map(c => `${c.order_number} — ${descreverCancelamento(c)}`).join('\n');
+        stCell += `<div style="font-size:10px;color:var(--gray-500);margin-top:2px;cursor:help" title="${escapeHtml(lista)}">↺ ${a.cancelados.length} cancelado${a.cancelados.length > 1 ? 's' : ''} antes</div>`;
       }
 
       if (o.payment_proof_url) {
@@ -9485,6 +9507,7 @@ async function imprimirFichasSelecionadasDrill() {
         items:order_items(quantity, product:products(name, photo_theme), variant:product_variants(photo_theme)),
         kits:order_kits(quantity, kit:school_kits(name, kit_type, items:school_kit_items(quantity, product:products(name))))`)
       .in('student_id', ids)
+      .not('payment_status', 'in', '(cancelled,refunded)')   // cancelado nao sai como "COMPROU" na ficha
       .order('created_at', { ascending: false });
     if (pedErr) throw pedErr;
 
@@ -9975,6 +9998,16 @@ async function drillMarcarPendente(orderId) {
   filtrarDrillAlunos();
 }
 
+// "cancelado pelo responsável em 24/09" — quem e quando (migration_060).
+// Pedido cancelado antes dessa migracao nao tem os campos: sai so' "cancelado".
+function descreverCancelamento(o) {
+  if (o.payment_status === 'refunded') return 'estornado';
+  const quem = o.cancelled_by === 'responsavel' ? ' pelo responsável'
+             : o.cancelled_by === 'admin' ? ' pelo admin' : '';
+  const quando = o.cancelled_at ? ` em ${new Date(o.cancelled_at).toLocaleDateString('pt-BR')}` : '';
+  return `cancelado${quem}${quando}`;
+}
+
 // Botao pequeno de cancelar, ao lado do status Pago/Pendente — separado do
 // toggle principal de proposito: cancelar e' mais consequente (pode mexer
 // numa cobranca de verdade no Asaas), entao pede um clique a mais e uma
@@ -10002,12 +10035,12 @@ window.drillCancelarPedido = async function (orderId) {
     const d = await r.json();
     if (!r.ok || !d.ok) throw new Error(d.erro || 'Não consegui cancelar.');
 
+    const agora = new Date().toISOString();
     const idx = drillPedidosData.findIndex(p => p.id === orderId);
-    if (idx !== -1) drillPedidosData[idx].payment_status = 'cancelled';
+    if (idx !== -1) Object.assign(drillPedidosData[idx], { payment_status: 'cancelled', cancelled_at: agora, cancelled_by: 'admin' });
     const aidx = drillAlunosData.findIndex(a => a.order?.id === orderId);
     if (aidx !== -1 && drillAlunosData[aidx].order) {
-      drillAlunosData[aidx].order.payment_status = 'cancelled';
-      drillAlunosData[aidx].order.updated_at = new Date().toISOString();
+      Object.assign(drillAlunosData[aidx].order, { payment_status: 'cancelled', cancelled_at: agora, cancelled_by: 'admin', updated_at: agora });
     }
     toast('Pedido cancelado.', 'success');
     renderDrillStats();
@@ -10023,14 +10056,18 @@ window.drillCancelarPedido = async function (orderId) {
 // botao normal de marcar pago, de proposito.
 window.drillReativarPedido = async function (orderId) {
   if (!confirm('Reativar este pedido cancelado? Ele volta para "Pendente".')) return;
-  const { error } = await supabase.from('orders').update({ payment_status: 'pending' }).eq('id', orderId);
+  // Reativado deixa de ser "cancelado": zera quem/quando, senao a linha
+  // continuaria dizendo "cancelado pelo responsável" num pedido pendente.
+  const { error } = await supabase.from('orders')
+    .update({ payment_status: 'pending', cancelled_at: null, cancelled_by: null }).eq('id', orderId);
   if (error) { toast('Erro ao reativar: ' + error.message, 'error'); return; }
   const idx = drillPedidosData.findIndex(p => p.id === orderId);
-  if (idx !== -1) drillPedidosData[idx].payment_status = 'pending';
+  if (idx !== -1) Object.assign(drillPedidosData[idx], { payment_status: 'pending', cancelled_at: null, cancelled_by: null });
   const aidx = drillAlunosData.findIndex(a => a.order?.id === orderId);
   if (aidx !== -1 && drillAlunosData[aidx].order) {
-    drillAlunosData[aidx].order.payment_status = 'pending';
-    drillAlunosData[aidx].order.updated_at = new Date().toISOString();
+    Object.assign(drillAlunosData[aidx].order, {
+      payment_status: 'pending', cancelled_at: null, cancelled_by: null, updated_at: new Date().toISOString(),
+    });
   }
   toast('Pedido reativado — voltou para pendente.', 'success');
   renderDrillStats();
@@ -10332,6 +10369,7 @@ async function imprimirFichasSelecionadas() {
         items:order_items(quantity, product:products(name, photo_theme), variant:product_variants(photo_theme)),
         kits:order_kits(quantity, kit:school_kits(name, kit_type, items:school_kit_items(quantity, product:products(name))))`)
       .in('student_id', ids)
+      .not('payment_status', 'in', '(cancelled,refunded)')   // cancelado nao sai como "COMPROU" na ficha
       .order('created_at', { ascending: false });
     if (pedErr) throw pedErr;
 
@@ -11380,7 +11418,9 @@ async function imprimirFichasSessao() {
       .select(`id, student_id,
         items:order_items(quantity, product:products(name, photo_theme), variant:product_variants(photo_theme)),
         kits:order_kits(quantity, kit:school_kits(name, kit_type, items:school_kit_items(quantity, product:products(name))))`)
-      .in('student_id', alunoIds);
+      .in('student_id', alunoIds)
+      .not('payment_status', 'in', '(cancelled,refunded)')   // cancelado nao sai como "COMPROU" na ficha
+      .order('created_at', { ascending: false });
 
     const pedidoMap = {};
     (pedidos || []).forEach(p => { if (!pedidoMap[p.student_id]) pedidoMap[p.student_id] = p; });
