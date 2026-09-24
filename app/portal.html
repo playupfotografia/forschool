@@ -3295,7 +3295,15 @@ document.getElementById('btn-denied-sair').addEventListener('click', async () =>
 // pro carrinho pra ser editado (adicionar, remover, trocar). Sem isso o pai
 // ficava preso — ou criava pedido duplicado, ou nao conseguia mudar nada.
 async function carregarPedidoAberto() {
+  // O carrinho e' sempre DO ALUNO da vez. Sem zerar aqui, trocar pra um
+  // irmao que ainda nao tem pedido mantinha no carrinho os itens do filho
+  // anterior — e finalizar gravava tudo no pedido do irmao (caso real,
+  // 24/09/2026: um produto virou "2 unidades" num pedido so').
   pedidoAberto = null;
+  kitsCarrinho = {};
+  avulsosCarrinho = {};
+  entregaMetodo = null;
+  entregaEndereco = '';
   try {
     // has_paid_installment=false exclui pedido parcelado com alguma parcela
     // ja' paga — esse continua "pending" (so' fecha quando a ultima cair),
@@ -3314,8 +3322,6 @@ async function carregarPedidoAberto() {
     if (!ped) return;
 
     pedidoAberto = { id: ped.id, order_number: ped.order_number };
-    kitsCarrinho = {};
-    avulsosCarrinho = {};
     (ped.order_kits || []).forEach(ok => {
       const t = ok.kit?.kit_type;
       if (t) kitsCarrinho[t] = (kitsCarrinho[t] || 0) + (ok.quantity || 1);
