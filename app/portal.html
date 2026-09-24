@@ -3254,7 +3254,10 @@ function showAutorizacao(user) {
 }
 
 function showNegado() {
-  document.getElementById('denied-empresa').textContent = BUSINESS_NAME;
+  // O campo #denied-empresa saiu da tela em algum momento; sem essa checagem o erro
+  // aqui impedia a tela de abrir e quem recusou ficava preso (24/09/2026).
+  const emp = document.getElementById('denied-empresa');
+  if (emp) emp.textContent = BUSINESS_NAME;
   show('screen-denied');
 }
 
