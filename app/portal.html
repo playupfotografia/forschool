@@ -900,6 +900,8 @@ body.modo-demo::after{content:'';position:fixed;inset:0;border:4px solid #7C3AED
         Total: <b id="confirm-total">R$ 0,00</b>
       </div>
 
+      <div id="confirm-irmaos" style="text-align:left"></div>
+
       <div id="confirm-payment-methods" style="text-align:left">
         <!-- Métodos de pagamento populados dinamicamente após criar o pedido -->
       </div>
@@ -1988,6 +1990,78 @@ async function ofertarPagamentoConjunto(pedido, el) {
   } catch (e) {
     console.error('ofertarPagamentoConjunto', e);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Logo depois de finalizar: leva o pai direto pro pedido do irmao (ou lembra
+// de cadastrar o irmao, se so' tem um filho). Pedido do Daniel (24/09/2026):
+// sem isso o pai tinha que achar sozinho "Minha Area -> Trocar de filho", e
+// o que pai acha dificil vira reclamacao. Fica ACIMA das formas de pagamento
+// de proposito: com desconto de irmao, o certo e' finalizar o pedido do
+// outro filho antes de pagar — ai' a tela dele oferece pagar os dois juntos.
+// ---------------------------------------------------------------------------
+async function renderIrmaosConfirm() {
+  const el = document.getElementById('confirm-irmaos');
+  if (!el) return;
+  el.innerHTML = '';
+  if (!student || projeto?.demo_mode) return;
+
+  const temDesconto = !!projeto?.sibling_discount_mode && Number(projeto?.sibling_discount_value) > 0;
+  const caixa = (conteudo) => `
+    <div class="pix-block" style="border-color:var(--blue);background:var(--blue-light);margin:10px 0 4px">${conteudo}</div>`;
+
+  const outros = (_todosFilhos || [])
+    .map((f, idx) => ({ f, idx }))
+    .filter(({ f }) => f.id !== student.id)
+    // Recusou a autorizacao: nao vai ser fotografado, nao tem o que comprar.
+    .filter(({ f }) => !(f.authorization_date && !f.authorize_individual && !f.authorize_class));
+
+  if (!outros.length) {
+    // So' um filho cadastrado: sem cadastro, o sistema nao tem como oferecer
+    // nada pro irmao — lembra de cadastrar. Some com o cadastro encerrado.
+    if ((_todosFilhos || []).length > 1 || projeto?.registrations_closed) return;
+    el.innerHTML = caixa(`
+      <div style="font-size:13px;color:var(--gray-700)">
+        👨‍👩‍👧 <b>Tem outro filho(a) nesta escola?</b>
+        ${temDesconto ? 'Cadastre e faça o pedido dele(a) também — pagando os dois juntos, você ganha desconto.' : 'Cadastre com esta mesma conta e faça o pedido dele(a) também.'}
+      </div>
+      <button type="button" class="btn btn-secondary btn-block" style="margin-top:8px" onclick="irAdicionarFilho()">
+        + Cadastrar outro filho(a)
+      </button>`);
+    return;
+  }
+
+  // Situacao do pedido de cada irmao neste projeto, pra o botao dizer a
+  // coisa certa (e pra nao oferecer comprar pra quem ja' pagou).
+  let pedidosIrmaos = [];
+  try {
+    const { data } = await supabase
+      .from('orders')
+      .select('student_id, payment_status')
+      .in('student_id', outros.map(o => o.f.id))
+      .eq('project_id', projeto.id);
+    pedidosIrmaos = data || [];
+  } catch { /* sem a situacao, o botao cai no texto generico — nao trava nada */ }
+
+  const botoes = outros.map(({ f, idx }) => {
+    const peds = pedidosIrmaos.filter(p => p.student_id === f.id);
+    if (peds.some(p => p.payment_status === 'paid')) return '';
+    const primeiro = escapeHtml((f.name || '').split(' ')[0] || 'seu outro filho');
+    const texto = !f.authorization_date ? `Autorizar e fazer o pedido de ${primeiro}`
+                : peds.some(p => p.payment_status === 'pending') ? `Ver o pedido de ${primeiro}`
+                : `Fazer o pedido de ${primeiro}`;
+    return `<button type="button" class="btn btn-primary btn-block" style="margin-top:8px" onclick="selecionarFilho(${idx})">🛒 ${texto}</button>`;
+  }).filter(Boolean);
+  if (!botoes.length) return;
+
+  el.innerHTML = caixa(`
+    <div style="font-size:13px;color:var(--gray-700)">
+      👨‍👩‍👧 <b>Vai comprar também para o(s) irmão(s)?</b>
+      ${temDesconto
+        ? 'Finalize o pedido dele(a) <b>antes de pagar este</b> — aí você paga os dois juntos, com desconto.'
+        : 'Cada filho tem o próprio pedido.'}
+    </div>
+    ${botoes.join('')}`);
 }
 
 // Cria UMA cobranca cobrindo os pedidos de orderIds (irmaos, mesmo projeto) —
@@ -4022,6 +4096,7 @@ document.getElementById('btn-finalizar').addEventListener('click', async () => {
     closeCartDrawer();
     document.getElementById('confirm-num').textContent = 'DEMONSTRAÇÃO';
     document.getElementById('confirm-total').textContent = fmtMoney(total);
+    document.getElementById('confirm-irmaos').innerHTML = '';
     renderPaymentMethods({ id: null, order_number: null, total_amount: total });
     document.getElementById('link-wpp').href = `https://wa.me/${WPP_NUMERO}?text=${encodeURIComponent(
       'Olá! Estou vendo a demonstração do portal For School e tenho uma dúvida.'
@@ -4079,6 +4154,7 @@ document.getElementById('btn-finalizar').addEventListener('click', async () => {
     const pedidoConfirm = { id: dados.order_id, order_number: dados.order_number, total_amount: totalReal };
     renderPaymentMethods(pedidoConfirm);
     ofertarPagamentoConjunto(pedidoConfirm, document.getElementById('confirm-payment-methods'));
+    renderIrmaosConfirm();
 
     document.getElementById('link-wpp').href = `https://wa.me/${WPP_NUMERO}?text=${encodeURIComponent(
       `Olá! Sou responsável de ${student.name}. Acabei de fazer o pedido ${dados.order_number} de ${escola.name} no valor de ${fmtMoney(totalReal)}.`
