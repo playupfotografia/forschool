@@ -13,7 +13,7 @@
 // O admin continua podendo marcar como pago na mao; o webhook so' automatiza.
 // ============================================================================
 
-const { sb, env, avisarVenda, avisarPagamentoDesfeito, resumoFinanceiro, liquidoCrivel } = require('./_lib.js');
+const { sb, env, avisarVenda, avisarPagamentoDesfeito, resumoFinanceiro, liquidoCrivel, dividirProporcional } = require('./_lib.js');
 
 // ---------------------------------------------------------------------------
 // ⚠️ CONFIRMED e RECEIVED NAO sao a mesma coisa no Asaas:
@@ -60,57 +60,64 @@ module.exports = async (req, res) => {
     const evento = body.event;
     const pag = body.payment || {};
 
-    // externalReference guarda o id do pedido (setado em criar-cobranca)
-    const orderId = pag.externalReference || null;
+    // externalReference guarda o id do pedido (setado em criar-cobranca), ou
+    // "grupo:<id>" quando a cobranca cobre 2 pedidos de irmaos de uma vez
+    // (migration_059, pagamento combinado) — nesse caso confirmamos TODOS os
+    // pedidos que dividem o mesmo payment_group_id, nao so' um.
+    const ref = pag.externalReference || null;
     const cobrancaId = pag.id || null;
+    const refGrupo = ref && ref.startsWith('grupo:') ? ref.slice(6) : null;
 
-    if (!orderId && !cobrancaId) {
+    if (!ref && !cobrancaId) {
       return res.status(200).json({ ok: true, ignorado: 'evento sem referencia de pedido' });
     }
 
-    const filtro = orderId
-      ? `id=eq.${encodeURIComponent(orderId)}`
-      : `gateway_id=eq.${encodeURIComponent(cobrancaId)}`;
+    const filtro = refGrupo
+      ? `payment_group_id=eq.${encodeURIComponent(refGrupo)}`
+      : ref
+        ? `id=eq.${encodeURIComponent(ref)}`
+        : `gateway_id=eq.${encodeURIComponent(cobrancaId)}`;
 
     const pedidos = await sb(
       `/orders?${filtro}&select=id,order_number,payment_status,payment_method,installments,is_test,` +
       'total_amount,amount_charged,student:students(name),school:schools(name),user:users(name,phone)'
     );
-    const pedido = pedidos?.[0];
-    if (!pedido) {
+    if (!pedidos?.length) {
       // Responde 200 pra o Asaas nao ficar reenviando um evento que nao e' nosso
-      console.warn('webhook: pedido nao encontrado', { orderId, cobrancaId, evento });
+      console.warn('webhook: pedido nao encontrado', { ref, cobrancaId, evento });
       return res.status(200).json({ ok: true, ignorado: 'pedido nao encontrado' });
     }
 
-    const patch = {
+    const patchComum = {
       gateway_status: pag.status || evento || null,
       gateway_payload: body,
     };
 
-    const jaEstavaPago = pedido.payment_status === 'paid';
-
+    // Rateio do liquido/tarifa entre os pedidos do grupo (1 pedido = ele leva
+    // tudo, sem novidade). Peso e' o amount_charged de cada um — ja' saiu
+    // rateado do criar-cobranca.js pelo que cada pedido custou de verdade.
+    let netPorPedido = null;
     if (PAGOS.has(evento)) {
-      patch.payment_status = 'paid';
-      patch.paid_at = pag.confirmedDate || pag.paymentDate || new Date().toISOString();
+      patchComum.payment_status = 'paid';
+      patchComum.paid_at = pag.confirmedDate || pag.paymentDate || new Date().toISOString();
 
       // O Asaas informa o liquido ja' sem a tarifa dele. Guardar isso e' o que
       // permite bater com o extrato e saber o lucro real — e serve de
       // conferencia: se a taxa configurada estiver errada, a diferenca aparece.
       try {
         const fin = await resumoFinanceiro(pag);
-        const cobrado = Number(pedido.amount_charged ?? pedido.total_amount) || 0;
+        const somaCobrado = pedidos.reduce((s, p) => s + (Number(p.amount_charged ?? p.total_amount) || 0), 0);
         // So' grava liquido que faz sentido (positivo e menor que o cobrado).
         // Quando nao faz, deixa null — a tela mostra "sem dado", que e' a
         // verdade, em vez de estampar tarifa zero no caixa.
-        if (liquidoCrivel(fin.liquido, cobrado)) {
-          patch.net_amount = fin.liquido;
-          patch.gateway_fee = Math.round((cobrado - fin.liquido) * 100) / 100;
+        if (liquidoCrivel(fin.liquido, somaCobrado)) {
+          const pesos = pedidos.map((p) => Number(p.amount_charged ?? p.total_amount) || 0);
+          netPorPedido = dividirProporcional(fin.liquido, pesos);
         } else if (fin.liquido > 0) {
-          console.warn('liquido implausivel, nao gravado:', pedido.order_number, fin.liquido, 'cobrado', cobrado);
+          console.warn('liquido implausivel, nao gravado:', pedidos.map(p => p.order_number).join('+'), fin.liquido, 'cobrado', somaCobrado);
         }
-        patch.credit_expected_date = fin.previsto;
-        patch.credited_at = fin.caiuEm;
+        patchComum.credit_expected_date = fin.previsto;
+        patchComum.credited_at = fin.caiuEm;
       } catch (e) {
         // Nao gravar e' melhor que gravar metade: numero errado na conferencia
         // e' pior que numero faltando. O pedido e' confirmado do mesmo jeito.
@@ -118,47 +125,60 @@ module.exports = async (req, res) => {
       }
     } else if (DESFEITOS.has(evento)) {
       // Chargeback/estorno volta pra pendente pra o admin olhar, nao apaga nada
-      patch.payment_status = evento === 'PAYMENT_REFUNDED' ? 'refunded' : 'pending';
-      patch.paid_at = null;
-      patch.net_amount = null;
-      patch.gateway_fee = null;
-      patch.credited_at = null;
-      patch.credit_expected_date = null;
+      patchComum.payment_status = evento === 'PAYMENT_REFUNDED' ? 'refunded' : 'pending';
+      patchComum.paid_at = null;
+      patchComum.net_amount = null;
+      patchComum.gateway_fee = null;
+      patchComum.credited_at = null;
+      patchComum.credit_expected_date = null;
     }
 
-    await sb(`/orders?id=eq.${encodeURIComponent(pedido.id)}`, {
-      method: 'PATCH',
-      headers: { Prefer: 'return=minimal' },
-      body: JSON.stringify(patch),
-    });
+    for (let i = 0; i < pedidos.length; i++) {
+      const pedido = pedidos[i];
+      const jaEstavaPago = pedido.payment_status === 'paid';
+      const patch = { ...patchComum };
+      if (PAGOS.has(evento) && netPorPedido) {
+        const cobrado = Number(pedido.amount_charged ?? pedido.total_amount) || 0;
+        patch.net_amount = netPorPedido[i];
+        patch.gateway_fee = Math.round((cobrado - netPorPedido[i]) * 100) / 100;
+      }
 
-    // Avisos. Depois de gravar, e sem deixar falha de aviso derrubar nada:
-    // se o e-mail ou o Telegram cairem, o pedido ja' esta gravado do mesmo
-    // jeito — o aviso e' conveniencia, nao pode mexer no pagamento.
-    //
-    // "!jaEstavaPago" evita o aviso repetido do parcelado: um pedido em 2x
-    // recebe DOIS PAYMENT_CONFIRMED (um por parcela) e mandava dois e-mails
-    // de venda pro mesmo pedido.
-    if (PAGOS.has(evento) && !jaEstavaPago && !pedido.is_test) {
-      try {
-        await avisarVenda({ ...pedido, ...patch });
-      } catch (e) {
-        console.error('avisarVenda', e.message);
+      await sb(`/orders?id=eq.${encodeURIComponent(pedido.id)}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify(patch),
+      });
+
+      // Avisos. Depois de gravar, e sem deixar falha de aviso derrubar nada:
+      // se o e-mail ou o Telegram cairem, o pedido ja' esta gravado do mesmo
+      // jeito — o aviso e' conveniencia, nao pode mexer no pagamento.
+      //
+      // "!jaEstavaPago" evita o aviso repetido do parcelado: um pedido em 2x
+      // recebe DOIS PAYMENT_CONFIRMED (um por parcela) e mandava dois e-mails
+      // de venda pro mesmo pedido. Num pagamento combinado, cada pedido e' de
+      // um aluno diferente — os dois avisos aqui sao vendas DIFERENTES, nao
+      // duplicadas.
+      if (PAGOS.has(evento) && !jaEstavaPago && !pedido.is_test) {
+        try {
+          await avisarVenda({ ...pedido, ...patch });
+        } catch (e) {
+          console.error('avisarVenda', e.message);
+        }
+      }
+
+      // Pagamento que se desfaz e' mais urgente que venda: e' dinheiro que sumiu
+      // depois de o aluno ja' ter sido fotografado. So' avisa se ele realmente
+      // estava pago antes — evento de cobranca que nunca foi paga nao e' noticia.
+      if (DESFEITOS.has(evento) && jaEstavaPago && !pedido.is_test) {
+        try {
+          await avisarPagamentoDesfeito({ ...pedido, ...patch }, evento);
+        } catch (e) {
+          console.error('avisarPagamentoDesfeito', e.message);
+        }
       }
     }
 
-    // Pagamento que se desfaz e' mais urgente que venda: e' dinheiro que sumiu
-    // depois de o aluno ja' ter sido fotografado. So' avisa se ele realmente
-    // estava pago antes — evento de cobranca que nunca foi paga nao e' noticia.
-    if (DESFEITOS.has(evento) && jaEstavaPago && !pedido.is_test) {
-      try {
-        await avisarPagamentoDesfeito({ ...pedido, ...patch }, evento);
-      } catch (e) {
-        console.error('avisarPagamentoDesfeito', e.message);
-      }
-    }
-
-    return res.status(200).json({ ok: true, evento, pedido: pedido.id });
+    return res.status(200).json({ ok: true, evento, pedidos: pedidos.map((p) => p.id) });
   } catch (err) {
     console.error('asaas-webhook', err);
     // 500 faz o Asaas reenviar depois — e' o que queremos numa falha temporaria

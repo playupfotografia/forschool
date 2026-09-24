@@ -191,6 +191,27 @@ function apenasDigitos(s) {
 }
 
 // ---------------------------------------------------------------------------
+// Divide um valor total entre pesos, proporcionalmente — usado pra ratear o
+// liquido/tarifa de uma cobranca combinada (irmaos pagando junto,
+// migration_059) entre os pedidos que ela cobre. Cada pedido continua com o
+// SEU numero de liquido/tarifa, coerente com o que ele custou de verdade.
+//
+// Arredonda cada parte pro centavo e joga a sobra (do arredondamento) na
+// ULTIMA parte, pra soma bater exatamente com o valorTotal — nunca "some 1
+// centavo do nada" na conferencia de caixa. Com um peso so' (pedido normal,
+// nao combinado), devolve o valorTotal inteiro, sem novidade nenhuma.
+// ---------------------------------------------------------------------------
+function dividirProporcional(valorTotal, pesos) {
+  const total = Number(valorTotal) || 0;
+  if (pesos.length <= 1) return [Math.round(total * 100) / 100];
+  const somaPesos = pesos.reduce((s, w) => s + (Number(w) || 0), 0) || 1;
+  const partes = pesos.map((w) => Math.round((total * (Number(w) || 0) / somaPesos) * 100) / 100);
+  const sobra = Math.round((total - partes.reduce((s, v) => s + v, 0)) * 100) / 100;
+  partes[partes.length - 1] = Math.round((partes[partes.length - 1] + sobra) * 100) / 100;
+  return partes;
+}
+
+// ---------------------------------------------------------------------------
 // Telefone pro Asaas, ou nada.
 //
 // O Asaas recusa o cadastro inteiro do cliente quando o telefone nao e'
@@ -783,4 +804,4 @@ async function avisarParcelaAtrasada(pedido, parcela) {
   });
 }
 
-module.exports = { env, asaas, woovi, assinaturaWooviValida, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, resumoFinanceiro, liquidoCrivel, avisarVenda, avisarPedidoPendente, avisarPagamentoDesfeito, avisarParcelaPaga, avisarLembreteParcela, avisarParcelaAtrasada };
+module.exports = { env, asaas, woovi, assinaturaWooviValida, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, dividirProporcional, resumoFinanceiro, liquidoCrivel, avisarVenda, avisarPedidoPendente, avisarPagamentoDesfeito, avisarParcelaPaga, avisarLembreteParcela, avisarParcelaAtrasada };

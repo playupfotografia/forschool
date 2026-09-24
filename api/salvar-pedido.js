@@ -239,7 +239,7 @@ module.exports = async (req, res) => {
     // arquivo inteiro), entao o servidor confere de novo aqui.
     let filtro = `/orders?student_id=eq.${q(studentId)}&payment_status=eq.pending&has_paid_installment=eq.false`;
     if (projectId) filtro += `&project_id=eq.${q(projectId)}`;
-    const pendentes = await sb(`${filtro}&select=id,order_number,gateway,gateway_id&order=created_at.desc`);
+    const pendentes = await sb(`${filtro}&select=id,order_number,gateway,gateway_id,payment_group_id&order=created_at.desc`);
     const existente = pendentes?.[0];
 
     let orderId, orderNumber;
@@ -270,6 +270,23 @@ module.exports = async (req, res) => {
         }
       }
 
+      // Pedido fazia parte de um pagamento combinado com irmao (migration_059)?
+      // A cobranca cancelada acima cobria os dois — o irmao tambem fica sem
+      // cobranca valida, senao ele ficaria com um QR pagavel de um valor que
+      // ja nao existe mais (o carrinho daqui mudou).
+      if (existente.payment_group_id) {
+        await sb(`/orders?payment_group_id=eq.${q(existente.payment_group_id)}&id=neq.${q(orderId)}`, {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify({
+            gateway: null, gateway_id: null, gateway_status: null,
+            amount_charged: null, surcharge_amount: 0, installments: 1,
+            pix_payload: null, pix_qr_image: null, checkout_url: null,
+            payment_group_id: null,
+          }),
+        });
+      }
+
       await sb(`/order_items?order_id=eq.${q(orderId)}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
       await sb(`/order_kits?order_id=eq.${q(orderId)}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
 
@@ -285,6 +302,7 @@ module.exports = async (req, res) => {
           gateway: null, gateway_id: null, gateway_status: null,
           amount_charged: null, surcharge_amount: 0, installments: 1,
           pix_payload: null, pix_qr_image: null, checkout_url: null,
+          payment_group_id: null,
         }),
       });
     } else {

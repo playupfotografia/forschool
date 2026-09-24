@@ -2564,6 +2564,28 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
             use quando o parcelamento foi combinado com a escola (ex: "3× sem juros").
             <b>Absorver</b> significa que a taxa do cartão sai do seu bolso, não do responsável.
           </div>
+
+          <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px;margin-top:12px">Desconto de irmãos</div>
+          <div class="form-grid fg2">
+            <div class="form-group">
+              <label class="form-label">Tipo de desconto</label>
+              <select class="form-select" id="pj-sibling-mode">
+                <option value="">Desligado</option>
+                <option value="fixed">Valor fixo em R$</option>
+                <option value="percent">Percentual (%)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Valor</label>
+              <input class="form-input" id="pj-sibling-value" type="number" min="0" step="0.01" placeholder="0">
+            </div>
+          </div>
+          <div class="slug-hint">
+            Quando dois irmãos desta escola têm pedido pendente neste mesmo projeto, o portal
+            oferece pagar os dois juntos com esse desconto — sempre com a opção de pagar
+            separado também. Etapa 1: vale só pra PIX à vista e cartão à vista (sem parcelar).
+            Cada pedido continua com o número e os produtos próprios, só a cobrança vira uma só.
+          </div>
         </div>
       </div>
 
@@ -7886,6 +7908,8 @@ async function resetModalProjeto() {
   document.getElementById('pj-external').checked = false;
   document.getElementById('pj-max-parcelas').value = '';
   document.getElementById('pj-surcharge').value = '';
+  document.getElementById('pj-sibling-mode').value = '';
+  document.getElementById('pj-sibling-value').value = '';
   document.getElementById('pj-inf-badge').style.display = 'none';
   window.updatePjRepLabel();
   sessoesTemp = [];
@@ -8040,6 +8064,8 @@ async function editarProjeto(id) {
     document.getElementById('pj-external').checked   = !!p.payment_external_link;
     document.getElementById('pj-max-parcelas').value = p.max_installments ?? '';
     document.getElementById('pj-surcharge').value    = p.surcharge_mode || '';
+    document.getElementById('pj-sibling-mode').value  = p.sibling_discount_mode || '';
+    document.getElementById('pj-sibling-value').value = p.sibling_discount_value ?? '';
     document.getElementById('pj-rep-tipo').value  = p.repayment_type || 'nenhum';
     document.getElementById('pj-rep-valor').value = p.repayment_value || '';
     document.getElementById('pj-delivery').value  = p.delivery_cost || '';
@@ -8269,6 +8295,11 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
     // Em branco = null = "usa o que esta em Configuracoes" (migration_054)
     max_installments: parseInt(document.getElementById('pj-max-parcelas').value, 10) || null,
     surcharge_mode:   document.getElementById('pj-surcharge').value || null,
+    // Desconto de irmaos (migration_059) — em branco = desligado neste projeto
+    sibling_discount_mode:  document.getElementById('pj-sibling-mode').value || null,
+    sibling_discount_value: document.getElementById('pj-sibling-mode').value
+      ? (parseFloat(document.getElementById('pj-sibling-value').value) || 0)
+      : null,
     repayment_type: document.getElementById('pj-rep-tipo').value,
     repayment_value: parseFloat(document.getElementById('pj-rep-valor').value) || 0,
     delivery_cost: parseFloat(document.getElementById('pj-delivery').value) || 0,

@@ -1,17 +1,28 @@
 // ============================================================================
 // POST /api/criar-cobranca
 //
-// Cria a cobranca no Asaas para um pedido ja existente e devolve ao portal o
-// que ele precisa mostrar (copia-e-cola do PIX, QR, ou URL do checkout).
+// Cria a cobranca no Asaas (ou Woovi, no PIX) para um pedido ja existente e
+// devolve ao portal o que ele precisa mostrar (copia-e-cola do PIX, QR, ou
+// URL do checkout).
 //
-// Regra de ouro: o valor NUNCA vem do navegador. Lemos o pedido e as taxas do
-// banco com service_role e recalculamos aqui. O que o cliente manda e' apenas
-// qual pedido, qual metodo e quantas parcelas.
+// Regra de ouro: o valor NUNCA vem do navegador. Lemos o(s) pedido(s) e as
+// taxas do banco com service_role e recalculamos aqui. O que o cliente manda
+// e' apenas qual(is) pedido(s), qual metodo e quantas parcelas.
 //
 // Body: { order_id, method: 'pix'|'credito'|'debito', installments?: 1|2 }
+//
+// ---- Pagamento combinado de irmaos (migration_059, Etapa 1) ---------------
+// Em vez de order_id, aceita order_ids: [id1, id2] — dois pedidos de irmaos
+// no MESMO projeto pagos com UMA cobranca so', com o desconto configurado em
+// projects.sibling_discount_mode/value. Cada pedido continua com o PROPRIO
+// numero/produtos (a ficha de cada crianca sai certa); so' a cobranca e' uma
+// so'. Etapa 1 e' so' a vista (pix ou credito 1x) — parcelado fica pra depois
+// de validar isto com dinheiro real, mesmo cuidado que ja foi tomado antes
+// de ligar o PIX automatico e o PIX parcelado.
 // ============================================================================
 
-const { asaas, woovi, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias } = require('./_lib.js');
+const { asaas, woovi, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, dividirProporcional } = require('./_lib.js');
+const crypto = require('crypto');
 
 const BILLING = { pix: 'PIX', credito: 'CREDIT_CARD', debito: 'DEBIT_CARD' };
 const METODO_ORDERS = { pix: 'pix', credito: 'cartao_1x', debito: 'cartao_debito' };
@@ -24,45 +35,78 @@ module.exports = async (req, res) => {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
-    const orderId = body.order_id;
     const metodo = String(body.method || '').toLowerCase();
     const linkToken = body.payment_link_token ? String(body.payment_link_token) : null;
     let parcelas = parseInt(body.installments, 10) || 1;
 
-    if (!orderId) return res.status(400).json({ erro: 'order_id e obrigatorio.' });
+    // order_ids (lista) e' o caminho novo do pagamento combinado; order_id
+    // (singular) continua funcionando exatamente como sempre. Por dentro,
+    // trabalhamos so' com a lista — 1 item nela e' o comportamento de sempre.
+    const orderIds = Array.isArray(body.order_ids) && body.order_ids.length
+      ? [...new Set(body.order_ids.map(String))]
+      : (body.order_id ? [String(body.order_id)] : []);
+    const combinado = orderIds.length > 1;
+
+    if (!orderIds.length) return res.status(400).json({ erro: 'order_id e obrigatorio.' });
     if (!BILLING[metodo]) return res.status(400).json({ erro: 'Metodo invalido.' });
+    if (combinado && parcelas > 1) {
+      return res.status(400).json({ erro: 'Pagamento combinado ainda so funciona a vista (sem parcelar).' });
+    }
 
     // Falamos com o banco por service_role, que ignora RLS — sem esta checagem
     // qualquer um que adivinhasse um id geraria cobranca pro pedido alheio.
-    // Duas formas de autorizar: (1) login normal do pai (fluxo do portal),
-    // ou (2) o payment_link_token do pedido (link publico gerado no admin
-    // pra responsavel que nao consegue logar — migration_037). So' uma
-    // das duas precisa bater.
+    // Duas formas de autorizar um pedido SOLO: (1) login normal do pai
+    // (fluxo do portal), ou (2) o payment_link_token do pedido (link publico
+    // gerado no admin pra responsavel que nao consegue logar — migration_037).
+    // Combinado exige login: o link publico e' pra 1 responsavel sem conta,
+    // nao faz sentido "combinar" nada por ali.
     const uid = await usuarioDoToken(req);
     if (!uid && !linkToken) {
       return res.status(401).json({ erro: 'Sessao expirada. Faca login novamente.' });
     }
+    if (combinado && !uid) {
+      return res.status(401).json({ erro: 'Faca login pra pagar pedidos juntos.' });
+    }
 
-    // ---- 1. Pedido + responsavel + aluno -----------------------------------
-    const pedidos = await sb(
-      `/orders?id=eq.${encodeURIComponent(orderId)}&select=` +
-      'id,order_number,total_amount,payment_status,gateway,gateway_id,student_id,project_id,' +
+    // ---- 1. Pedido(s) + responsavel + aluno --------------------------------
+    const idsSql = orderIds.map((id) => encodeURIComponent(id)).join(',');
+    const pedidosBrutos = await sb(
+      `/orders?id=in.(${idsSql})&select=` +
+      'id,order_number,total_amount,payment_status,gateway,gateway_id,payment_group_id,student_id,project_id,' +
       'user_id,payment_link_token,users(name,email,cpf,phone),students(name)'
     );
-    const pedido = pedidos?.[0];
-    if (!pedido) return res.status(404).json({ erro: 'Pedido nao encontrado.' });
-
-    const autorizadoPorLogin = uid && (!pedido.user_id || pedido.user_id === uid);
-    const autorizadoPorToken = linkToken && pedido.payment_link_token && linkToken === pedido.payment_link_token;
-    if (!autorizadoPorLogin && !autorizadoPorToken) {
-      return res.status(403).json({ erro: 'Esse pedido nao e seu.' });
+    if (!pedidosBrutos || pedidosBrutos.length !== orderIds.length) {
+      return res.status(404).json({ erro: 'Pedido nao encontrado.' });
     }
-    if (pedido.payment_status === 'paid') {
-      return res.status(409).json({ erro: 'Esse pedido ja esta pago.' });
+    // Mantem a ordem que o cliente mandou — o 1o e' o "pedido principal"
+    // (o da tela que esta chamando isto agora), usado pros dados do
+    // responsavel/cliente do gateway.
+    const pedidosGrupo = orderIds.map((id) => pedidosBrutos.find((p) => p.id === id));
+
+    for (const p of pedidosGrupo) {
+      const autorizadoPorLogin = uid && (!p.user_id || p.user_id === uid);
+      const autorizadoPorToken = !combinado && linkToken && p.payment_link_token && linkToken === p.payment_link_token;
+      if (!autorizadoPorLogin && !autorizadoPorToken) {
+        return res.status(403).json({ erro: 'Esse pedido nao e seu.' });
+      }
+      if (p.payment_status === 'paid') {
+        return res.status(409).json({ erro: `O pedido ${p.order_number || ''} ja esta pago.`.trim() });
+      }
     }
 
-    const valorBase = Number(pedido.total_amount) || 0;
-    if (valorBase <= 0) return res.status(400).json({ erro: 'Pedido sem valor.' });
+    if (combinado) {
+      // So' entre irmaos do MESMO projeto (ver comentario da migration_059) —
+      // projetos diferentes podem ter gateway/configuracao de pagamento
+      // diferente entre si.
+      const projIds = new Set(pedidosGrupo.map((p) => p.project_id));
+      if (projIds.size > 1 || !pedidosGrupo[0].project_id) {
+        return res.status(400).json({ erro: 'So da pra pagar junto pedidos do mesmo projeto.' });
+      }
+    }
+
+    const pedido = pedidosGrupo[0];   // "principal": de onde vem cliente/responsavel do gateway
+    const valorBase0 = pedidosGrupo.reduce((s, p) => s + (Number(p.total_amount) || 0), 0);
+    if (valorBase0 <= 0) return res.status(400).json({ erro: 'Pedido sem valor.' });
 
     // ---- 2. Configuracoes (taxas e regras) ---------------------------------
     const cfgs = await sb(
@@ -87,11 +131,25 @@ module.exports = async (req, res) => {
     let projCfg = null;
     if (pedido.project_id) {
       const projs = await sb(
-        `/projects?id=eq.${encodeURIComponent(pedido.project_id)}&select=max_installments,surcharge_mode,pix_mode,woovi_conta`
+        `/projects?id=eq.${encodeURIComponent(pedido.project_id)}&select=max_installments,surcharge_mode,pix_mode,woovi_conta,sibling_discount_mode,sibling_discount_value`
       );
       projCfg = projs?.[0] || null;
     }
     const wooviConta = projCfg?.woovi_conta || null;
+
+    // Desconto de irmaos (migration_059) — so' entra se for combinado e o
+    // projeto tiver configurado (em branco = sem desconto, nenhum projeto
+    // ganha isso sozinho). Calculado aqui no SERVIDOR: o navegador so mandou
+    // QUAIS pedidos, nunca o valor.
+    let descontoIrmaos = 0;
+    if (combinado && projCfg?.sibling_discount_mode) {
+      descontoIrmaos = projCfg.sibling_discount_mode === 'percent'
+        ? Math.round(valorBase0 * (Number(projCfg.sibling_discount_value) || 0) / 100 * 100) / 100
+        : (Number(projCfg.sibling_discount_value) || 0);
+      // Nunca deixa o total zerar/negativar por desconto mal configurado.
+      descontoIrmaos = Math.max(0, Math.min(descontoIrmaos, valorBase0 - 0.01));
+    }
+    const valorBase = Math.round((valorBase0 - descontoIrmaos) * 100) / 100;
 
     // pix_mode do projeto manda MAIS que o geral quando preenchido — e' o que
     // permite forcar um projeto especifico pra automatico (ou manual) mesmo
@@ -153,8 +211,9 @@ module.exports = async (req, res) => {
     const acrescimo = Math.round((valorCobrado - valorBase) * 100) / 100;
 
     // ---- 4. Dados do cliente (reaproveitados pelo CPF) ----------------------
-    const aluno = pedido.students?.name || '';
-    const descricao = `Pedido ${pedido.order_number}${aluno ? ' - ' + aluno : ''}`;
+    const alunosNomes = pedidosGrupo.map((p) => p.students?.name).filter(Boolean);
+    const numerosPedidos = pedidosGrupo.map((p) => p.order_number).filter(Boolean).join('+');
+    const descricao = `Pedido${combinado ? 's' : ''} ${numerosPedidos}${alunosNomes.length ? ' - ' + alunosNomes.join(' + ') : ''}`;
     let pixPayload = null, pixQr = null;
 
     const resp = pedido.users || {};
@@ -165,6 +224,30 @@ module.exports = async (req, res) => {
       });
     }
 
+    // Referencia da cobranca: um pedido so' usa o proprio id, como sempre foi
+    // (e' o que o webhook procura direto em orders.id). Combinado usa o id do
+    // GRUPO — gerado aqui, gravado em orders.payment_group_id no passo 6 —
+    // pra o webhook saber que precisa confirmar TODOS os pedidos de uma vez.
+    const groupId = combinado ? crypto.randomUUID() : null;
+    const referencia = combinado ? `grupo:${groupId}` : pedido.id;
+
+    // Cobrancas anteriores a cancelar antes de criar a nova — cobre tanto
+    // "pedido ja tinha cobranca solo e agora vai virar combinado" quanto o
+    // caso de sempre (trocar de metodo/valor). Uma por (gateway, gateway_id)
+    // distinto entre os pedidos do grupo — combinado ja gravou a MESMA
+    // cobranca nos dois, entao normalmente e' so' uma.
+    const cobrancasAntigas = [];
+    {
+      const vistos = new Set();
+      for (const p of pedidosGrupo) {
+        const chave = p.gateway + ':' + p.gateway_id;
+        if (p.gateway && p.gateway_id && !vistos.has(chave)) {
+          vistos.add(chave);
+          cobrancasAntigas.push({ gateway: p.gateway, gateway_id: p.gateway_id });
+        }
+      }
+    }
+
     let patch, checkoutUrl = null, vencimento = null;
 
     if (pixViaWoovi) {
@@ -172,13 +255,9 @@ module.exports = async (req, res) => {
       // A Woovi nao tem um "cliente" separado — os dados do responsavel vao
       // direto na cobranca. Tambem nao tem um fetch de QR a parte: o brCode
       // (copia-e-cola) e o qrCodeImage ja voltam na criacao.
-      //
-      // Cancela a cobranca anterior, se houver — mesmo cuidado do bloco do
-      // Asaas: trocar de metodo/valor sem cancelar deixaria duas cobrancas
-      // abertas do mesmo pedido.
-      if (pedido.gateway === 'woovi' && pedido.gateway_id) {
+      for (const c of cobrancasAntigas.filter((x) => x.gateway === 'woovi')) {
         try {
-          await woovi(`/api/v1/charge/${encodeURIComponent(pedido.gateway_id)}`, { method: 'DELETE' }, wooviConta);
+          await woovi(`/api/v1/charge/${encodeURIComponent(c.gateway_id)}`, { method: 'DELETE' }, wooviConta);
         } catch (e) {
           if (e.status !== 404) {
             console.error('cancelar cobranca anterior (woovi)', e.message);
@@ -192,7 +271,7 @@ module.exports = async (req, res) => {
       // correlationID e' escolhido por nos (diferente do Asaas, que devolve
       // o id) — precisa ser novo a cada cobranca, reusar um ja cancelado
       // pode ser recusado pela Woovi.
-      const correlationID = `${pedido.id}-${Date.now()}`;
+      const correlationID = `${referencia}-${Date.now()}`;
       const cob = await woovi('/api/v1/charge', {
         method: 'POST',
         body: JSON.stringify({
@@ -263,9 +342,9 @@ module.exports = async (req, res) => {
       // Cancela a cobranca anterior, se houver — mesmo motivo do bloco da
       // Woovi acima (e' o cuidado que ja existia aqui, so' movido pra dentro
       // do branch do Asaas). 404 e' esperado: cobranca ja apagada.
-      if (pedido.gateway === 'asaas' && pedido.gateway_id) {
+      for (const c of cobrancasAntigas.filter((x) => x.gateway === 'asaas')) {
         try {
-          await asaas(`/payments/${pedido.gateway_id}`, { method: 'DELETE' });
+          await asaas(`/payments/${c.gateway_id}`, { method: 'DELETE' });
         } catch (e) {
           if (e.status !== 404) {
             console.error('cancelar cobranca anterior', e.message);
@@ -282,7 +361,7 @@ module.exports = async (req, res) => {
         value: valorCobrado,
         dueDate: emDias(3),
         description: descricao,
-        externalReference: pedido.id,
+        externalReference: referencia,
       };
       if (parcelas > 1) {
         cobranca.installmentCount = parcelas;
@@ -325,18 +404,54 @@ module.exports = async (req, res) => {
       };
     }
 
-    // ---- 6. Grava no pedido --------------------------------------------------
-    await sb(`/orders?id=eq.${encodeURIComponent(pedido.id)}`, {
+    // ---- 6. Grava no(s) pedido(s) -------------------------------------------
+    // Algum pedido daqui ja' fazia parte de um pagamento combinado ANTERIOR?
+    // Caso que isto cobre: o pai combinou com o irmao, depois clicou em
+    // "escolher outra forma de pagamento" e escolheu pagar so' o proprio
+    // pedido. A cobranca do grupo antigo ja' foi cancelada la' em cima — sem
+    // isto, o irmao que ficou de fora continuaria vendo na tela um QR morto.
+    // Feito so' AGORA (cobranca velha cancelada e nova criada com sucesso):
+    // se o cancelamento tivesse falhado, o irmao ainda teria uma cobranca
+    // pagavel e precisa continuar ligado a ela. Mesmo cuidado que
+    // salvar-pedido.js tem quando o carrinho muda.
+    const gruposAntigos = new Set(pedidosGrupo.map((p) => p.payment_group_id).filter(Boolean));
+    for (const gid of gruposAntigos) {
+      await sb(`/orders?payment_group_id=eq.${encodeURIComponent(gid)}&id=not.in.(${idsSql})`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          gateway: null, gateway_id: null, gateway_status: null,
+          amount_charged: null, surcharge_amount: 0, installments: 1,
+          pix_payload: null, pix_qr_image: null, checkout_url: null,
+          payment_group_id: null,
+        }),
+      });
+    }
+
+    // Combinado: TODOS os pedidos do grupo ganham os MESMOS dados de cobranca
+    // (gateway, QR, checkout) — e' isso que faz a tela de pagamento de
+    // qualquer um dos dois ja funcionar sem mudar renderPaymentMethods()/
+    // blocoCobranca() no portal. So' amount_charged/surcharge_amount sao
+    // proprios de cada pedido, rateados pelo que cada um pesa no total (pra
+    // Pedidos, no admin, continuar fazendo sentido pedido a pedido).
+    patch.payment_group_id = groupId;
+    const pesos = pedidosGrupo.map((p) => Number(p.total_amount) || 0);
+    const cobradoPorPedido = dividirProporcional(valorCobrado, pesos);
+    const acrescimoPorPedido = dividirProporcional(acrescimo, pesos);
+    await Promise.all(pedidosGrupo.map((p, i) => sb(`/orders?id=eq.${encodeURIComponent(p.id)}`, {
       method: 'PATCH',
       headers: { Prefer: 'return=minimal' },
-      body: JSON.stringify(patch),
-    });
+      body: JSON.stringify({ ...patch, amount_charged: cobradoPorPedido[i], surcharge_amount: acrescimoPorPedido[i] }),
+    })));
 
     return res.status(200).json({
       ok: true,
       metodo,
       parcelas,
+      order_ids: pedidosGrupo.map((p) => p.id),
       valor_base: valorBase,
+      valor_base_bruto: valorBase0,
+      desconto_irmaos: descontoIrmaos,
       valor_cobrado: valorCobrado,
       acrescimo,
       valor_parcela: parcelas > 1 ? Math.ceil((valorCobrado / parcelas) * 100) / 100 : valorCobrado,

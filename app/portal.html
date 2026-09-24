@@ -1645,7 +1645,10 @@ function pararVigia(orderId) {
   if (_vigias[orderId]) { clearInterval(_vigias[orderId]); delete _vigias[orderId]; }
 }
 
-function vigiarPagamento(orderId, container) {
+// opts (opcional) so' e' usado pelo pagamento combinado de irmaos: mostra o
+// total pago de verdade e os numeros de todos os pedidos, em vez da fatia
+// rateada deste pedido sozinho.
+function vigiarPagamento(orderId, container, opts = {}) {
   if (!orderId || !container) return;
   pararVigia(orderId);
   const limite = Date.now() + 20 * 60 * 1000;
@@ -1662,14 +1665,17 @@ function vigiarPagamento(orderId, container) {
       if (data.payment_status !== 'paid') return;
 
       pararVigia(orderId);
-      const valor = Number(data.amount_charged ?? data.total_amount) || 0;
+      const valor = opts.valorTotal ?? (Number(data.amount_charged ?? data.total_amount) || 0);
+      const quais = opts.numerosPedidos
+        ? `Pedidos ${escapeHtml(opts.numerosPedidos)} estão pagos`
+        : `Pedido ${escapeHtml(data.order_number || '')} está pago`;
       container.innerHTML = `
         <div class="pay-ok">
           <img src="assets/logo-playup.png" alt="Play Up Fotografia" class="pay-ok-logo" onerror="this.style.display='none'">
           <div class="pay-ok-icon">✓</div>
           <div class="pay-ok-titulo">Pagamento confirmado!</div>
           <div class="pay-ok-valor">${fmtMoney(valor)}</div>
-          <div style="font-size:12.5px;color:#166534">Pedido ${escapeHtml(data.order_number || '')} está pago. Não precisa enviar comprovante.</div>
+          <div style="font-size:12.5px;color:#166534">${quais}. Não precisa enviar comprovante.</div>
           <div class="pay-box-nota">Guarde este número. No dia da foto, é só o aluno comparecer.</div>
           ${botaoDuvida(data.order_number)}
         </div>`;
@@ -1895,6 +1901,127 @@ window.escolherPagamento = async function (orderId, metodo, parcelas) {
     } else {
       toast(err.message, 'warn');
     }
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Pagamento combinado de irmaos (migration_059, Etapa 1: so' PIX e cartao a
+// vista) — se o responsavel tem outro pedido pendente, de um irmao, no MESMO
+// projeto, e ainda sem cobranca gerada nos dois, oferece pagar juntos com o
+// desconto configurado (projects.sibling_discount_mode/value). Chamada logo
+// depois de renderPaymentMethods(), sem esperar (nao bloqueia a tela
+// principal) — so' PREPEND uma faixa verde em cima do que ja foi desenhado.
+// Nunca some a opcao de pagar separado: os blocos normais continuam
+// logo abaixo, intactos.
+// ---------------------------------------------------------------------------
+async function ofertarPagamentoConjunto(pedido, el) {
+  try {
+    // Pedido que JA' esta' numa cobranca combinada: o QR na tela e' o do
+    // grupo inteiro, mas o valor mostrado seria so' a fatia deste pedido
+    // (amount_charged rateado). Corrige pro total que o banco vai cobrar de
+    // verdade, e avisa que o mesmo pagamento cobre o outro pedido.
+    if (pedido?.payment_group_id && (pedido.pix_payload || pedido.checkout_url)) {
+      const { data: grupo } = await supabase
+        .from('orders')
+        .select('order_number, amount_charged')
+        .eq('payment_group_id', pedido.payment_group_id);
+      if (!grupo || grupo.length < 2) return;
+      const total = grupo.reduce((s, g) => s + (Number(g.amount_charged) || 0), 0);
+      const valorEl = el.querySelector('.pay-box-valor');
+      if (valorEl?.firstChild) valorEl.firstChild.textContent = fmtMoney(total);
+      const nota = document.createElement('div');
+      nota.style.cssText = 'font-size:12px;color:#1A6B3C;background:var(--green-light);border-radius:8px;padding:8px 10px;margin-bottom:8px';
+      nota.innerHTML = `👨‍👩‍👧‍👦 Este pagamento cobre os pedidos <b>${escapeHtml(grupo.map(g => g.order_number).join(' + '))}</b> juntos — é só pagar uma vez.`;
+      el.prepend(nota);
+      return;
+    }
+
+    if (!pedido?.id || pedido.pix_payload || pedido.pix_qr_image || pedido.checkout_url) return;
+    if (!projeto?.id || !projeto?.sibling_discount_mode) return;
+
+    const outrosIds = (_todosFilhos || []).map(f => f.id).filter(id => id !== student?.id);
+    if (!outrosIds.length) return;
+
+    const { data: irmaosPendentes } = await supabase
+      .from('orders')
+      .select('id, order_number, total_amount, students(name)')
+      .in('student_id', outrosIds)
+      .eq('project_id', projeto.id)
+      .eq('payment_status', 'pending')
+      .is('gateway_id', null);
+    const irmao = irmaosPendentes?.[0];
+    if (!irmao) return;
+
+    const somaBase = (Number(pedido.total_amount) || 0) + (Number(irmao.total_amount) || 0);
+    const desconto = projeto.sibling_discount_mode === 'percent'
+      ? somaBase * (Number(projeto.sibling_discount_value) || 0) / 100
+      : Math.min(Number(projeto.sibling_discount_value) || 0, somaBase);
+    if (desconto <= 0) return;
+    const totalComDesconto = Math.max(0, somaBase - desconto);
+
+    const orderIds = [pedido.id, irmao.id];
+    const metodos = [];
+    if (pixAutomaticoAtivo()) metodos.push(['pix', '💚 PIX']);
+    if (PAY_CFG.credito) metodos.push(['credito', '💳 Cartão à vista']);
+    if (!metodos.length) return;
+
+    const box = document.createElement('div');
+    box.className = 'pix-block';
+    box.style.cssText = 'border-color:var(--green);background:var(--green-light);margin-bottom:12px';
+    box.innerHTML = `
+      <div style="font-weight:700;color:#1A6B3C;margin-bottom:4px">👨‍👩‍👧‍👦 Pague junto com o pedido de ${escapeHtml(irmao.students?.name || 'seu outro filho')} e economize</div>
+      <div style="font-size:12px;color:var(--gray-600);margin-bottom:8px">
+        Pedido ${escapeHtml(pedido.order_number || '')} + pedido ${escapeHtml(irmao.order_number || '')}
+        = <s>${fmtMoney(somaBase)}</s> <b>${fmtMoney(totalComDesconto)}</b>
+        <span style="color:var(--green);font-weight:600">(economia de ${fmtMoney(desconto)})</span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${metodos.map(([m, label]) => `
+          <button type="button" class="btn" style="background:var(--green);color:#fff;flex:1;padding:10px"
+                  onclick="pagarComTodos(['${orderIds[0]}','${orderIds[1]}'],'${m}','${el.id}','${escapeHtml(`${pedido.order_number || ''} + ${irmao.order_number || ''}`)}')">
+            ${label} · pagar junto
+          </button>`).join('')}
+      </div>
+      <div style="font-size:11px;color:var(--gray-500);margin-top:8px">Prefere pagar separado? Escolha a forma de pagamento normal, logo abaixo.</div>
+    `;
+    el.prepend(box);
+  } catch (e) {
+    console.error('ofertarPagamentoConjunto', e);
+  }
+}
+
+// Cria UMA cobranca cobrindo os pedidos de orderIds (irmaos, mesmo projeto) —
+// o servidor recalcula o desconto, nunca confia no que o navegador mostrou.
+window.pagarComTodos = async function (orderIds, metodo, containerId, numerosPedidos) {
+  // A oferta aparece tanto na tela de confirmacao quanto na Minha Area
+  // (mc-pay-<pedido>) — a cobranca tem que ser desenhada onde o pai clicou.
+  const el = document.getElementById(containerId) || document.getElementById('confirm-payment-methods');
+  if (!el) return;
+  el.querySelectorAll('button').forEach(b => { b.disabled = true; b.style.opacity = '.55'; });
+
+  try {
+    const r = await fetch('/api/criar-cobranca', {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: JSON.stringify({ order_ids: orderIds, method: metodo, installments: 1 }),
+    });
+    const dados = await r.json();
+    if (!r.ok || !dados.ok) throw new Error(dados.erro || 'Não foi possível gerar a cobrança combinada.');
+
+    el.innerHTML = blocoCobranca({
+      id: orderIds[0],
+      total_amount: dados.valor_base,
+      amount_charged: dados.valor_cobrado,
+      installments: dados.parcelas,
+      pix_payload: dados.pix_payload,
+      pix_qr_image: dados.pix_qr_image,
+      checkout_url: dados.checkout_url,
+    }) + `<div style="text-align:center;font-size:11px;color:var(--gray-500);margin-top:8px">Esse pagamento já cobre os ${orderIds.length} pedidos.</div>`;
+    vigiarPagamento(orderIds[0], el, { valorTotal: dados.valor_cobrado, numerosPedidos });
+    if (dados.checkout_url && metodo !== 'pix') window.open(dados.checkout_url, '_blank', 'noopener');
+  } catch (err) {
+    toast(err.message, 'warn');
+    el.querySelectorAll('button').forEach(b => { b.disabled = false; b.style.opacity = ''; });
   }
 };
 
@@ -2788,7 +2915,7 @@ async function loadMinhaConta() {
     .from('orders')
     .select(`
       id, order_number, payment_status, total_amount, created_at, kit_type,
-      amount_charged, installments, pix_payload, pix_qr_image, checkout_url,
+      amount_charged, installments, pix_payload, pix_qr_image, checkout_url, payment_group_id,
       order_kits(quantity, kit:school_kits(name, kit_type)),
       order_items(quantity, product:products(name))
     `)
@@ -2864,7 +2991,7 @@ async function loadMinhaConta() {
     if (!pedidoVinculadoPago) {
       pedidos.filter(p => p.payment_status === 'pending').forEach(p => {
         const el = document.getElementById(`mc-pay-${p.order_number}`);
-        if (el) renderPaymentMethods(p, el);
+        if (el) { renderPaymentMethods(p, el); ofertarPagamentoConjunto(p, el); }
       });
     }
   }
@@ -3943,11 +4070,9 @@ document.getElementById('btn-finalizar').addEventListener('click', async () => {
     document.getElementById('confirm-total').textContent = fmtMoney(totalReal);
     document.getElementById('confirm-payment-methods').innerHTML = '';
 
-    renderPaymentMethods({
-      id: dados.order_id,
-      order_number: dados.order_number,
-      total_amount: totalReal,
-    });
+    const pedidoConfirm = { id: dados.order_id, order_number: dados.order_number, total_amount: totalReal };
+    renderPaymentMethods(pedidoConfirm);
+    ofertarPagamentoConjunto(pedidoConfirm, document.getElementById('confirm-payment-methods'));
 
     document.getElementById('link-wpp').href = `https://wa.me/${WPP_NUMERO}?text=${encodeURIComponent(
       `Olá! Sou responsável de ${student.name}. Acabei de fazer o pedido ${dados.order_number} de ${escola.name} no valor de ${fmtMoney(totalReal)}.`

@@ -17,7 +17,7 @@
 // JSON.stringify() pode nao bater byte a byte com o que foi assinado.
 // ============================================================================
 
-const { sb, assinaturaWooviValida, avisarVenda, avisarParcelaPaga } = require('./_lib.js');
+const { sb, assinaturaWooviValida, avisarVenda, avisarParcelaPaga, dividirProporcional } = require('./_lib.js');
 
 module.exports.config = { api: { bodyParser: false } };
 
@@ -143,62 +143,81 @@ module.exports = async (req, res) => {
     }
 
     // ---- Fluxo a vista (existente) ------------------------------------------
-    // correlationID guarda "<order_id>-<timestamp>" (setado em criar-cobranca).
-    // O id do pedido e' so' a parte antes do ultimo hifen.
-    const orderId = correlationID.replace(/-\d+$/, '');
+    // correlationID guarda "<referencia>-<timestamp>" (setado em criar-cobranca).
+    // referencia e' o id do pedido sozinho, OU "grupo:<id>" quando a cobranca
+    // cobre 2 pedidos de irmaos de uma vez (migration_059, pagamento
+    // combinado) — nesse caso confirmamos TODOS os pedidos que dividem o
+    // mesmo payment_group_id, nao so' um.
+    const referencia = correlationID.replace(/-\d+$/, '');
+    const refGrupo = referencia.startsWith('grupo:') ? referencia.slice(6) : null;
 
     const pedidos = await sb(
-      `/orders?id=eq.${encodeURIComponent(orderId)}&select=id,order_number,payment_status,payment_method,is_test,` +
+      (refGrupo
+        ? `/orders?payment_group_id=eq.${encodeURIComponent(refGrupo)}`
+        : `/orders?id=eq.${encodeURIComponent(referencia)}`) +
+      '&select=id,order_number,payment_status,payment_method,is_test,' +
       'total_amount,amount_charged,student:students(name),school:schools(name),user:users(name,phone)'
     );
-    const pedido = pedidos?.[0];
-    if (!pedido) {
-      console.warn('webhook woovi: pedido nao encontrado', { orderId, correlationID, evento });
+    if (!pedidos?.length) {
+      console.warn('webhook woovi: pedido nao encontrado', { referencia, correlationID, evento });
       return res.status(200).json({ ok: true, ignorado: 'pedido nao encontrado' });
     }
 
-    const patch = {
+    const patchComum = {
       gateway_status: charge.status || evento || null,
       gateway_payload: body,
     };
 
-    const jaEstavaPago = pedido.payment_status === 'paid';
-
-    // A Woovi so' manda CHARGE_COMPLETED quando o Pix ja caiu — nao existe a
-    // distincao CONFIRMED/RECEIVED que o Asaas tem no cartao (regra 18 do
-    // CLAUDE.md). PIX e' na hora: confirmado e recebido sao a mesma coisa.
+    // A Woovi devolve a tarifa dela em centavos no campo "fee" do charge —
+    // e' da cobranca INTEIRA, entao rateamos entre os pedidos do grupo pelo
+    // que cada um pesa no total cobrado (1 pedido = ele leva tudo).
+    let netPorPedido = null, feePorPedido = null;
     if (evento === 'OPENPIX:CHARGE_COMPLETED') {
-      patch.payment_status = 'paid';
-      patch.paid_at = charge.paidAt || new Date().toISOString();
+      patchComum.payment_status = 'paid';
+      patchComum.paid_at = charge.paidAt || new Date().toISOString();
+      // PIX Woovi cai na hora, sem antecipacao — credited_at = o proprio pagamento.
+      patchComum.credited_at = patchComum.paid_at;
+      patchComum.credit_expected_date = patchComum.paid_at;
 
-      // A Woovi devolve a tarifa dela em centavos no campo "fee" do charge.
-      const cobrado = Number(pedido.amount_charged ?? pedido.total_amount) || 0;
       const taxaCentavos = Number(charge.fee);
       if (Number.isFinite(taxaCentavos) && taxaCentavos >= 0) {
-        const taxa = Math.round(taxaCentavos) / 100;
-        patch.gateway_fee = taxa;
-        patch.net_amount = Math.round((cobrado - taxa) * 100) / 100;
-      }
-      // PIX Woovi cai na hora, sem antecipacao — credited_at = o proprio pagamento.
-      patch.credited_at = patch.paid_at;
-      patch.credit_expected_date = patch.paid_at;
-    }
-
-    await sb(`/orders?id=eq.${encodeURIComponent(pedido.id)}`, {
-      method: 'PATCH',
-      headers: { Prefer: 'return=minimal' },
-      body: JSON.stringify(patch),
-    });
-
-    if (evento === 'OPENPIX:CHARGE_COMPLETED' && !jaEstavaPago && !pedido.is_test) {
-      try {
-        await avisarVenda({ ...pedido, ...patch });
-      } catch (e) {
-        console.error('avisarVenda (woovi)', e.message);
+        const taxaTotal = Math.round(taxaCentavos) / 100;
+        const pesos = pedidos.map((p) => Number(p.amount_charged ?? p.total_amount) || 0);
+        feePorPedido = dividirProporcional(taxaTotal, pesos);
+        netPorPedido = pedidos.map((p, i) => {
+          const cobrado = Number(p.amount_charged ?? p.total_amount) || 0;
+          return Math.round((cobrado - feePorPedido[i]) * 100) / 100;
+        });
       }
     }
 
-    return res.status(200).json({ ok: true, evento, pedido: pedido.id });
+    for (let i = 0; i < pedidos.length; i++) {
+      const pedido = pedidos[i];
+      const jaEstavaPago = pedido.payment_status === 'paid';
+      const patch = { ...patchComum };
+      if (netPorPedido) {
+        patch.gateway_fee = feePorPedido[i];
+        patch.net_amount = netPorPedido[i];
+      }
+
+      await sb(`/orders?id=eq.${encodeURIComponent(pedido.id)}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify(patch),
+      });
+
+      // Cada pedido do grupo e' de um aluno diferente — os avisos aqui sao
+      // vendas DIFERENTES quando combinado, nao duplicadas.
+      if (evento === 'OPENPIX:CHARGE_COMPLETED' && !jaEstavaPago && !pedido.is_test) {
+        try {
+          await avisarVenda({ ...pedido, ...patch });
+        } catch (e) {
+          console.error('avisarVenda (woovi)', e.message);
+        }
+      }
+    }
+
+    return res.status(200).json({ ok: true, evento, pedidos: pedidos.map((p) => p.id) });
   } catch (err) {
     console.error('woovi-webhook', err);
     // 500 faz a Woovi reenviar depois — e' o que queremos numa falha temporaria
