@@ -1968,11 +1968,14 @@ async function ofertarPagamentoConjunto(pedido, el) {
     if (!irmao) return;
 
     const somaBase = (Number(pedido.total_amount) || 0) + (Number(irmao.total_amount) || 0);
-    const desconto = projeto.sibling_discount_mode === 'percent'
-      ? somaBase * (Number(projeto.sibling_discount_value) || 0) / 100
-      : Math.min(Number(projeto.sibling_discount_value) || 0, somaBase);
+    // Mesma conta de api/criar-cobranca.js (arredonda o % e nunca deixa o
+    // total abaixo de R$ 0,01) — senao a tela mostra um valor e cobra outro.
+    let desconto = projeto.sibling_discount_mode === 'percent'
+      ? Math.round(somaBase * (Number(projeto.sibling_discount_value) || 0) / 100 * 100) / 100
+      : (Number(projeto.sibling_discount_value) || 0);
+    desconto = Math.max(0, Math.min(desconto, somaBase - 0.01));
     if (desconto <= 0) return;
-    const totalComDesconto = Math.max(0, somaBase - desconto);
+    const totalComDesconto = Math.round((somaBase - desconto) * 100) / 100;
 
     const orderIds = [pedido.id, irmao.id];
     const metodos = [];
