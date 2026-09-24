@@ -719,6 +719,7 @@ body.modo-demo::after{content:'';position:fixed;inset:0;border:4px solid #7C3AED
         <label class="form-label">Assinatura digital — digite seu nome completo</label>
         <input class="form-input" id="auth-signature" placeholder="Nome do responsável que está autorizando" autocomplete="name">
         <div class="hint">Sua confirmação tem o mesmo valor da assinatura em papel.</div>
+        <div style="font-size:11px;color:var(--gray-500);margin-top:6px">🔒 Coletamos dados técnicos desta confirmação para fins de segurança e comprovação de consentimento.</div>
       </div>
 
       <div class="auth-actions">
@@ -3045,6 +3046,23 @@ document.getElementById('btn-auth-warning-ok').addEventListener('click', () => {
   document.getElementById('auth-warning-overlay').style.display = 'none';
 });
 
+// IP e localizacao aproximada (por IP, sem pedir GPS) de quem esta' autorizando
+// — vai junto no log pra dar mais peso ao registro se um dia precisar provar
+// quem assinou. So' le' headers que a Vercel ja' manda, sem pedir permissao
+// nenhuma ao navegador — por isso nunca fica com buraco por o pai ter negado
+// (o que aconteceria se fosse GPS). Falha aqui nunca trava a autorizacao: em
+// erro, os campos ficam null e o resto do fluxo segue normal.
+async function capturarOrigemAutorizacao() {
+  try {
+    const r = await fetch('/api/registrar-ip');
+    const d = await r.json();
+    const local = [d.city, d.region, d.country].filter(Boolean).join(' - ');
+    return { ip: d.ip || null, local: local || null, dispositivo: navigator.userAgent };
+  } catch {
+    return { ip: null, local: null, dispositivo: navigator.userAgent };
+  }
+}
+
 document.getElementById('btn-auth-confirm').addEventListener('click', async () => {
   const erroEl = document.getElementById('auth-error');
   erroEl.style.display = 'none';
@@ -3066,7 +3084,11 @@ document.getElementById('btn-auth-confirm').addEventListener('click', async () =
 
   try {
     const now = new Date().toISOString();
-    const logEntry = { action: 'authorized', date: now, signed_by: signature, individual, class: turma };
+    const origem = await capturarOrigemAutorizacao();
+    const logEntry = {
+      action: 'authorized', date: now, signed_by: signature, individual, class: turma,
+      ip: origem.ip, local: origem.local, dispositivo: origem.dispositivo,
+    };
     const currentLog = Array.isArray(student.authorization_log) ? student.authorization_log : [];
     const { error } = await supabase.from('students').update({
       authorize_individual: individual,
@@ -3106,7 +3128,8 @@ document.getElementById('btn-auth-deny').addEventListener('click', async () => {
 
   try {
     const now = new Date().toISOString();
-    const logEntry = { action: 'denied', date: now };
+    const origem = await capturarOrigemAutorizacao();
+    const logEntry = { action: 'denied', date: now, ip: origem.ip, local: origem.local, dispositivo: origem.dispositivo };
     const currentLog = Array.isArray(student.authorization_log) ? student.authorization_log : [];
     const { error } = await supabase.from('students').update({
       authorize_individual: false,
