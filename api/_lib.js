@@ -212,6 +212,65 @@ function dividirProporcional(valorTotal, pesos) {
 }
 
 // ---------------------------------------------------------------------------
+// Desconto de irmaos (migration_059) sobre a soma dos pedidos do grupo.
+// Um lugar so' pra conta, usado por criar-cobranca.js e
+// criar-parcelamento-pix.js — o portal repete a MESMA regra so' pra mostrar
+// (ofertarPagamentoConjunto). Nunca deixa o total abaixo de R$ 0,01.
+// ---------------------------------------------------------------------------
+function calcularDescontoIrmaos(valorBase0, projCfg) {
+  if (!projCfg?.sibling_discount_mode) return 0;
+  const v = Number(projCfg.sibling_discount_value) || 0;
+  let d = projCfg.sibling_discount_mode === 'percent'
+    ? Math.round(valorBase0 * v / 100 * 100) / 100
+    : v;
+  return Math.max(0, Math.min(d, Math.round((valorBase0 - 0.01) * 100) / 100));
+}
+
+// ---------------------------------------------------------------------------
+// Cancela as parcelas do PIX parcelado (migration_058) ainda em aberto destes
+// pedidos: derruba a cobranca na Woovi e marca a linha 'cancelada' (nunca
+// apaga — fica o historico). Sem isso, trocar de forma de pagamento, editar o
+// carrinho ou cancelar o pedido deixava as N cobrancas vivas, e o robo diario
+// continuava mandando lembrete e gerando 2a tentativa de um pedido que ja nao
+// e' mais parcelado.
+//
+// Pagamento combinado de irmaos: a MESMA cobranca (gateway_id) aparece numa
+// linha de cada pedido — por isso o DELETE na Woovi e' por gateway_id
+// distinto, e o 404 da segunda vez e' esperado.
+// Falha de verdade (nao 404) lanca erro: melhor o chamador parar e pedir pra
+// tentar de novo do que seguir com cobranca antiga ainda pagavel.
+// ---------------------------------------------------------------------------
+async function cancelarParcelasPix(orderIds, wooviConta) {
+  const ids = [...new Set((orderIds || []).filter(Boolean))];
+  if (!ids.length) return 0;
+  const lista = ids.map((id) => encodeURIComponent(id)).join(',');
+  const abertas = await sb(
+    `/pix_installments?order_id=in.(${lista})&status=in.(scheduled,active)&select=id,gateway_id`
+  );
+  if (!abertas?.length) return 0;
+
+  const cobrancas = [...new Set(abertas.map((p) => p.gateway_id).filter(Boolean))];
+  for (const gid of cobrancas) {
+    try {
+      await woovi(`/api/v1/charge/${encodeURIComponent(gid)}`, { method: 'DELETE' }, wooviConta);
+    } catch (e) {
+      if (e.status !== 404) {
+        const erro = new Error('Nao consegui cancelar as parcelas do PIX. Tente de novo em instantes.');
+        erro.status = 502;
+        erro.causa = e.message;
+        throw erro;
+      }
+    }
+  }
+  await sb(`/pix_installments?id=in.(${abertas.map((p) => encodeURIComponent(p.id)).join(',')})`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({ status: 'cancelada' }),
+  });
+  return abertas.length;
+}
+
+// ---------------------------------------------------------------------------
 // Telefone pro Asaas, ou nada.
 //
 // O Asaas recusa o cadastro inteiro do cliente quando o telefone nao e'
@@ -856,4 +915,4 @@ async function avisarParcelaAtrasada(pedido, parcela) {
   });
 }
 
-module.exports = { env, asaas, woovi, assinaturaWooviValida, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, dividirProporcional, resumoFinanceiro, liquidoCrivel, avisarVenda, avisarPedidoPendente, avisarPedidoCancelado, avisarPagamentoDesfeito, avisarParcelaPaga, avisarLembreteParcela, avisarParcelaAtrasada };
+module.exports = { env, asaas, woovi, assinaturaWooviValida, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, dividirProporcional, calcularDescontoIrmaos, cancelarParcelasPix, resumoFinanceiro, liquidoCrivel, avisarVenda, avisarPedidoPendente, avisarPedidoCancelado, avisarPagamentoDesfeito, avisarParcelaPaga, avisarLembreteParcela, avisarParcelaAtrasada };

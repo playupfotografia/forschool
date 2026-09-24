@@ -57,19 +57,40 @@ module.exports = async (req, res) => {
     // O correlationID de uma parcela e' "<pedido>-p<numero>-<timestamp>" —
     // procurar direto em pix_installments (id exato) e' mais seguro que
     // tentar recortar o pedido do texto, como o fluxo a vista faz abaixo.
+    // Irmaos pagando junto (migration_059, Etapa 2): a MESMA cobranca aparece
+    // numa linha de cada pedido do grupo — por isso aqui e' um laco, uma volta
+    // por linha. Pedido solo tem uma linha so' e segue igual a antes.
     if (evento === 'OPENPIX:CHARGE_COMPLETED') {
       const parcelas = await sb(
         `/pix_installments?gateway_id=eq.${encodeURIComponent(correlationID)}&select=` +
         'id,order_id,installment_number,total_installments,value,status'
       );
-      const parcela = parcelas?.[0];
-      if (parcela) {
-        if (parcela.status === 'paid') {
+      if (parcelas?.length) {
+        const aProcessar = parcelas.filter((p) => p.status !== 'paid');
+        if (!aProcessar.length) {
           // Reenvio do mesmo evento (a Woovi reenvia se respondermos erro) —
           // ja processado, so' confirma de novo sem duplicar aviso.
-          return res.status(200).json({ ok: true, evento, parcela: parcela.id, repetido: true });
+          return res.status(200).json({ ok: true, evento, repetido: true });
         }
+        const resultado = [];
+        for (const parcela of aProcessar) {
+          resultado.push(await processarParcela(parcela, charge, evento));
+        }
+        return res.status(200).json({ ok: true, evento, parcelas: resultado });
+      }
+    }
 
+    return await fluxoAVista(res, correlationID, charge, evento, body);
+  } catch (err) {
+    console.error('woovi-webhook', err);
+    // 500 faz a Woovi reenviar depois — e' o que queremos numa falha temporaria
+    return res.status(500).json({ erro: err.message || 'Erro ao processar webhook.' });
+  }
+};
+
+// Uma linha de pix_installments paga: marca a linha, e atualiza o pedido dela
+// (pago de vez na ultima parcela, ou QR da proxima parcela em aberto).
+async function processarParcela(parcela, charge, evento) {
         await sb(`/pix_installments?id=eq.${encodeURIComponent(parcela.id)}`, {
           method: 'PATCH',
           headers: { Prefer: 'return=minimal' },
@@ -81,19 +102,20 @@ module.exports = async (req, res) => {
         });
 
         const pedidos = await sb(
-          `/orders?id=eq.${encodeURIComponent(parcela.order_id)}&select=id,order_number,is_test,` +
+          `/orders?id=eq.${encodeURIComponent(parcela.order_id)}&select=id,order_number,is_test,amount_charged,total_amount,` +
           'student:students(name),school:schools(name),user:users(name,phone)'
         );
         const pedido = pedidos?.[0];
         if (!pedido) {
           console.warn('webhook woovi: pedido da parcela nao encontrado', { parcela });
-          return res.status(200).json({ ok: true, ignorado: 'pedido da parcela nao encontrado' });
+          return { parcela: parcela.id, ignorado: 'pedido da parcela nao encontrado' };
         }
 
         // Quantas parcelas desse pedido ainda faltam pagar (contando a que
         // acabou de cair, ja marcada 'paid' acima)?
+        // (Linha cancelada de um parcelamento abandonado nao conta.)
         const restantes = await sb(
-          `/pix_installments?order_id=eq.${encodeURIComponent(parcela.order_id)}&status=neq.paid&select=id`
+          `/pix_installments?order_id=eq.${encodeURIComponent(parcela.order_id)}&status=not.in.(paid,cancelada)&select=id`
         );
         const todasPagas = !restantes || restantes.length === 0;
 
@@ -109,7 +131,7 @@ module.exports = async (req, res) => {
           // aberto. Ela ja existe desde a criacao (todas as N cobrancas
           // nascem juntas), so' ainda nao tinha vez de aparecer.
           const proximas = await sb(
-            `/pix_installments?order_id=eq.${encodeURIComponent(parcela.order_id)}&status=neq.paid&` +
+            `/pix_installments?order_id=eq.${encodeURIComponent(parcela.order_id)}&status=not.in.(paid,cancelada)&` +
             'select=pix_payload,pix_qr_image&order=installment_number.asc&limit=1'
           );
           const proxima = proximas?.[0];
@@ -129,7 +151,9 @@ module.exports = async (req, res) => {
             if (todasPagas) {
               // Ultima parcela: e' a venda confirmada de verdade (mesmo
               // aviso "venda confirmada" do pedido a vista/cartao).
-              await avisarVenda({ ...pedido, payment_method: 'pix_parcelado', amount_charged: parcela.value });
+              // Valor da venda = o total do pedido, nao so' a ultima parcela
+              // (antes ia o valor da parcela, e o e-mail dizia menos que a venda).
+              await avisarVenda({ ...pedido, payment_method: 'pix_parcelado', amount_charged: pedido.amount_charged ?? pedido.total_amount });
             } else {
               await avisarParcelaPaga(pedido, parcela);
             }
@@ -138,11 +162,11 @@ module.exports = async (req, res) => {
           }
         }
 
-        return res.status(200).json({ ok: true, evento, parcela: parcela.id, pedido: pedido.id, todasPagas });
-      }
-    }
+        return { parcela: parcela.id, pedido: pedido.id, todasPagas };
+}
 
-    // ---- Fluxo a vista (existente) ------------------------------------------
+// ---- Fluxo a vista (existente) ----------------------------------------------
+async function fluxoAVista(res, correlationID, charge, evento, body) {
     // correlationID guarda "<referencia>-<timestamp>" (setado em criar-cobranca).
     // referencia e' o id do pedido sozinho, OU "grupo:<id>" quando a cobranca
     // cobre 2 pedidos de irmaos de uma vez (migration_059, pagamento
@@ -218,9 +242,4 @@ module.exports = async (req, res) => {
     }
 
     return res.status(200).json({ ok: true, evento, pedidos: pedidos.map((p) => p.id) });
-  } catch (err) {
-    console.error('woovi-webhook', err);
-    // 500 faz a Woovi reenviar depois — e' o que queremos numa falha temporaria
-    return res.status(500).json({ erro: err.message || 'Erro ao processar webhook.' });
-  }
-};
+}

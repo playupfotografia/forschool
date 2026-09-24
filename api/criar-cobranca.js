@@ -19,9 +19,13 @@
 // so'. Etapa 1 e' so' a vista (pix ou credito 1x) — parcelado fica pra depois
 // de validar isto com dinheiro real, mesmo cuidado que ja foi tomado antes
 // de ligar o PIX automatico e o PIX parcelado.
+// Etapa 2 (24/09/2026, depois da Etapa 1 validada com PIX real): cartao
+// combinado tambem parcela (Nx) — o Asaas ja' propaga o externalReference
+// "grupo:<id>" pra cada parcela, e o asaas-webhook confirma o grupo inteiro.
+// PIX parcelado combinado fica em criar-parcelamento-pix.js.
 // ============================================================================
 
-const { asaas, woovi, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, dividirProporcional } = require('./_lib.js');
+const { asaas, woovi, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, dividirProporcional, calcularDescontoIrmaos, cancelarParcelasPix } = require('./_lib.js');
 const crypto = require('crypto');
 
 const BILLING = { pix: 'PIX', credito: 'CREDIT_CARD', debito: 'DEBIT_CARD' };
@@ -49,9 +53,6 @@ module.exports = async (req, res) => {
 
     if (!orderIds.length) return res.status(400).json({ erro: 'order_id e obrigatorio.' });
     if (!BILLING[metodo]) return res.status(400).json({ erro: 'Metodo invalido.' });
-    if (combinado && parcelas > 1) {
-      return res.status(400).json({ erro: 'Pagamento combinado ainda so funciona a vista (sem parcelar).' });
-    }
 
     // Falamos com o banco por service_role, que ignora RLS — sem esta checagem
     // qualquer um que adivinhasse um id geraria cobranca pro pedido alheio.
@@ -72,7 +73,7 @@ module.exports = async (req, res) => {
     const idsSql = orderIds.map((id) => encodeURIComponent(id)).join(',');
     const pedidosBrutos = await sb(
       `/orders?id=in.(${idsSql})&select=` +
-      'id,order_number,total_amount,payment_status,gateway,gateway_id,payment_group_id,student_id,project_id,' +
+      'id,order_number,total_amount,payment_status,gateway,gateway_id,payment_group_id,has_paid_installment,student_id,project_id,' +
       'user_id,payment_link_token,users(name,email,cpf,phone),students(name)'
     );
     if (!pedidosBrutos || pedidosBrutos.length !== orderIds.length) {
@@ -91,6 +92,13 @@ module.exports = async (req, res) => {
       }
       if (p.payment_status === 'paid') {
         return res.status(409).json({ erro: `O pedido ${p.order_number || ''} ja esta pago.`.trim() });
+      }
+      // PIX parcelado com parcela ja' paga: tem dinheiro dentro, trocar de
+      // forma aqui cancelaria as parcelas restantes sem contar a que entrou.
+      if (p.has_paid_installment) {
+        return res.status(409).json({
+          erro: `O pedido ${p.order_number || ''} ja tem parcela paga. Pra mudar a forma de pagamento, fale com a Play Up.`,
+        });
       }
     }
 
@@ -141,14 +149,7 @@ module.exports = async (req, res) => {
     // projeto tiver configurado (em branco = sem desconto, nenhum projeto
     // ganha isso sozinho). Calculado aqui no SERVIDOR: o navegador so mandou
     // QUAIS pedidos, nunca o valor.
-    let descontoIrmaos = 0;
-    if (combinado && projCfg?.sibling_discount_mode) {
-      descontoIrmaos = projCfg.sibling_discount_mode === 'percent'
-        ? Math.round(valorBase0 * (Number(projCfg.sibling_discount_value) || 0) / 100 * 100) / 100
-        : (Number(projCfg.sibling_discount_value) || 0);
-      // Nunca deixa o total zerar/negativar por desconto mal configurado.
-      descontoIrmaos = Math.max(0, Math.min(descontoIrmaos, valorBase0 - 0.01));
-    }
+    const descontoIrmaos = combinado ? calcularDescontoIrmaos(valorBase0, projCfg) : 0;
     const valorBase = Math.round((valorBase0 - descontoIrmaos) * 100) / 100;
 
     // pix_mode do projeto manda MAIS que o geral quando preenchido — e' o que
@@ -246,6 +247,18 @@ module.exports = async (req, res) => {
           cobrancasAntigas.push({ gateway: p.gateway, gateway_id: p.gateway_id });
         }
       }
+    }
+
+    // PIX parcelado que o pai trocou por outra forma: as N cobrancas das
+    // parcelas tambem sao "cobranca antiga" — sem cancelar, continuariam
+    // pagaveis e o robo diario seguiria cobrando. Antes de criar a nova, igual
+    // as de cima. (As linhas dos irmaos de um grupo antigo sao marcadas no
+    // passo 6, junto com o resto da limpeza deles.)
+    try {
+      await cancelarParcelasPix(orderIds, wooviConta);
+    } catch (e) {
+      console.error('cancelar parcelas antigas', e.causa || e.message);
+      return res.status(502).json({ erro: e.message });
     }
 
     let patch, checkoutUrl = null, vencimento = null;
@@ -416,12 +429,21 @@ module.exports = async (req, res) => {
     // salvar-pedido.js tem quando o carrinho muda.
     const gruposAntigos = new Set(pedidosGrupo.map((p) => p.payment_group_id).filter(Boolean));
     for (const gid of gruposAntigos) {
+      const deFora = await sb(
+        `/orders?payment_group_id=eq.${encodeURIComponent(gid)}&id=not.in.(${idsSql})&select=id`
+      );
+      if (!deFora?.length) continue;
+      // Parcelas do PIX parcelado do grupo antigo: as cobrancas ja' cairam
+      // junto com as nossas (sao as mesmas), aqui so' marca as linhas dele.
+      try { await cancelarParcelasPix(deFora.map((o) => o.id), wooviConta); }
+      catch (e) { console.error('parcelas do irmao que saiu do grupo', e.causa || e.message); }
       await sb(`/orders?payment_group_id=eq.${encodeURIComponent(gid)}&id=not.in.(${idsSql})`, {
         method: 'PATCH',
         headers: { Prefer: 'return=minimal' },
         body: JSON.stringify({
           gateway: null, gateway_id: null, gateway_status: null,
           amount_charged: null, surcharge_amount: 0, installments: 1,
+          payment_method: null,
           pix_payload: null, pix_qr_image: null, checkout_url: null,
           payment_group_id: null,
         }),

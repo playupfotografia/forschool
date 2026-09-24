@@ -76,17 +76,31 @@ module.exports = async (req, res) => {
   try {
     const vencidas1 = await sb(
       '/pix_installments?status=eq.active&attempt=eq.1&select=' +
-      'id,order_id,installment_number,total_installments,value,due_date'
+      'id,order_id,installment_number,total_installments,value,due_date,gateway_id'
     );
+    // Irmaos pagando junto (migration_059, Etapa 2): a mesma cobranca tem uma
+    // linha por pedido do grupo, todas com o MESMO gateway_id. Agrupa por
+    // cobranca pra gerar UMA 2a tentativa (com o total do grupo) em vez de
+    // uma por linha — senao o pai receberia dois QRs pra mesma parcela.
+    // Pedido solo: grupo de uma linha so', igual a antes.
+    const porCobranca = new Map();
     for (const p of (vencidas1 || [])) {
       if (diffDias(p.due_date) >= -DIAS_GRACA) continue; // ainda dentro da janela de graca
+      const chave = p.gateway_id || p.id;
+      if (!porCobranca.has(chave)) porCobranca.set(chave, []);
+      porCobranca.get(chave).push(p);
+    }
+
+    for (const [chave, linhas] of porCobranca) {
+      const p = linhas[0];
       try {
+        const ids = linhas.map((l) => encodeURIComponent(l.order_id)).join(',');
         const pedidos = await sb(
-          `/orders?id=eq.${encodeURIComponent(p.order_id)}&select=id,order_number,project_id,` +
+          `/orders?id=in.(${ids})&select=id,order_number,project_id,` +
           'user:users(name,email,cpf)'
         );
-        const pedido = pedidos?.[0];
-        if (!pedido) { relatorio.erros.push(`2a tentativa ${p.id}: pedido nao encontrado`); continue; }
+        const pedido = pedidos?.find((o) => o.id === p.order_id) || pedidos?.[0];
+        if (!pedido) { relatorio.erros.push(`2a tentativa ${chave}: pedido nao encontrado`); continue; }
 
         let wooviConta = null;
         if (pedido.project_id) {
@@ -96,9 +110,19 @@ module.exports = async (req, res) => {
 
         const resp = pedido.user || {};
         const cpf = String(resp.cpf || '').replace(/\D/g, '');
-        const valorComAcrescimo = Math.round(Number(p.value) * (1 + (MULTA_PCT + JUROS_PCT) / 10000) * 100) / 100;
-        const correlationID = `${p.order_id}-p${p.installment_number}-r2-${Date.now()}`;
+        // Acrescimo por linha (cada pedido guarda a sua fatia); a cobranca e'
+        // a SOMA das fatias ja' arredondadas — assim bate centavo a centavo.
+        const fatias = linhas.map((l) => Math.round(Number(l.value) * (1 + (MULTA_PCT + JUROS_PCT) / 10000) * 100) / 100);
+        const valorComAcrescimo = Math.round(fatias.reduce((s, v) => s + v, 0) * 100) / 100;
+        // Mesmo prefixo da cobranca original ("<pedido>" ou "grupo:<id>"), so'
+        // pra ficar legivel no painel da Woovi — o webhook acha a parcela pelo
+        // gateway_id exato gravado abaixo, nao por esse texto.
+        const prefixo = String(p.gateway_id || '').startsWith('grupo:')
+          ? String(p.gateway_id).replace(/-p\d+-\d+$/, '')
+          : p.order_id;
+        const correlationID = `${prefixo}-p${p.installment_number}-r2-${Date.now()}`;
         const dueDate = new Date().toISOString();
+        const numeros = (pedidos || []).map((o) => o.order_number).filter(Boolean).join('+');
 
         const cob = await woovi('/api/v1/charge', {
           method: 'POST',
@@ -110,7 +134,7 @@ module.exports = async (req, res) => {
             daysAfterDueDate: DIAS_GRACA,
             fines: { value: MULTA_PCT, type: 'PERCENTAGE' },
             interests: { value: JUROS_PCT, type: 'PERCENTAGE' },
-            comment: `Pedido ${pedido.order_number} - parcela ${p.installment_number}/${p.total_installments} - 2a tentativa`,
+            comment: `Pedido${linhas.length > 1 ? 's' : ''} ${numeros} - parcela ${p.installment_number}/${p.total_installments} - 2a tentativa`,
             customer: {
               name: resp.name || 'Responsavel',
               taxID: cpf || undefined,
@@ -119,40 +143,43 @@ module.exports = async (req, res) => {
           }),
         }, wooviConta);
 
-        await sb(`/pix_installments?id=eq.${encodeURIComponent(p.id)}`, {
-          method: 'PATCH',
-          headers: { Prefer: 'return=minimal' },
-          body: JSON.stringify({
-            attempt: 2,
-            value: valorComAcrescimo,
-            due_date: dueDate.slice(0, 10),
-            gateway_id: correlationID,
-            gateway_status: cob.charge?.status || null,
-            pix_payload: cob.charge?.brCode || null,
-            pix_qr_image: cob.charge?.qrCodeImage || null,
-          }),
-        });
-
-        // Se nao existe parcela anterior pendente, essa e' a que a Minha
-        // Area mostra hoje — atualiza o QR do pedido tambem (mesmo padrao
-        // do webhook em woovi-webhook.js).
-        const anteriores = await sb(
-          `/pix_installments?order_id=eq.${encodeURIComponent(p.order_id)}&installment_number=lt.${p.installment_number}&status=neq.paid&select=id&limit=1`
-        );
-        if (!anteriores || anteriores.length === 0) {
-          await sb(`/orders?id=eq.${encodeURIComponent(p.order_id)}`, {
+        for (let i = 0; i < linhas.length; i++) {
+          const l = linhas[i];
+          await sb(`/pix_installments?id=eq.${encodeURIComponent(l.id)}`, {
             method: 'PATCH',
             headers: { Prefer: 'return=minimal' },
             body: JSON.stringify({
+              attempt: 2,
+              value: fatias[i],
+              due_date: dueDate.slice(0, 10),
+              gateway_id: correlationID,
+              gateway_status: cob.charge?.status || null,
               pix_payload: cob.charge?.brCode || null,
               pix_qr_image: cob.charge?.qrCodeImage || null,
             }),
           });
+
+          // Se nao existe parcela anterior pendente, essa e' a que a Minha
+          // Area mostra hoje — atualiza o QR do pedido tambem (mesmo padrao
+          // do webhook em woovi-webhook.js).
+          const anteriores = await sb(
+            `/pix_installments?order_id=eq.${encodeURIComponent(l.order_id)}&installment_number=lt.${l.installment_number}&status=not.in.(paid,cancelada)&select=id&limit=1`
+          );
+          if (!anteriores || anteriores.length === 0) {
+            await sb(`/orders?id=eq.${encodeURIComponent(l.order_id)}`, {
+              method: 'PATCH',
+              headers: { Prefer: 'return=minimal' },
+              body: JSON.stringify({
+                pix_payload: cob.charge?.brCode || null,
+                pix_qr_image: cob.charge?.qrCodeImage || null,
+              }),
+            });
+          }
         }
 
         relatorio.segundasTentativas++;
       } catch (e) {
-        relatorio.erros.push(`2a tentativa ${p.id}: ${e.message}`);
+        relatorio.erros.push(`2a tentativa ${chave}: ${e.message}`);
       }
     }
   } catch (e) {

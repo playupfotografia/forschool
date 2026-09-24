@@ -1712,7 +1712,9 @@ function blocoCronogramaParcelas(parcelas, atual) {
 // ULTIMA parcela cair — entao aqui tambem observamos o pix_payload do
 // pedido MUDAR (a proxima parcela ficando ativa, trocada pelo webhook em
 // woovi-webhook.js) pra trocar o QR sozinho sem o pai reabrir a tela.
-function vigiarParcelamento(orderId, container, payloadInicial) {
+// opts (de ajustarParcelado): pedido da tela, ids do grupo de irmaos e o
+// total — pra redesenhar a proxima parcela certa e a confirmacao final.
+function vigiarParcelamento(orderId, container, payloadInicial, opts = {}) {
   if (!orderId || !container) return;
   pararVigia(orderId);
   const limite = Date.now() + 60 * 60 * 1000; // parcelado fica mais tempo entre uma parcela e outra
@@ -1730,14 +1732,17 @@ function vigiarParcelamento(orderId, container, payloadInicial) {
 
       if (data.payment_status === 'paid') {
         pararVigia(orderId);
-        const valor = Number(data.amount_charged ?? data.total_amount) || 0;
+        const valor = opts.valorTotal ?? (Number(data.amount_charged ?? data.total_amount) || 0);
+        const quais = opts.numerosPedidos
+          ? `Pedidos ${escapeHtml(opts.numerosPedidos)} estão pagos`
+          : `Pedido ${escapeHtml(data.order_number || '')} está pago`;
         container.innerHTML = `
           <div class="pay-ok">
             <img src="assets/logo-playup.png" alt="Play Up Fotografia" class="pay-ok-logo" onerror="this.style.display='none'">
             <div class="pay-ok-icon">✓</div>
             <div class="pay-ok-titulo">Todas as parcelas pagas!</div>
             <div class="pay-ok-valor">${fmtMoney(valor)}</div>
-            <div style="font-size:12.5px;color:#166534">Pedido ${escapeHtml(data.order_number || '')} está pago. Não precisa enviar comprovante.</div>
+            <div style="font-size:12.5px;color:#166534">${quais}. Não precisa enviar comprovante.</div>
             ${botaoDuvida(data.order_number)}
           </div>`;
         toast('Todas as parcelas pagas! 🎉', 'ok');
@@ -1747,12 +1752,19 @@ function vigiarParcelamento(orderId, container, payloadInicial) {
       if (data.pix_payload && data.pix_payload !== payloadVisto) {
         payloadVisto = data.pix_payload;
         toast('Parcela paga! Próxima parcela liberada.', 'ok');
-        container.innerHTML = blocoCobranca({
+        const novo = {
+          ...(opts.pedido || { id: orderId, order_number: data.order_number }),
+          payment_method: 'pix_parcelado',
+          has_paid_installment: true,
           total_amount: data.amount_charged ?? data.total_amount,
           amount_charged: data.amount_charged ?? data.total_amount,
           pix_payload: data.pix_payload,
           pix_qr_image: data.pix_qr_image,
-        });
+        };
+        container.innerHTML = blocoCobranca(novo);
+        // Valor da parcela nova, cronograma e aviso do grupo (e reinicia
+        // este vigia com o QR novo).
+        ajustarParcelado(novo, container, opts.idsGrupo || undefined);
       }
     } catch (e) {
       // rede oscilando: tenta de novo no proximo ciclo
@@ -1880,13 +1892,18 @@ window.escolherPagamento = async function (orderId, metodo, parcelas) {
       const dados = await r.json();
       if (!r.ok || !dados.ok) throw new Error(dados.erro || 'Não foi possível gerar o parcelamento.');
 
-      container.innerHTML = blocoCobranca({
-        total_amount: dados.parcelas?.reduce((s, p) => s + p.valor, 0),
-        amount_charged: dados.parcelas?.reduce((s, p) => s + p.valor, 0),
+      // Antes mostrava o TOTAL do pedido ao lado do QR da parcela 1. Agora o
+      // valor da parcela, "parcela 1 de N" e o cronograma (ajustarParcelado).
+      const pedidoTela = {
+        ...(_pedidosPorId[orderId] || {}),
+        id: orderId,
+        payment_method: 'pix_parcelado',
         pix_payload: dados.pix_payload,
         pix_qr_image: dados.pix_qr_image,
-      }) + blocoCronogramaParcelas(dados.parcelas, 1);
-      vigiarParcelamento(orderId, container, dados.pix_payload);
+        amount_charged: dados.parcelas?.[0]?.valor,
+      };
+      container.innerHTML = blocoCobranca(pedidoTela);
+      await ajustarParcelado(pedidoTela, container, [orderId]);
       return;
     }
 
@@ -1929,8 +1946,88 @@ window.escolherPagamento = async function (orderId, metodo, parcelas) {
 // Nunca some a opcao de pagar separado: os blocos normais continuam
 // logo abaixo, intactos.
 // ---------------------------------------------------------------------------
+// PIX parcelado ja' gerado (migration_058; com irmao, Etapa 2 da 059): o QR
+// na tela e' o da PARCELA em aberto, mas o valor que blocoCobranca mostraria
+// e' o amount_charged do pedido — o total. Aqui le as parcelas no banco e
+// corrige: valor da parcela atual, "parcela X de N", o cronograma completo e,
+// se for de irmaos, o aviso de que o mesmo PIX cobre os dois pedidos.
+// idsGrupo: quando quem chama ja' sabe os pedidos (acabou de criar).
+async function ajustarParcelado(pedido, el, idsGrupo) {
+  try {
+    let ids = idsGrupo || [pedido.id];
+    let numeros = [];
+    if (!idsGrupo && pedido.payment_group_id) {
+      const { data: g } = await supabase
+        .from('orders').select('id, order_number').eq('payment_group_id', pedido.payment_group_id);
+      if (g?.length) { ids = g.map(x => x.id); numeros = g.map(x => x.order_number); }
+    } else if (idsGrupo) {
+      const { data: g } = await supabase.from('orders').select('id, order_number').in('id', idsGrupo);
+      numeros = (g || []).map(x => x.order_number);
+    }
+
+    const { data: linhas, error } = await supabase
+      .from('pix_installments')
+      .select('order_id, installment_number, value, due_date, status')
+      .in('order_id', ids)
+      .neq('status', 'cancelada')
+      .order('installment_number');
+    if (error || !linhas?.length) return;
+
+    // Uma linha por pedido por parcela — soma as fatias do grupo por parcela.
+    const porNum = {};
+    linhas.forEach(l => {
+      const p = porNum[l.installment_number] || (porNum[l.installment_number] = {
+        numero: l.installment_number, valor: 0, vencimento: l.due_date, paga: true,
+      });
+      p.valor = Math.round((p.valor + (Number(l.value) || 0)) * 100) / 100;
+      if (l.status !== 'paid') p.paga = false;
+    });
+    const parcelas = Object.values(porNum).sort((a, b) => a.numero - b.numero);
+    const atual = parcelas.find(p => !p.paga);
+    if (!atual) return;
+
+    const tit = el.querySelector('.pay-box-titulo');
+    if (tit) tit.textContent = `💚 PIX — parcela ${atual.numero} de ${parcelas.length}`;
+    const valorEl = el.querySelector('.pay-box-valor');
+    if (valorEl?.firstChild) valorEl.firstChild.textContent = fmtMoney(atual.valor);
+    // Com parcela ja' paga tem dinheiro dentro: trocar de forma aqui nao e'
+    // permitido (o servidor recusa) — melhor nem oferecer o botao.
+    if (pedido.has_paid_installment) el.querySelector('.pay-trocar')?.remove();
+
+    el.querySelector('.pay-parc-extra')?.remove();
+    const extra = document.createElement('div');
+    extra.className = 'pay-parc-extra';
+    extra.innerHTML = blocoCronogramaParcelas(parcelas, atual.numero);
+    el.appendChild(extra);
+
+    const numerosTxt = numeros.filter(Boolean).join(' + ');
+    if (ids.length > 1 && !el.querySelector('.pay-nota-grupo')) {
+      const nota = document.createElement('div');
+      nota.className = 'pay-nota-grupo';
+      nota.style.cssText = 'font-size:12px;color:#1A6B3C;background:var(--green-light);border-radius:8px;padding:8px 10px;margin-bottom:8px';
+      nota.innerHTML = `👨‍👩‍👧‍👦 Cada parcela cobre os pedidos <b>${escapeHtml(numerosTxt)}</b> juntos — é só pagar uma vez por parcela.`;
+      el.prepend(nota);
+    }
+
+    const total = Math.round(parcelas.reduce((s, p) => s + p.valor, 0) * 100) / 100;
+    vigiarParcelamento(pedido.id, el, pedido.pix_payload, {
+      pedido, idsGrupo: ids.length > 1 ? ids : null, valorTotal: total,
+      numerosPedidos: ids.length > 1 ? numerosTxt : null,
+    });
+  } catch (e) {
+    console.error('ajustarParcelado', e);
+  }
+}
+
 async function ofertarPagamentoConjunto(pedido, el) {
   try {
+    // PIX parcelado ja' gerado (sozinho ou com irmao): quem cuida da tela e'
+    // ajustarParcelado — valor da parcela atual, cronograma e aviso do grupo.
+    if (pedido?.payment_method === 'pix_parcelado' && pedido.pix_payload) {
+      await ajustarParcelado(pedido, el);
+      return;
+    }
+
     // Pedido que JA' esta' numa cobranca combinada: o QR na tela e' o do
     // grupo inteiro, mas o valor mostrado seria so' a fatia deste pedido
     // (amount_charged rateado). Corrige pro total que o banco vai cobrar de
@@ -1963,7 +2060,11 @@ async function ofertarPagamentoConjunto(pedido, el) {
       .in('student_id', outrosIds)
       .eq('project_id', projeto.id)
       .eq('payment_status', 'pending')
-      .is('gateway_id', null);
+      .is('gateway_id', null)
+      // PIX parcelado nao usa gateway_id no pedido — o que diz que ele ja'
+      // tem cobranca e' o QR da parcela.
+      .is('pix_payload', null)
+      .eq('has_paid_installment', false);
     const irmao = irmaosPendentes?.[0];
     if (!irmao) return;
 
@@ -1983,6 +2084,27 @@ async function ofertarPagamentoConjunto(pedido, el) {
     if (PAY_CFG.credito) metodos.push(['credito', '💳 Cartão à vista']);
     if (!metodos.length) return;
 
+    // Etapa 2 (24/09/2026): parcelado junto. Mesmas regras da tela normal
+    // (blocoEscolhaPagamento) aplicadas ao total JA' com desconto — o servidor
+    // refaz a conta de verdade; aqui e' so' pro pai ver antes de clicar.
+    const parcelados = [];   // [metodo, parcelas, rotulo]
+    const nPix = parseInt(projeto?.pix_parcelas, 10) || 0;
+    if (pixAutomaticoAtivo() && nPix >= 2) {
+      parcelados.push(['pix_parcelado', nPix, `💚 PIX em ${nPix}× de ${fmtMoney(Math.ceil((totalComDesconto / nPix) * 100) / 100)}`]);
+    }
+    if (PAY_CFG.credito) {
+      const antec2 = PAY_CFG.antecipa ? (Number(PAY_CFG.antecParc) || 0) : 0;
+      const c2 = repassaTaxa()
+        ? valorComTaxa(totalComDesconto, (Number(PAY_CFG.feeCreditoParc) || 0) + antec2, PAY_CFG.feeCreditoFixa)
+        : totalComDesconto;
+      for (let n = 2; n <= Math.min(maxParcelas(), 12); n++) {
+        const parcela = Math.ceil((c2 / n) * 100) / 100;
+        if (parcela < MIN_INSTALLMENT_VALUE) continue;
+        parcelados.push(['credito', n, `💳 Cartão em ${n}× de ${fmtMoney(parcela)}`]);
+      }
+    }
+    const numerosJuntos = escapeHtml(`${pedido.order_number || ''} + ${irmao.order_number || ''}`);
+
     const box = document.createElement('div');
     box.className = 'pix-block';
     box.style.cssText = 'border-color:var(--green);background:var(--green-light);margin-bottom:12px';
@@ -1996,10 +2118,19 @@ async function ofertarPagamentoConjunto(pedido, el) {
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         ${metodos.map(([m, label]) => `
           <button type="button" class="btn" style="background:var(--green);color:#fff;flex:1;padding:10px"
-                  onclick="pagarComTodos(['${orderIds[0]}','${orderIds[1]}'],'${m}','${el.id}','${escapeHtml(`${pedido.order_number || ''} + ${irmao.order_number || ''}`)}')">
+                  onclick="pagarComTodos(['${orderIds[0]}','${orderIds[1]}'],'${m}','${el.id}','${numerosJuntos}',1)">
             ${label} · pagar junto
           </button>`).join('')}
       </div>
+      ${parcelados.length ? `
+        <div style="font-size:11.5px;color:#1A6B3C;font-weight:600;margin:10px 0 4px">Ou parcelado, junto:</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${parcelados.map(([m, n, rotulo]) => `
+            <button type="button" class="btn" style="background:#fff;color:#1A6B3C;border:1.5px solid var(--green);flex:1 1 45%;padding:8px;font-size:12.5px"
+                    onclick="pagarComTodos(['${orderIds[0]}','${orderIds[1]}'],'${m}','${el.id}','${numerosJuntos}',${n})">
+              ${rotulo}
+            </button>`).join('')}
+        </div>` : ''}
       <div style="font-size:11px;color:var(--gray-500);margin-top:8px">Prefere pagar separado? Escolha a forma de pagamento normal, logo abaixo.</div>
     `;
     el.prepend(box);
@@ -2082,7 +2213,7 @@ async function renderIrmaosConfirm() {
 
 // Cria UMA cobranca cobrindo os pedidos de orderIds (irmaos, mesmo projeto) —
 // o servidor recalcula o desconto, nunca confia no que o navegador mostrou.
-window.pagarComTodos = async function (orderIds, metodo, containerId, numerosPedidos) {
+window.pagarComTodos = async function (orderIds, metodo, containerId, numerosPedidos, parcelas = 1) {
   // A oferta aparece tanto na tela de confirmacao quanto na Minha Area
   // (mc-pay-<pedido>) — a cobranca tem que ser desenhada onde o pai clicou.
   const el = document.getElementById(containerId) || document.getElementById('confirm-payment-methods');
@@ -2090,10 +2221,33 @@ window.pagarComTodos = async function (orderIds, metodo, containerId, numerosPed
   el.querySelectorAll('button').forEach(b => { b.disabled = true; b.style.opacity = '.55'; });
 
   try {
+    // PIX parcelado junto (Etapa 2): uma cobranca Woovi por parcela, com o
+    // total do grupo — outra funcao no servidor, mesmo desconto.
+    if (metodo === 'pix_parcelado') {
+      const r = await fetch('/api/criar-parcelamento-pix', {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify({ order_ids: orderIds }),
+      });
+      const dados = await r.json();
+      if (!r.ok || !dados.ok) throw new Error(dados.erro || 'Não foi possível gerar o parcelamento.');
+      const pedidoTela = {
+        ...(_pedidosPorId[orderIds[0]] || {}),
+        id: orderIds[0],
+        payment_method: 'pix_parcelado',
+        pix_payload: dados.pix_payload,
+        pix_qr_image: dados.pix_qr_image,
+        amount_charged: dados.parcelas?.[0]?.valor,
+      };
+      el.innerHTML = blocoCobranca(pedidoTela);
+      await ajustarParcelado(pedidoTela, el, orderIds);
+      return;
+    }
+
     const r = await fetch('/api/criar-cobranca', {
       method: 'POST',
       headers: await authHeaders(),
-      body: JSON.stringify({ order_ids: orderIds, method: metodo, installments: 1 }),
+      body: JSON.stringify({ order_ids: orderIds, method: metodo, installments: parcelas }),
     });
     const dados = await r.json();
     if (!r.ok || !dados.ok) throw new Error(dados.erro || 'Não foi possível gerar a cobrança combinada.');
@@ -3010,7 +3164,7 @@ async function loadMinhaConta() {
     .select(`
       id, order_number, payment_status, total_amount, created_at, kit_type,
       amount_charged, installments, pix_payload, pix_qr_image, checkout_url, payment_group_id,
-      has_paid_installment, cancelled_at,
+      has_paid_installment, cancelled_at, payment_method,
       order_kits(quantity, kit:school_kits(name, kit_type)),
       order_items(quantity, product:products(name))
     `)

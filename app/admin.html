@@ -4012,7 +4012,8 @@ async function loadPedidos() {
         const { data: pcs, error: pcErr } = await supabase
           .from('pix_installments')
           .select('order_id, total_installments, status')
-          .in('order_id', idsParcelados);
+          .in('order_id', idsParcelados)
+          .neq('status', 'cancelada');   // parcelamento abandonado nao conta no "X de Y"
         if (pcErr) console.error('pix_installments:', pcErr.message);
         const resumo = {};
         (pcs || []).forEach(p => {
@@ -8778,7 +8779,8 @@ async function abrirDrillProjeto(projectId, opts = {}) {
         const { data: pcs, error: pcErr } = await supabase
           .from('pix_installments')
           .select('order_id, total_installments, status')
-          .in('order_id', idsParcelados);
+          .in('order_id', idsParcelados)
+          .neq('status', 'cancelada');   // parcelamento abandonado nao conta no "X de Y"
         if (pcErr) console.error('pix_installments:', pcErr.message);
         const resumo = {};
         (pcs || []).forEach(p => {

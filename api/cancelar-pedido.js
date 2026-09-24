@@ -22,7 +22,7 @@
 // Body: { order_id }
 // ============================================================================
 
-const { asaas, woovi, sb, usuarioDoToken, avisarPedidoCancelado } = require('./_lib.js');
+const { asaas, woovi, sb, usuarioDoToken, avisarPedidoCancelado, cancelarParcelasPix } = require('./_lib.js');
 
 const q = (v) => encodeURIComponent(v);
 
@@ -93,29 +93,22 @@ module.exports = async (req, res) => {
     }
 
     // ---- PIX parcelado: cobranças das parcelas em aberto ----------------------
-    // Sem isso o robô diário continuaria cobrando um pedido cancelado.
+    // Sem isso o robô diário continuaria cobrando um pedido cancelado. Num
+    // parcelamento de irmãos (Etapa 2) as cobranças são as mesmas pros dois
+    // pedidos: caem aqui de uma vez, e as linhas do irmão viram 'cancelada'
+    // junto (ele volta a escolher a forma de pagamento, sozinho).
+    let irmaosDoGrupo = [];
+    if (naoPago && pedido.payment_group_id) {
+      irmaosDoGrupo = (await sb(
+        `/orders?payment_group_id=eq.${q(pedido.payment_group_id)}&id=neq.${q(orderId)}&select=id`
+      ) || []).map((o) => o.id);
+    }
     if (naoPago) {
-      const parcelas = await sb(
-        `/pix_installments?order_id=eq.${q(orderId)}&status=in.(scheduled,active)&select=id,gateway_id`
-      );
-      for (const p of parcelas || []) {
-        if (p.gateway_id) {
-          try {
-            await woovi(`/api/v1/charge/${q(p.gateway_id)}`, { method: 'DELETE' }, wooviConta);
-          } catch (e) {
-            if (e.status !== 404) {
-              console.error('cancelar parcela', p.id, e.message);
-              return res.status(502).json({
-                erro: 'Não consegui cancelar as parcelas do PIX. Tente de novo em instantes.',
-              });
-            }
-          }
-        }
-        await sb(`/pix_installments?id=eq.${q(p.id)}`, {
-          method: 'PATCH',
-          headers: { Prefer: 'return=minimal' },
-          body: JSON.stringify({ status: 'cancelada' }),
-        });
+      try {
+        await cancelarParcelasPix([orderId, ...irmaosDoGrupo], wooviConta);
+      } catch (e) {
+        console.error('cancelar parcelas', e.causa || e.message);
+        return res.status(502).json({ erro: 'Não consegui cancelar as parcelas do PIX. Tente de novo em instantes.' });
       }
     }
 
@@ -124,7 +117,10 @@ module.exports = async (req, res) => {
       await sb(`/orders?payment_group_id=eq.${q(pedido.payment_group_id)}&id=neq.${q(orderId)}`, {
         method: 'PATCH',
         headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify(LIMPA_COBRANCA),
+        // payment_method volta a vazio SO' no irmao: senao ele continuaria
+        // marcado "PIX parcelado" sem parcela nenhuma. O pedido cancelado
+        // guarda o dele, pra o historico mostrar as parcelas que caíram.
+        body: JSON.stringify({ ...LIMPA_COBRANCA, payment_method: null }),
       });
     }
 
