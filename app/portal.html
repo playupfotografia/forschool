@@ -432,7 +432,7 @@ body.modo-demo::after{content:'';position:fixed;inset:0;border:4px solid #7C3AED
   </div>
   <div class="p-actions">
     <button class="btn btn-sm btn-secondary" id="btn-instalar-app" onclick="instalarPortalApp()"
-            title="Instalar o app na tela inicial" style="display:none">📲</button>
+            title="Adicionar à Tela de Início" style="display:none">📲</button>
     <span class="p-user" id="p-user-nome"></span>
     <button class="btn btn-sm btn-secondary" id="btn-minha-conta" style="display:none">Minha Área</button>
     <button class="btn btn-sm btn-secondary" id="btn-sair" style="display:none">Sair</button>
@@ -674,10 +674,10 @@ body.modo-demo::after{content:'';position:fixed;inset:0;border:4px solid #7C3AED
      aqui, e alguns Android também). -->
 <div id="instalar-app-overlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.6);align-items:center;justify-content:center;padding:16px">
   <div style="background:white;border-radius:16px;max-width:380px;width:100%;padding:24px 22px 20px;box-shadow:0 20px 60px rgba(0,0,0,.35)">
-    <div style="font-size:38px;text-align:center;margin-bottom:6px">📲</div>
-    <div style="font-size:17px;font-weight:800;color:var(--gray-800);text-align:center;margin-bottom:12px" id="instalar-app-titulo">Instalar o app</div>
-    <div id="instalar-app-texto" style="font-size:13.5px;color:#3A3A3A;line-height:1.65;white-space:pre-line;background:var(--blue-light);border-left:4px solid var(--blue);padding:12px 14px;border-radius:8px;margin-bottom:16px"></div>
-    <button onclick="document.getElementById('instalar-app-overlay').style.display='none'" style="width:100%;background:var(--blue);color:white;border:none;border-radius:10px;padding:13px;font-size:14.5px;font-weight:700;cursor:pointer">Entendi</button>
+    <div id="instalar-app-icone" style="display:flex;justify-content:center;margin-bottom:12px"></div>
+    <div style="font-size:17px;font-weight:800;color:var(--gray-800);text-align:center;margin-bottom:14px" id="instalar-app-titulo">Adicione o portal à Tela de Início</div>
+    <div id="instalar-app-texto" style="font-size:13.5px;color:#3A3A3A;line-height:1.75;background:var(--blue-light);border-left:4px solid var(--blue);padding:12px 14px;border-radius:8px"></div>
+    <button onclick="document.getElementById('instalar-app-overlay').style.display='none'" style="width:100%;background:var(--blue);color:white;border:none;border-radius:10px;padding:13px;font-size:14.5px;font-weight:700;cursor:pointer;margin-top:16px">Entendi</button>
   </div>
 </div>
 
@@ -1180,6 +1180,24 @@ if (!jaInstalado) {
   document.getElementById('btn-instalar-app')?.style.setProperty('display', 'inline-flex');
 }
 
+// Ícones desenhados de verdade (SVG), não descritos em texto — pedido do
+// Daniel depois de ver a 1a versão só com texto ("quadrado com a seta",
+// "⋮"): mais fácil reconhecer o ícone de olho do que ler a descrição dele,
+// principalmente no Android, que ele mesmo não sabia identificar.
+const _ICONE_COMPARTILHAR_IOS = // botão de Compartilhar do Safari
+  `<div style="width:58px;height:58px;border-radius:14px;background:var(--blue-light);display:flex;align-items:center;justify-content:center">
+    <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#4B6BFB" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 2.5v12.5"/><path d="M7.5 7 12 2.5 16.5 7"/>
+      <path d="M5 11v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8"/>
+    </svg>
+  </div>`;
+const _ICONE_MENU_ANDROID = // botão de "⋮ mais opções" do Chrome/Android
+  `<div style="width:58px;height:58px;border-radius:14px;background:var(--blue-light);display:flex;align-items:center;justify-content:center">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="#4B6BFB">
+      <circle cx="12" cy="5" r="2.2"/><circle cx="12" cy="12" r="2.2"/><circle cx="12" cy="19" r="2.2"/>
+    </svg>
+  </div>`;
+
 window.instalarPortalApp = async function () {
   if (_promptInstalacao) {
     _promptInstalacao.prompt();
@@ -1189,12 +1207,11 @@ window.instalarPortalApp = async function () {
   }
   const ua = navigator.userAgent || '';
   const iOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  const overlay = document.getElementById('instalar-app-overlay');
-  document.getElementById('instalar-app-titulo').textContent = iOS ? 'No iPhone/iPad' : 'Instalar o app';
-  document.getElementById('instalar-app-texto').textContent = iOS
-    ? 'Toque no ícone de compartilhar (o quadrado com a seta pra cima) na barra do Safari e depois em "Adicionar à Tela de Início".'
-    : 'Abra o menu do navegador (geralmente ⋮ ou •••, no canto superior direito) e toque em "Instalar app" ou "Adicionar à tela inicial".';
-  overlay.style.display = 'flex';
+  document.getElementById('instalar-app-icone').innerHTML = iOS ? _ICONE_COMPARTILHAR_IOS : _ICONE_MENU_ANDROID;
+  document.getElementById('instalar-app-texto').innerHTML = iOS
+    ? '<b>1.</b> Toque neste ícone — é o botão "Compartilhar" do Safari (fica embaixo da tela no iPhone, ou em cima no iPad).<br><br><b>2.</b> Role as opções e toque em <b>"Adicionar à Tela de Início"</b>.'
+    : '<b>1.</b> Toque neste ícone — geralmente fica no canto superior direito do navegador.<br><br><b>2.</b> Toque em <b>"Instalar app"</b> ou <b>"Adicionar à tela inicial"</b>.';
+  document.getElementById('instalar-app-overlay').style.display = 'flex';
 };
 
 // Fallbacks — vão ser sobrescritos pelos valores reais carregados de app_settings
