@@ -2516,6 +2516,15 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
             </div>
           </div>
           <div class="form-group" style="margin-top:8px">
+            <label class="form-label">Parcelamento disponível até</label>
+            <input class="form-input" type="date" id="pj-pix-parcelas-ate" style="max-width:220px">
+            <div class="slug-hint">
+              Depois dessa data, a opção de parcelar some sozinha do portal (só fica PIX à vista +
+              cartão) — sem precisar lembrar de desligar "Parcelar PIX em até" na mão. Deixe em
+              branco pra não ter prazo.
+            </div>
+          </div>
+          <div class="form-group" style="margin-top:8px">
             <label class="form-label">Conta Woovi (avançado)</label>
             <input class="form-input" id="pj-woovi-conta" placeholder="Deixe em branco = conta padrão" style="max-width:280px">
             <div class="slug-hint">
@@ -2711,6 +2720,26 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
         <div class="form-group">
           <label class="form-label">Fotos extras <span style="font-weight:400;color:var(--gray-400)">(opcionais — mostradas no detalhe do produto no portal)</span></label>
           <div id="pjav-ov-extra-wrap" style="display:flex;flex-direction:column;gap:8px"></div>
+        </div>
+        <div class="form-group" style="border-top:1px solid var(--gray-100);padding-top:12px">
+          <label class="form-label" style="margin-bottom:8px">Pagamento (avançado — deixe em branco pra não mudar nada)</label>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div>
+              <label style="font-size:12px;color:var(--gray-500);display:block;margin-bottom:3px">Acréscimo se parcelar no PIX (R$)</label>
+              <input class="form-input" type="number" step="0.01" min="0" style="max-width:140px" id="pjav-ov-acrescimo" placeholder="0,00">
+              <div class="slug-hint">Somado UMA VEZ ao total antes de dividir pelas parcelas (não multiplica por quantidade nem por irmão) — ex: à vista R$170, com R$10 aqui vira 3x R$60 (R$180).</div>
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--gray-500);display:block;margin-bottom:3px">Quantidade mínima no carrinho</label>
+              <input class="form-input" type="number" step="1" min="1" style="max-width:140px" id="pjav-ov-qtdmin" placeholder="1">
+              <div class="slug-hint">Ex: 4, pra um produto de "4 cópias ou mais" — o pai não consegue levar só 1 ou 2 unidades desse item.</div>
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--gray-500);display:block;margin-bottom:3px">Só aparece pra família com este nº de filhos (ou mais) nesta escola</label>
+              <input class="form-input" type="number" step="1" min="2" style="max-width:140px" id="pjav-ov-minirmaos" placeholder="Ex: 2">
+              <div class="slug-hint">Deixe em branco pra qualquer família ver. Ex: 2, pra um produto exclusivo de irmãos.</div>
+            </div>
+          </div>
         </div>
         <div class="form-group" style="border-top:1px solid var(--gray-100);padding-top:12px">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px">
@@ -7247,6 +7276,9 @@ document.getElementById('btn-pj-copiar-escola').addEventListener('click', async 
         ov_image_url_4: sp?.image_url_4 || null,
         ov_variants_overridden: sp?.variants_overridden || false,
         ov_featured: sp?.featured === true,
+        ov_pix_parcela_acrescimo: sp?.pix_parcela_acrescimo ?? null,
+        ov_qty_minima: sp?.qty_minima ?? null,
+        ov_min_irmaos_projeto: sp?.min_irmaos_projeto ?? null,
         ov_variants: sp ? (variantesOverride[sp.id] || []) : [],
         default_description: p.description || null,
         default_image_url: p.image_url || null,
@@ -7471,7 +7503,7 @@ function renderPjAvulsos() {
     return;
   }
   el.innerHTML = pjAvulsosTemp.map((a, i) => {
-    const personalizado = !!(a.ov_name || a.ov_description || a.ov_image_url || a.ov_image_url_2 || a.ov_image_url_3 || a.ov_image_url_4 || a.ov_variants_overridden);
+    const personalizado = !!(a.ov_name || a.ov_description || a.ov_image_url || a.ov_image_url_2 || a.ov_image_url_3 || a.ov_image_url_4 || a.ov_variants_overridden || a.ov_pix_parcela_acrescimo || a.ov_qty_minima || a.ov_min_irmaos_projeto);
     return `
     <div class="avulso-row ${a.available ? '' : 'disabled'}" data-pjav-row="${i}">
       <input type="checkbox" data-pjav-chk="${i}" ${a.available ? 'checked' : ''}>
@@ -7543,6 +7575,9 @@ function abrirPjavOverride(i) {
   // só pra trocar uma palavra.
   document.getElementById('pjav-ov-nome').value = a.ov_name || a.name || '';
   document.getElementById('pjav-ov-desc').value = a.ov_description || a.default_description || '';
+  document.getElementById('pjav-ov-acrescimo').value = a.ov_pix_parcela_acrescimo ?? '';
+  document.getElementById('pjav-ov-qtdmin').value = a.ov_qty_minima ?? '';
+  document.getElementById('pjav-ov-minirmaos').value = a.ov_min_irmaos_projeto ?? '';
   renderPjavOvImagePreview(a.ov_image_url || a.default_image_url || '', !!a.ov_image_url);
 
   pjavOvExtras = [2, 3, 4].map(n => ({
@@ -7710,6 +7745,12 @@ document.getElementById('btn-salvar-pjav-override').addEventListener('click', as
     }
     a.ov_name = document.getElementById('pjav-ov-nome').value.trim() || null;
     a.ov_description = document.getElementById('pjav-ov-desc').value.trim() || null;
+    const acrescimoVal = document.getElementById('pjav-ov-acrescimo').value;
+    a.ov_pix_parcela_acrescimo = acrescimoVal !== '' ? (parseFloat(acrescimoVal) || 0) : null;
+    const qtdMinVal = document.getElementById('pjav-ov-qtdmin').value;
+    a.ov_qty_minima = qtdMinVal !== '' ? (parseInt(qtdMinVal, 10) || null) : null;
+    const minIrmaosVal = document.getElementById('pjav-ov-minirmaos').value;
+    a.ov_min_irmaos_projeto = minIrmaosVal !== '' ? (parseInt(minIrmaosVal, 10) || null) : null;
     a.ov_variants_overridden = document.getElementById('pjav-ov-var-toggle').checked;
 
     if (a.ov_variants_overridden) {
@@ -7906,6 +7947,7 @@ async function resetModalProjeto() {
   document.getElementById('pj-encerrado').checked = false;
   document.getElementById('pj-pix-mode').value = '';
   document.getElementById('pj-pix-parcelas').value = '';
+  document.getElementById('pj-pix-parcelas-ate').value = '';
   document.getElementById('pj-woovi-conta').value = '';
   document.getElementById('pj-pix-manual').checked = true;
   document.getElementById('pj-external').checked = false;
@@ -7930,6 +7972,7 @@ async function resetModalProjeto() {
     ov_name: null, ov_description: null, ov_image_url: null,
     ov_image_url_2: null, ov_image_url_3: null, ov_image_url_4: null,
     ov_variants_overridden: false, ov_variants: [], ov_featured: false,
+    ov_pix_parcela_acrescimo: null, ov_qty_minima: null, ov_min_irmaos_projeto: null,
     default_description: p.description || null, default_image_url: p.image_url || null,
     default_image_url_2: p.image_url_2 || null, default_image_url_3: p.image_url_3 || null, default_image_url_4: p.image_url_4 || null,
     default_variants: variantesGlobais[p.id] || [],
@@ -8062,6 +8105,7 @@ async function editarProjeto(id) {
     document.getElementById('pj-entrega-retirada').checked = p.pickup_enabled !== false;
     document.getElementById('pj-pix-mode').value = p.pix_mode || '';
     document.getElementById('pj-pix-parcelas').value = p.pix_parcelas ?? '';
+    document.getElementById('pj-pix-parcelas-ate').value = p.pix_parcelas_ate || '';
     document.getElementById('pj-woovi-conta').value = p.woovi_conta || '';
     document.getElementById('pj-pix-manual').checked = p.payment_pix_manual !== false;
     document.getElementById('pj-external').checked   = !!p.payment_external_link;
@@ -8150,6 +8194,9 @@ async function editarProjeto(id) {
         ov_image_url_4: sp?.image_url_4 || null,
         ov_variants_overridden: sp?.variants_overridden || false,
         ov_featured: sp?.featured === true,
+        ov_pix_parcela_acrescimo: sp?.pix_parcela_acrescimo ?? null,
+        ov_qty_minima: sp?.qty_minima ?? null,
+        ov_min_irmaos_projeto: sp?.min_irmaos_projeto ?? null,
         ov_variants: sp ? (variantesOverride[sp.id] || []) : [],
         default_description: p.description || null,
         default_image_url: p.image_url || null,
@@ -8291,6 +8338,7 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
     delivery_date: document.getElementById('pj-entrega').value || null,
     pix_mode: document.getElementById('pj-pix-mode').value || null,
     pix_parcelas: parseInt(document.getElementById('pj-pix-parcelas').value, 10) || null,
+    pix_parcelas_ate: document.getElementById('pj-pix-parcelas-ate').value || null,
     woovi_conta: document.getElementById('pj-woovi-conta').value.trim() || null,
     payment_pix_manual: document.getElementById('pj-pix-manual').checked,
     payment_inter: false,
@@ -8406,6 +8454,9 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
         image_url_4: a.ov_image_url_4 || null,
         variants_overridden: a.ov_variants_overridden || false,
         featured: a.ov_featured === true,
+        pix_parcela_acrescimo: a.ov_pix_parcela_acrescimo ?? null,
+        qty_minima: a.ov_qty_minima ?? null,
+        min_irmaos_projeto: a.ov_min_irmaos_projeto ?? null,
       }).select('id').single();
       if (spErr) throw spErr;
       if (a.ov_variants_overridden && (a.ov_variants || []).length) {

@@ -1265,6 +1265,24 @@ let avulsosCarrinho = {};     // { product_id: quantity }
 let currentTerm = null;       // termo de autorização do projeto (ou default)
 let currentUser = null;       // dados completos do user logado (com rg, cpf, parentesco)
 
+// Acrescimo de parcelamento (migration_061) do que esta no carrinho agora —
+// soma UMA VEZ por produto distinto (nunca pela quantidade), mesma regra do
+// servidor em calcularAcrescimoParcelamento (api/_lib.js). So' estimativa
+// pra tela nao mostrar um numero e cobrar outro — quem vale e' o servidor.
+function estimarAcrescimoParcelamento() {
+  const ids = new Set();
+  Object.keys(avulsosCarrinho || {}).forEach(chave => {
+    const pid = chave.split('::')[0];
+    if (pid) ids.add(pid);
+  });
+  let soma = 0;
+  ids.forEach(pid => {
+    const av = avulsosDisp.find(a => a.id === pid);
+    if (av?.pix_parcela_acrescimo) soma += Number(av.pix_parcela_acrescimo) || 0;
+  });
+  return soma;
+}
+
 // ====================================================================
 // SETTINGS — carrega da tabela app_settings
 // ====================================================================
@@ -1659,9 +1677,19 @@ function blocoEscolhaPagamento(pedido, total) {
     // na aba Dados -> Pagamento do projeto no admin). O valor aqui e' so'
     // estimativa pro pai ver antes de clicar — quem faz a conta de verdade,
     // parcela por parcela, e' o servidor (api/criar-parcelamento-pix.js).
-    const nParc = parseInt(projeto?.pix_parcelas, 10) || 0;
+    // Prazo final (migration_061, projects.pix_parcelas_ate) — depois dessa
+    // data a opcao some sozinha, sem precisar desligar "Parcelar PIX em ate'"
+    // na mao (o servidor tambem confere isso de novo, nunca confia so' aqui).
+    const hojeISO = new Date().toISOString().slice(0, 10);
+    const prazoPassou = projeto?.pix_parcelas_ate && hojeISO > projeto.pix_parcelas_ate;
+    const nParc = prazoPassou ? 0 : (parseInt(projeto?.pix_parcelas, 10) || 0);
     if (nParc >= 2) {
-      const parcelaEstimativa = Math.ceil((total / nParc) * 100) / 100;
+      // Acrescimo de parcelamento (migration_061) — soma pro total ANTES de
+      // dividir pelas parcelas, senao o pai veria um numero aqui e outro
+      // maior depois de clicar (o servidor cobra o valor certo de qualquer
+      // jeito; isso e' so' pra estimativa bater com a cobranca real).
+      const totalComAcrescimo = total + estimarAcrescimoParcelamento();
+      const parcelaEstimativa = Math.ceil((totalComAcrescimo / nParc) * 100) / 100;
       opts.push(`
         <button type="button" class="pay-opt" onclick="escolherPagamento('${oid}','pix_parcelado',${nParc})">
           <div class="pay-opt-head"><span class="pay-opt-nome">💚 PIX em ${nParc}×</span></div>
@@ -2198,7 +2226,8 @@ async function ofertarPagamentoConjunto(pedido, el) {
     // (blocoEscolhaPagamento) aplicadas ao total JA' com desconto — o servidor
     // refaz a conta de verdade; aqui e' so' pro pai ver antes de clicar.
     const parcelados = [];   // [metodo, parcelas, rotulo]
-    const nPix = parseInt(projeto?.pix_parcelas, 10) || 0;
+    const prazoPixPassou = projeto?.pix_parcelas_ate && new Date().toISOString().slice(0, 10) > projeto.pix_parcelas_ate;
+    const nPix = prazoPixPassou ? 0 : (parseInt(projeto?.pix_parcelas, 10) || 0);
     if (pixAutomaticoAtivo() && nPix >= 2) {
       parcelados.push(['pix_parcelado', nPix, `💚 PIX em ${nPix}× de ${fmtMoney(Math.ceil((totalComDesconto / nPix) * 100) / 100)}`]);
     }
@@ -3800,7 +3829,12 @@ async function loadCatalogo(user) {
   const prodsAtivos = (prodsResp.data || []).filter(p => {
     const sp = priceMap[p.id];
     // Se não tem linha em school_prices, é disponível por padrão
-    return sp ? sp.available : true;
+    if (sp && sp.available === false) return false;
+    // Produto exclusivo de irmãos (migration_061) — só aparece pra família
+    // com N+ filhos cadastrados NESSA escola. _todosFilhos já vem filtrado
+    // por school_id (ver afterLogin), então é exatamente essa contagem.
+    if (sp?.min_irmaos_projeto && (_todosFilhos || []).length < sp.min_irmaos_projeto) return false;
+    return true;
   });
 
   // Variações (cor/tema) por produto — o pai escolhe uma antes de comprar.
@@ -3853,6 +3887,8 @@ async function loadCatalogo(user) {
       price_without_promo: sp?.price_without_promo ?? p.base_price_without_promo,
       variants: (sp?.variants_overridden ? variantesOverridePorProduto[p.id] : variantesPorProduto[p.id]) || null,
       featured: sp?.featured === true,
+      qty_minima: sp?.qty_minima || 1,
+      pix_parcela_acrescimo: sp?.pix_parcela_acrescimo || 0,
     };
   });
 
@@ -3987,6 +4023,7 @@ function renderAvulsos() {
           <span class="pp-card-tag tag-av" style="cursor:pointer" data-av-detail="${a.id}">Avulso</span>
           <div class="pp-card-name" style="cursor:pointer" data-av-detail="${a.id}">${escapeHtml(a.name)}</div>
           <div class="pp-card-desc" style="cursor:pointer" data-av-detail="${a.id}">${escapeHtml(a.description || '')}</div>
+          ${a.qty_minima > 1 && qty === 0 ? `<div style="font-size:11px;color:var(--gray-500);margin:-2px 0 4px">Mínimo ${a.qty_minima} unidades</div>` : ''}
           <div>${precoHtml}</div>
           ${acaoHtml}
         </div>
@@ -3994,12 +4031,22 @@ function renderAvulsos() {
     `;
   }).join('');
 
+  // Quantidade minima (migration_061 — ex: produto de "4 copias ou mais"):
+  // o 1o "+" ja pula direto pro minimo, e o "−" quando esta no minimo some
+  // do carrinho de uma vez (nunca deixa parar numa quantidade abaixo dele,
+  // que o servidor recusaria em salvar-pedido.js de qualquer jeito).
   const mudaAvulso = (id, delta, avisar) => {
-    avulsosCarrinho[id] = Math.max(0, (avulsosCarrinho[id] || 0) + delta);
+    const av = avulsosDisp.find(x => x.id === id);
+    const minimo = av?.qty_minima > 1 ? av.qty_minima : 1;
+    const atual = avulsosCarrinho[id] || 0;
+    const novo = delta > 0
+      ? (atual === 0 ? minimo : atual + delta)
+      : (atual <= minimo ? 0 : atual + delta);
+    avulsosCarrinho[id] = Math.max(0, novo);
     if (avulsosCarrinho[id] === 0) delete avulsosCarrinho[id];
     renderAvulsos();
     renderCart();
-    if (avisar) toast('Adicionado ao carrinho!', 'ok');
+    if (avisar) toast(minimo > 1 ? `${minimo} unidades adicionadas ao carrinho!` : 'Adicionado ao carrinho!', 'ok');
   };
   // Os mesmos botoes existem na grade E no card de destaque, que vive em
   // outro container — por isso a busca cobre os dois.

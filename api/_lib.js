@@ -227,6 +227,28 @@ function calcularDescontoIrmaos(valorBase0, projCfg) {
 }
 
 // ---------------------------------------------------------------------------
+// Acrescimo de parcelamento por produto (migration_061). Produto principal,
+// produto de irmaos etc podem custar mais caro parcelado que a vista (ex:
+// R$170 a vista / 3x R$60=R$180) — incentivo pra pagar a vista, configurado
+// em school_prices.pix_parcela_acrescimo, POR PROJETO.
+//
+// Soma UMA VEZ por produto distinto presente no(s) pedido(s) — nunca
+// multiplica pela quantidade nem pelo numero de pedidos do grupo (regra dada
+// pelo Daniel: irmao parcelado e' sempre +R$12 fixo, 2 ou mais nao muda).
+// ---------------------------------------------------------------------------
+async function calcularAcrescimoParcelamento(orderIds, projectId) {
+  if (!projectId || !orderIds?.length) return 0;
+  const idsSql = orderIds.map((id) => encodeURIComponent(id)).join(',');
+  const itens = await sb(`/order_items?order_id=in.(${idsSql})&select=product_id`);
+  const produtoIds = [...new Set((itens || []).map((i) => i.product_id).filter(Boolean))];
+  if (!produtoIds.length) return 0;
+  const precos = await sb(
+    `/school_prices?project_id=eq.${encodeURIComponent(projectId)}&product_id=in.(${produtoIds.map((id) => encodeURIComponent(id)).join(',')})&select=product_id,pix_parcela_acrescimo`
+  );
+  return (precos || []).reduce((s, p) => s + (Number(p.pix_parcela_acrescimo) || 0), 0);
+}
+
+// ---------------------------------------------------------------------------
 // Cancela as parcelas do PIX parcelado (migration_058) ainda em aberto destes
 // pedidos: derruba a cobranca na Woovi e marca a linha 'cancelada' (nunca
 // apaga — fica o historico). Sem isso, trocar de forma de pagamento, editar o
@@ -915,4 +937,4 @@ async function avisarParcelaAtrasada(pedido, parcela) {
   });
 }
 
-module.exports = { env, asaas, woovi, assinaturaWooviValida, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, dividirProporcional, calcularDescontoIrmaos, cancelarParcelasPix, resumoFinanceiro, liquidoCrivel, avisarVenda, avisarPedidoPendente, avisarPedidoCancelado, avisarPagamentoDesfeito, avisarParcelaPaga, avisarLembreteParcela, avisarParcelaAtrasada };
+module.exports = { env, asaas, woovi, assinaturaWooviValida, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, dividirProporcional, calcularDescontoIrmaos, calcularAcrescimoParcelamento, cancelarParcelasPix, resumoFinanceiro, liquidoCrivel, avisarVenda, avisarPedidoPendente, avisarPedidoCancelado, avisarPagamentoDesfeito, avisarParcelaPaga, avisarLembreteParcela, avisarParcelaAtrasada };

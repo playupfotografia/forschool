@@ -74,11 +74,11 @@ module.exports = async (req, res) => {
 
     // Avulsos: school_prices do projeto tem prioridade; sem elas, as da escola.
     let precosDb = projectId
-      ? await sb(`/school_prices?project_id=eq.${q(projectId)}&select=product_id,available,price_with_promo,price_without_promo`)
+      ? await sb(`/school_prices?project_id=eq.${q(projectId)}&select=product_id,available,price_with_promo,price_without_promo,qty_minima,min_irmaos_projeto`)
       : [];
     if (!precosDb.length) {
       precosDb = await sb(
-        `/school_prices?school_id=eq.${q(aluno.school_id)}&project_id=is.null&select=product_id,available,price_with_promo,price_without_promo`
+        `/school_prices?school_id=eq.${q(aluno.school_id)}&project_id=is.null&select=product_id,available,price_with_promo,price_without_promo,qty_minima,min_irmaos_projeto`
       );
     }
     const precoPorProduto = {};
@@ -147,6 +147,11 @@ module.exports = async (req, res) => {
       return kit && kit.kit_type === 'promo';
     });
 
+    // Quantos filhos desse responsavel estao cadastrados NESSA escola —
+    // calculado so' na primeira vez que algum item pedir (min_irmaos_projeto,
+    // migration_061), pra nao gastar query em pedido sem produto de irmaos.
+    let irmaosCount = null;
+
     const itensFinal = [];
     for (const [chave, qtdBruta] of Object.entries(avPed)) {
       const qtd = Math.max(0, parseInt(qtdBruta, 10) || 0);
@@ -173,6 +178,30 @@ module.exports = async (req, res) => {
       } else {
         const sp = precoPorProduto[pid];
         if (sp && sp.available === false) continue;   // indisponivel: ignora
+        // Quantidade minima (migration_061 — ex: produto de "4 copias ou
+        // mais" nao pode ser comprado com so' 1 unidade no preco pensado
+        // pra quem leva 4+).
+        if (sp?.qty_minima && qtd < sp.qty_minima) {
+          return res.status(400).json({
+            erro: `${prod.name}: quantidade minima e ${sp.qty_minima} unidades.`,
+          });
+        }
+        // So' disponivel pra familia com N+ filhos cadastrados nessa escola
+        // (migration_061 — produto exclusivo de irmaos). O portal ja esconde
+        // esse produto do catalogo pra quem nao qualifica; aqui e' a mesma
+        // regra confirmada no servidor, pro preco nunca depender so' do que
+        // o navegador deixou passar.
+        if (sp?.min_irmaos_projeto) {
+          if (irmaosCount === null) {
+            const irmaos = await sb(`/students?user_id=eq.${q(uid)}&school_id=eq.${q(aluno.school_id)}&select=id`);
+            irmaosCount = irmaos?.length || 0;
+          }
+          if (irmaosCount < sp.min_irmaos_projeto) {
+            return res.status(400).json({
+              erro: `${prod.name} so esta disponivel para familias com ${sp.min_irmaos_projeto}+ filhos cadastrados nesta escola.`,
+            });
+          }
+        }
         unit = Number(
           temPromo
             ? (sp?.price_with_promo ?? prod.base_price_with_promo)

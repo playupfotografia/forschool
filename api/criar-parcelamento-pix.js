@@ -26,7 +26,7 @@
 // (gera UMA 2a tentativa por cobranca, nao uma por linha).
 // ============================================================================
 
-const { woovi, asaas, sb, usuarioDoToken, apenasDigitos, telefoneBR, dividirProporcional, calcularDescontoIrmaos, cancelarParcelasPix } = require('./_lib.js');
+const { woovi, asaas, sb, usuarioDoToken, apenasDigitos, telefoneBR, dividirProporcional, calcularDescontoIrmaos, calcularAcrescimoParcelamento, cancelarParcelasPix } = require('./_lib.js');
 const crypto = require('crypto');
 
 // Multa/juros: testado no sandbox em 22/09/2026 — a Woovi ignora
@@ -103,7 +103,7 @@ module.exports = async (req, res) => {
     let projCfg = null;
     if (pedido.project_id) {
       const projs = await sb(
-        `/projects?id=eq.${q(pedido.project_id)}&select=pix_parcelas,pix_mode,woovi_conta,sibling_discount_mode,sibling_discount_value`
+        `/projects?id=eq.${q(pedido.project_id)}&select=pix_parcelas,pix_parcelas_ate,pix_mode,woovi_conta,sibling_discount_mode,sibling_discount_value`
       );
       projCfg = projs?.[0] || null;
     }
@@ -112,11 +112,21 @@ module.exports = async (req, res) => {
     }
     const n = parseInt(projCfg?.pix_parcelas, 10) || 0;
     if (n < 2) return res.status(400).json({ erro: 'Este projeto nao oferece PIX parcelado.' });
+    // Prazo final (migration_061) — depois dessa data o parcelamento nao e'
+    // mais oferecido nesse projeto, mesmo com pix_parcelas configurado.
+    if (projCfg?.pix_parcelas_ate && new Date().toISOString().slice(0, 10) > projCfg.pix_parcelas_ate) {
+      return res.status(400).json({ erro: 'O prazo para parcelar o PIX neste projeto ja passou. So a vista.' });
+    }
     const wooviConta = projCfg?.woovi_conta || null;
 
     // Desconto de irmaos: mesma conta do criar-cobranca.js (no servidor).
     const descontoIrmaos = combinado ? calcularDescontoIrmaos(valorBase0, projCfg) : 0;
-    const valorBase = Math.round((valorBase0 - descontoIrmaos) * 100) / 100;
+    // Acrescimo de parcelamento (migration_061) — por produto, uma vez so'
+    // por pedido/grupo, nunca multiplicado por quantidade ou por irmao.
+    const acrescimoParcelamento = pedido.project_id
+      ? await calcularAcrescimoParcelamento(orderIds, pedido.project_id)
+      : 0;
+    const valorBase = Math.round((valorBase0 - descontoIrmaos + acrescimoParcelamento) * 100) / 100;
 
     const resp = pedido.users || {};
     const cpf = apenasDigitos(resp.cpf);
@@ -275,6 +285,7 @@ module.exports = async (req, res) => {
       order_ids: pedidosGrupo.map((p) => p.id),
       valor_base_bruto: valorBase0,
       desconto_irmaos: descontoIrmaos,
+      acrescimo_parcelamento: acrescimoParcelamento,
       valor_total: valorBase,
       parcelas: criadas.map((c) => ({ numero: c.numero, valor: c.valor, vencimento: c.vencimento })),
       pix_payload: primeira.pix_payload,
