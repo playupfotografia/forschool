@@ -4128,6 +4128,7 @@ async function loadCatalogo(user) {
       featured: sp?.featured === true,
       qty_minima: sp?.qty_minima || 1,
       pix_parcela_acrescimo: sp?.pix_parcela_acrescimo || 0,
+      min_irmaos_projeto: sp?.min_irmaos_projeto || null,
     };
   });
 
@@ -4219,7 +4220,16 @@ function renderAvulsos() {
 
   // O destaque sai do topo, entao nao se repete na grade de baixo — ver a
   // mesma coisa duas vezes na mesma tela confunde mais do que reforca.
-  const destaque = avulsosDisp.find(a => a.featured) || null;
+  //
+  // Familia que ja qualifica pro produto exclusivo de irmaos (migration_061
+  // — so' entra em avulsosDisp quem passou no filtro de min_irmaos_projeto,
+  // entao achar um aqui already prova que essa familia tem acesso) vira O
+  // destaque, no lugar do produto principal marcado no admin — senao o pai
+  // de 2 filhos continua vendo o produto caro em destaque e o mais barato
+  // escondido na grade, e clica no errado por habito (achado testando com o
+  // Daniel em 27/09/2026: ele mesmo clicou no principal por engano).
+  const destaqueIrmaos = avulsosDisp.find(a => a.min_irmaos_projeto);
+  const destaque = destaqueIrmaos || avulsosDisp.find(a => a.featured) || null;
   renderDestaque(destaque);
 
   el.innerHTML = avulsosDisp.filter(a => a !== destaque).map(a => {
@@ -4349,7 +4359,7 @@ function renderDestaque(a) {
     <div class="dest-card">
       <div class="dest-img" data-av-detail="${a.id}">${img}</div>
       <div class="dest-body">
-        <span class="dest-faixa">⭐ DESTAQUE</span>
+        <span class="dest-faixa">${a.min_irmaos_projeto ? '👨‍👩‍👧‍👦 PREÇO ESPECIAL PRA IRMÃOS' : '⭐ DESTAQUE'}</span>
         <div class="dest-nome" data-av-detail="${a.id}">${escapeHtml(a.name)}</div>
         ${a.description ? `<div class="dest-desc" data-av-detail="${a.id}">${escapeHtml(a.description)}</div>` : ''}
         ${precoHtml}
