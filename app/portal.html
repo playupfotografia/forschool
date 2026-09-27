@@ -1699,11 +1699,18 @@ function blocoEscolhaPagamento(pedido, total) {
       // jeito; isso e' so' pra estimativa bater com a cobranca real).
       const totalComAcrescimo = total + estimarAcrescimoParcelamento();
       const parcelaEstimativa = Math.ceil((totalComAcrescimo / nParc) * 100) / 100;
+      // Vencimento fixo (migration_062) muda o texto — "a cada 30 dias" fica
+      // errado quando o projeto tem datas fixas configuradas (ex: sempre dia
+      // 5 do mes, nao importa quando a compra aconteceu).
+      const temVencFixo = !!(projeto?.pix_venc_parcela2 || projeto?.pix_venc_parcela3 || projeto?.pix_venc_parcela4);
+      const subParcelado = temVencFixo
+        ? 'Datas de vencimento fixas · pode ter pequeno acréscimo se atrasar'
+        : 'Um PIX a cada 30 dias, sem cartão · pode ter pequeno acréscimo se atrasar';
       opts.push(`
         <button type="button" class="pay-opt" onclick="escolherPagamento('${oid}','pix_parcelado',${nParc})">
           <div class="pay-opt-head"><span class="pay-opt-nome">💚 PIX em ${nParc}×</span></div>
           <div class="pay-opt-valor">${nParc}× de ${fmtMoney(parcelaEstimativa)}</div>
-          <div class="pay-opt-sub">Um PIX a cada 30 dias, sem cartão · pode ter pequeno acréscimo se atrasar</div>
+          <div class="pay-opt-sub">${subParcelado}</div>
         </button>`);
     }
   }
