@@ -2274,7 +2274,13 @@ async function ofertarPagamentoConjunto(pedido, el) {
       ? Math.round(somaBase * (Number(projeto.sibling_discount_value) || 0) / 100 * 100) / 100
       : (Number(projeto.sibling_discount_value) || 0);
     desconto = Math.max(0, Math.min(desconto, somaBase - 0.01));
-    if (desconto <= 0) return;
+    // desconto pode ser 0 de proposito — projeto com produto exclusivo de
+    // irmaos (migration_061) ja embute o desconto no PRECO do produto, sem
+    // usar sibling_discount_mode/value pra isso. Nesse caso a oferta de
+    // "pagar junto" ainda vale, so' que pela CONVENIENCIA (um PIX so' pros
+    // dois pedidos), nao pela economia — por isso nao corta mais aqui so'
+    // por desconto vir zerado (so' cortava antes achando que sem desconto
+    // nao valia a pena oferecer; bug achado testando em 27/09/2026).
     const totalComDesconto = Math.round((somaBase - desconto) * 100) / 100;
 
     const orderIds = [pedido.id, irmao.id];
@@ -2313,11 +2319,10 @@ async function ofertarPagamentoConjunto(pedido, el) {
     box.className = 'pix-block';
     box.style.cssText = 'border-color:var(--green);background:var(--green-light);margin-bottom:12px';
     box.innerHTML = `
-      <div style="font-weight:700;color:#1A6B3C;margin-bottom:4px">👨‍👩‍👧‍👦 Pague junto com o pedido de ${escapeHtml(irmao.students?.name || 'seu outro filho')} e economize</div>
+      <div style="font-weight:700;color:#1A6B3C;margin-bottom:4px">👨‍👩‍👧‍👦 Pague junto com o pedido de ${escapeHtml(irmao.students?.name || 'seu outro filho')}${desconto > 0 ? ' e economize' : ''}</div>
       <div style="font-size:12px;color:var(--gray-600);margin-bottom:8px">
         Pedido ${escapeHtml(pedido.order_number || '')} + pedido ${escapeHtml(irmao.order_number || '')}
-        = <s>${fmtMoney(somaBase)}</s> <b>${fmtMoney(totalComDesconto)}</b>
-        <span style="color:var(--green);font-weight:600">(economia de ${fmtMoney(desconto)})</span>
+        = ${desconto > 0 ? `<s>${fmtMoney(somaBase)}</s> <b>${fmtMoney(totalComDesconto)}</b> <span style="color:var(--green);font-weight:600">(economia de ${fmtMoney(desconto)})</span>` : `<b>${fmtMoney(totalComDesconto)}</b> — um PIX só pros dois pedidos`}
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         ${metodos.map(([m, label]) => `
