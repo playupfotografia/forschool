@@ -819,12 +819,100 @@ async function avisarEmailParcelaPaga(pedido, parcela) {
   return { canal: 'email', enviado: true };
 }
 
-async function avisarParcelaPaga(pedido, parcela) {
-  const res = await Promise.allSettled([avisarEmailParcelaPaga(pedido, parcela)]);
+// ---------------------------------------------------------------------------
+// Parcela paga — aviso pro RESPONSAVEL (nao pro admin). Ate 27/09/2026 so'
+// existia aviso de parcela pro admin (avisarEmailParcelaPaga acima); o pai
+// pagava e nao recebia confirmacao nenhuma por e-mail — so' via o QR que
+// tinha visto na hora da compra. "proximasParcelas" (com due_date) monta o
+// cronograma do que ainda falta; pedido parcelado sem mais nada a pagar
+// (ultima parcela) usa avisarPedidoPagoPai() em vez desta.
+// ---------------------------------------------------------------------------
+async function avisarEmailParcelaPagaPai(pedido, parcela, proximasParcelas) {
+  const key = process.env.RESEND_API_KEY;
+  const para = pedido.user?.email;
+  if (!key || !para) return { canal: 'email', enviado: false, motivo: 'sem e-mail do responsavel' };
+
+  const de = process.env.ALERTA_EMAIL_FROM || 'For School <onboarding@resend.dev>';
+  const dataBR = (iso) => String(iso || '').slice(0, 10).split('-').reverse().join('/');
+  const restantes = (proximasParcelas || []).filter((p) => p.installment_number !== parcela.installment_number);
+  const cronograma = restantes.length
+    ? `<table style="border-collapse:collapse;font-size:14px;margin-top:10px">
+         ${restantes.map((p) => `<tr><td style="padding:4px 12px 4px 0;color:#666">Parcela ${p.installment_number} de ${p.total_installments}</td><td style="padding:4px 0;font-weight:600">${dataBR(p.due_date)} — ${moeda(p.value)}</td></tr>`).join('')}
+       </table>`
+    : '';
+
+  const html = `<div style="font-family:system-ui,Arial,sans-serif;max-width:480px">
+    <h2 style="color:#27AE60;margin:0 0 4px">✅ Parcela ${parcela.installment_number} de ${parcela.total_installments} paga</h2>
+    <p style="color:#666;margin:0 0 4px;font-size:14px">
+      Recebemos o pagamento de <b>${moeda(parcela.value)}</b> do pedido ${pedido.order_number || ''} (${pedido.student?.name || ''}).
+    </p>
+    ${cronograma ? '<p style="color:#666;margin:14px 0 0;font-size:14px">Próximas parcelas:</p>' + cronograma : ''}
+  </div>`;
+
+  const r = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: de,
+      to: [para],
+      subject: `✅ Parcela ${parcela.installment_number}/${parcela.total_installments} paga — ${pedido.school?.name || 'For School'}`,
+      html,
+    }),
+  });
+  if (!r.ok) throw new Error('Resend HTTP ' + r.status + ': ' + (await r.text()).slice(0, 200));
+  return { canal: 'email', enviado: true };
+}
+
+async function avisarParcelaPaga(pedido, parcela, proximasParcelas) {
+  const res = await Promise.allSettled([
+    avisarEmailParcelaPaga(pedido, parcela),
+    avisarEmailParcelaPagaPai(pedido, parcela, proximasParcelas),
+  ]);
   res.forEach((r) => {
     if (r.status === 'rejected') console.error('aviso de parcela paga falhou:', r.reason?.message || r.reason);
     else if (!r.value.enviado) console.log(`aviso ${r.value.canal}: ${r.value.motivo}`);
   });
+}
+
+// Ultima parcela do pedido parcelado — o pedido inteiro fecha. avisarVenda()
+// ja avisa o admin (mesmo caminho de qualquer venda confirmada); esta e' so'
+// a versao pro responsavel, so' pro caso do PIX parcelado (a vista/cartao ja
+// mostra a confirmacao na hora, na propria tela — nao precisa de e-mail).
+async function avisarEmailPedidoPagoPai(pedido) {
+  const key = process.env.RESEND_API_KEY;
+  const para = pedido.user?.email;
+  if (!key || !para) return { canal: 'email', enviado: false, motivo: 'sem e-mail do responsavel' };
+
+  const de = process.env.ALERTA_EMAIL_FROM || 'For School <onboarding@resend.dev>';
+  const html = `<div style="font-family:system-ui,Arial,sans-serif;max-width:480px">
+    <h2 style="color:#27AE60;margin:0 0 4px">🎉 Pagamento completo!</h2>
+    <p style="color:#666;margin:0;font-size:14px">
+      A última parcela do pedido ${pedido.order_number || ''} (${pedido.student?.name || ''}) foi paga —
+      nenhuma parcela pendente. Obrigado!
+    </p>
+  </div>`;
+
+  const r = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: de,
+      to: [para],
+      subject: `🎉 Pagamento completo — ${pedido.school?.name || 'For School'}`,
+      html,
+    }),
+  });
+  if (!r.ok) throw new Error('Resend HTTP ' + r.status + ': ' + (await r.text()).slice(0, 200));
+  return { canal: 'email', enviado: true };
+}
+
+async function avisarPedidoPagoPai(pedido) {
+  try {
+    const r = await avisarEmailPedidoPagoPai(pedido);
+    if (!r.enviado) console.log(`aviso ${r.canal}: ${r.motivo}`);
+  } catch (e) {
+    console.error('aviso de pedido pago (pai) falhou:', e.message);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -937,4 +1025,4 @@ async function avisarParcelaAtrasada(pedido, parcela) {
   });
 }
 
-module.exports = { env, asaas, woovi, assinaturaWooviValida, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, dividirProporcional, calcularDescontoIrmaos, calcularAcrescimoParcelamento, cancelarParcelasPix, resumoFinanceiro, liquidoCrivel, avisarVenda, avisarPedidoPendente, avisarPedidoCancelado, avisarPagamentoDesfeito, avisarParcelaPaga, avisarLembreteParcela, avisarParcelaAtrasada };
+module.exports = { env, asaas, woovi, assinaturaWooviValida, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, dividirProporcional, calcularDescontoIrmaos, calcularAcrescimoParcelamento, cancelarParcelasPix, resumoFinanceiro, liquidoCrivel, avisarVenda, avisarPedidoPendente, avisarPedidoCancelado, avisarPagamentoDesfeito, avisarParcelaPaga, avisarPedidoPagoPai, avisarLembreteParcela, avisarParcelaAtrasada };

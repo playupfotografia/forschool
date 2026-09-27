@@ -103,7 +103,7 @@ module.exports = async (req, res) => {
     let projCfg = null;
     if (pedido.project_id) {
       const projs = await sb(
-        `/projects?id=eq.${q(pedido.project_id)}&select=pix_parcelas,pix_parcelas_ate,pix_mode,woovi_conta,sibling_discount_mode,sibling_discount_value`
+        `/projects?id=eq.${q(pedido.project_id)}&select=pix_parcelas,pix_parcelas_ate,pix_venc_parcela2,pix_venc_parcela3,pix_venc_parcela4,pix_mode,woovi_conta,sibling_discount_mode,sibling_discount_value`
       );
       projCfg = projs?.[0] || null;
     }
@@ -185,11 +185,22 @@ module.exports = async (req, res) => {
     const numeros = pedidosGrupo.map((p) => p.order_number).filter(Boolean).join('+');
     const alunos = pedidosGrupo.map((p) => p.students?.name).filter(Boolean).join(' + ');
 
+    // Vencimento fixo por parcela (migration_062) — ex: 2a sempre 05/11, 3a
+    // sempre 05/12, nao importa quando a familia comprou. Em branco, cai no
+    // calculo antigo (30 dias a partir da COMPRA, nunca da parcela anterior).
+    const datasFixas = {
+      2: projCfg?.pix_venc_parcela2,
+      3: projCfg?.pix_venc_parcela3,
+      4: projCfg?.pix_venc_parcela4,
+    };
+
     // ---- 5. Cria as N cobrancas ----------------------------------------------
     const criadas = [];
     for (let k = 1; k <= n; k++) {
       const correlationID = `${referencia}-p${k}-${Date.now()}`;
-      const dueDate = emDiasISO(30 * (k - 1));
+      const dueDate = datasFixas[k]
+        ? new Date(datasFixas[k] + 'T12:00:00').toISOString()
+        : emDiasISO(30 * (k - 1));
       const cob = await woovi('/api/v1/charge', {
         method: 'POST',
         body: JSON.stringify({

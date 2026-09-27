@@ -17,7 +17,7 @@
 // JSON.stringify() pode nao bater byte a byte com o que foi assinado.
 // ============================================================================
 
-const { sb, assinaturaWooviValida, avisarVenda, avisarParcelaPaga, dividirProporcional } = require('./_lib.js');
+const { sb, assinaturaWooviValida, avisarVenda, avisarParcelaPaga, avisarPedidoPagoPai, dividirProporcional } = require('./_lib.js');
 
 module.exports.config = { api: { bodyParser: false } };
 
@@ -103,7 +103,7 @@ async function processarParcela(parcela, charge, evento) {
 
         const pedidos = await sb(
           `/orders?id=eq.${encodeURIComponent(parcela.order_id)}&select=id,order_number,is_test,amount_charged,total_amount,` +
-          'student:students(name),school:schools(name),user:users(name,phone)'
+          'student:students(name),school:schools(name),user:users(name,phone,email)'
         );
         const pedido = pedidos?.[0];
         if (!pedido) {
@@ -112,10 +112,13 @@ async function processarParcela(parcela, charge, evento) {
         }
 
         // Quantas parcelas desse pedido ainda faltam pagar (contando a que
-        // acabou de cair, ja marcada 'paid' acima)?
+        // acabou de cair, ja marcada 'paid' acima)? Traz due_date/value/total
+        // junto (nao so' o id) — e' o que monta o cronograma do e-mail pro
+        // responsavel (avisarParcelaPaga -> avisarEmailParcelaPagaPai).
         // (Linha cancelada de um parcelamento abandonado nao conta.)
         const restantes = await sb(
-          `/pix_installments?order_id=eq.${encodeURIComponent(parcela.order_id)}&status=not.in.(paid,cancelada)&select=id`
+          `/pix_installments?order_id=eq.${encodeURIComponent(parcela.order_id)}&status=not.in.(paid,cancelada)&` +
+          'select=installment_number,total_installments,due_date,value&order=installment_number.asc'
         );
         const todasPagas = !restantes || restantes.length === 0;
 
@@ -154,8 +157,9 @@ async function processarParcela(parcela, charge, evento) {
               // Valor da venda = o total do pedido, nao so' a ultima parcela
               // (antes ia o valor da parcela, e o e-mail dizia menos que a venda).
               await avisarVenda({ ...pedido, payment_method: 'pix_parcelado', amount_charged: pedido.amount_charged ?? pedido.total_amount });
+              await avisarPedidoPagoPai(pedido);
             } else {
-              await avisarParcelaPaga(pedido, parcela);
+              await avisarParcelaPaga(pedido, parcela, restantes);
             }
           } catch (e) {
             console.error('aviso de parcela (woovi)', e.message);

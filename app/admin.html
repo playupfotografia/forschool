@@ -2525,6 +2525,28 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
             </div>
           </div>
           <div class="form-group" style="margin-top:8px">
+            <label class="form-label">Vencimento fixo das parcelas (avançado)</label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <div>
+                <label style="font-size:11px;color:var(--gray-500);display:block">Parcela 2</label>
+                <input class="form-input" type="date" id="pj-pix-venc2" style="max-width:160px">
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--gray-500);display:block">Parcela 3</label>
+                <input class="form-input" type="date" id="pj-pix-venc3" style="max-width:160px">
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--gray-500);display:block">Parcela 4</label>
+                <input class="form-input" type="date" id="pj-pix-venc4" style="max-width:160px">
+              </div>
+            </div>
+            <div class="slug-hint">
+              Deixe em branco pra usar o padrão (30 dias depois da parcela anterior, contando da
+              compra). Preenchendo, essa parcela sempre vence nessa data do calendário — não
+              importa quando a família comprou. A 1ª parcela é sempre cobrada na hora da compra.
+            </div>
+          </div>
+          <div class="form-group" style="margin-top:8px">
             <label class="form-label">Conta Woovi (avançado)</label>
             <input class="form-input" id="pj-woovi-conta" placeholder="Deixe em branco = conta padrão" style="max-width:280px">
             <div class="slug-hint">
@@ -7948,6 +7970,9 @@ async function resetModalProjeto() {
   document.getElementById('pj-pix-mode').value = '';
   document.getElementById('pj-pix-parcelas').value = '';
   document.getElementById('pj-pix-parcelas-ate').value = '';
+  document.getElementById('pj-pix-venc2').value = '';
+  document.getElementById('pj-pix-venc3').value = '';
+  document.getElementById('pj-pix-venc4').value = '';
   document.getElementById('pj-woovi-conta').value = '';
   document.getElementById('pj-pix-manual').checked = true;
   document.getElementById('pj-external').checked = false;
@@ -8106,6 +8131,9 @@ async function editarProjeto(id) {
     document.getElementById('pj-pix-mode').value = p.pix_mode || '';
     document.getElementById('pj-pix-parcelas').value = p.pix_parcelas ?? '';
     document.getElementById('pj-pix-parcelas-ate').value = p.pix_parcelas_ate || '';
+    document.getElementById('pj-pix-venc2').value = p.pix_venc_parcela2 || '';
+    document.getElementById('pj-pix-venc3').value = p.pix_venc_parcela3 || '';
+    document.getElementById('pj-pix-venc4').value = p.pix_venc_parcela4 || '';
     document.getElementById('pj-woovi-conta').value = p.woovi_conta || '';
     document.getElementById('pj-pix-manual').checked = p.payment_pix_manual !== false;
     document.getElementById('pj-external').checked   = !!p.payment_external_link;
@@ -8339,6 +8367,9 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
     pix_mode: document.getElementById('pj-pix-mode').value || null,
     pix_parcelas: parseInt(document.getElementById('pj-pix-parcelas').value, 10) || null,
     pix_parcelas_ate: document.getElementById('pj-pix-parcelas-ate').value || null,
+    pix_venc_parcela2: document.getElementById('pj-pix-venc2').value || null,
+    pix_venc_parcela3: document.getElementById('pj-pix-venc3').value || null,
+    pix_venc_parcela4: document.getElementById('pj-pix-venc4').value || null,
     woovi_conta: document.getElementById('pj-woovi-conta').value.trim() || null,
     payment_pix_manual: document.getElementById('pj-pix-manual').checked,
     payment_inter: false,
