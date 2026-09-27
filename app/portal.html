@@ -1936,7 +1936,6 @@ function vigiarParcelamento(orderId, container, payloadInicial, opts = {}) {
 
       if (data.pix_payload && data.pix_payload !== payloadVisto) {
         payloadVisto = data.pix_payload;
-        toast('Parcela paga! Próxima parcela liberada.', 'ok');
         const novo = {
           ...(opts.pedido || { id: orderId, order_number: data.order_number }),
           payment_method: 'pix_parcelado',
@@ -1946,10 +1945,25 @@ function vigiarParcelamento(orderId, container, payloadInicial, opts = {}) {
           pix_payload: data.pix_payload,
           pix_qr_image: data.pix_qr_image,
         };
-        container.innerHTML = blocoCobranca(novo);
-        // Valor da parcela nova, cronograma e aviso do grupo (e reinicia
-        // este vigia com o QR novo).
-        ajustarParcelado(novo, container, opts.idsGrupo || undefined);
+        // Tela de confirmacao (mesmo estilo da tela final de "todas pagas")
+        // por alguns segundos, ANTES de trocar pro QR da proxima parcela —
+        // antes disso so' um toast rapido avisava, facil de nao perceber
+        // (o pai pagou e a tela pulava direto pra outra cobranca, sem
+        // parecer que confirmou nada). Achado testando em 27/09/2026.
+        container.innerHTML = `
+          <div class="pay-ok">
+            <img src="assets/logo-playup.png" alt="Play Up Fotografia" class="pay-ok-logo" onerror="this.style.display='none'">
+            <div class="pay-ok-icon">✓</div>
+            <div class="pay-ok-titulo">Parcela confirmada!</div>
+            <div style="font-size:12.5px;color:#166534">Preparando a próxima parcela…</div>
+          </div>`;
+        toast('Parcela paga! Próxima parcela liberada.', 'ok');
+        setTimeout(() => {
+          container.innerHTML = blocoCobranca(novo);
+          // Valor da parcela nova, cronograma e aviso do grupo (e reinicia
+          // este vigia com o QR novo).
+          ajustarParcelado(novo, container, opts.idsGrupo || undefined);
+        }, 3000);
       }
     } catch (e) {
       // rede oscilando: tenta de novo no proximo ciclo
