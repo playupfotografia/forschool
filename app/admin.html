@@ -2761,6 +2761,20 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
               <input class="form-input" type="number" step="1" min="2" style="max-width:140px" id="pjav-ov-minirmaos" placeholder="Ex: 2">
               <div class="slug-hint">Deixe em branco pra qualquer família ver. Ex: 2, pra um produto exclusivo de irmãos.</div>
             </div>
+            <div>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+                <input type="checkbox" id="pjav-ov-produtobase">
+                É um produto BASE deste projeto (ex: a Pasta em si)
+              </label>
+              <div class="slug-hint">Libera, pra quem leva este produto, os que exigem "produto base" logo abaixo.</div>
+            </div>
+            <div>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+                <input type="checkbox" id="pjav-ov-exigebase">
+                Só vende se a família já tiver um produto base (ex: cópia extra)
+              </label>
+              <div class="slug-hint">Precisa estar no carrinho junto com o produto base, ou já ter sido pago antes pelo mesmo aluno neste projeto.</div>
+            </div>
           </div>
         </div>
         <div class="form-group" style="border-top:1px solid var(--gray-100);padding-top:12px">
@@ -7301,6 +7315,8 @@ document.getElementById('btn-pj-copiar-escola').addEventListener('click', async 
         ov_pix_parcela_acrescimo: sp?.pix_parcela_acrescimo ?? null,
         ov_qty_minima: sp?.qty_minima ?? null,
         ov_min_irmaos_projeto: sp?.min_irmaos_projeto ?? null,
+        ov_is_produto_base: sp?.is_produto_base === true,
+        ov_requer_produto_base: sp?.requer_produto_base === true,
         ov_variants: sp ? (variantesOverride[sp.id] || []) : [],
         default_description: p.description || null,
         default_image_url: p.image_url || null,
@@ -7525,7 +7541,7 @@ function renderPjAvulsos() {
     return;
   }
   el.innerHTML = pjAvulsosTemp.map((a, i) => {
-    const personalizado = !!(a.ov_name || a.ov_description || a.ov_image_url || a.ov_image_url_2 || a.ov_image_url_3 || a.ov_image_url_4 || a.ov_variants_overridden || a.ov_pix_parcela_acrescimo || a.ov_qty_minima || a.ov_min_irmaos_projeto);
+    const personalizado = !!(a.ov_name || a.ov_description || a.ov_image_url || a.ov_image_url_2 || a.ov_image_url_3 || a.ov_image_url_4 || a.ov_variants_overridden || a.ov_pix_parcela_acrescimo || a.ov_qty_minima || a.ov_min_irmaos_projeto || a.ov_is_produto_base || a.ov_requer_produto_base);
     return `
     <div class="avulso-row ${a.available ? '' : 'disabled'}" data-pjav-row="${i}">
       <input type="checkbox" data-pjav-chk="${i}" ${a.available ? 'checked' : ''}>
@@ -7600,6 +7616,8 @@ function abrirPjavOverride(i) {
   document.getElementById('pjav-ov-acrescimo').value = a.ov_pix_parcela_acrescimo ?? '';
   document.getElementById('pjav-ov-qtdmin').value = a.ov_qty_minima ?? '';
   document.getElementById('pjav-ov-minirmaos').value = a.ov_min_irmaos_projeto ?? '';
+  document.getElementById('pjav-ov-produtobase').checked = !!a.ov_is_produto_base;
+  document.getElementById('pjav-ov-exigebase').checked = !!a.ov_requer_produto_base;
   renderPjavOvImagePreview(a.ov_image_url || a.default_image_url || '', !!a.ov_image_url);
 
   pjavOvExtras = [2, 3, 4].map(n => ({
@@ -7773,6 +7791,8 @@ document.getElementById('btn-salvar-pjav-override').addEventListener('click', as
     a.ov_qty_minima = qtdMinVal !== '' ? (parseInt(qtdMinVal, 10) || null) : null;
     const minIrmaosVal = document.getElementById('pjav-ov-minirmaos').value;
     a.ov_min_irmaos_projeto = minIrmaosVal !== '' ? (parseInt(minIrmaosVal, 10) || null) : null;
+    a.ov_is_produto_base = document.getElementById('pjav-ov-produtobase').checked;
+    a.ov_requer_produto_base = document.getElementById('pjav-ov-exigebase').checked;
     a.ov_variants_overridden = document.getElementById('pjav-ov-var-toggle').checked;
 
     if (a.ov_variants_overridden) {
@@ -7998,6 +8018,7 @@ async function resetModalProjeto() {
     ov_image_url_2: null, ov_image_url_3: null, ov_image_url_4: null,
     ov_variants_overridden: false, ov_variants: [], ov_featured: false,
     ov_pix_parcela_acrescimo: null, ov_qty_minima: null, ov_min_irmaos_projeto: null,
+    ov_is_produto_base: false, ov_requer_produto_base: false,
     default_description: p.description || null, default_image_url: p.image_url || null,
     default_image_url_2: p.image_url_2 || null, default_image_url_3: p.image_url_3 || null, default_image_url_4: p.image_url_4 || null,
     default_variants: variantesGlobais[p.id] || [],
@@ -8225,6 +8246,8 @@ async function editarProjeto(id) {
         ov_pix_parcela_acrescimo: sp?.pix_parcela_acrescimo ?? null,
         ov_qty_minima: sp?.qty_minima ?? null,
         ov_min_irmaos_projeto: sp?.min_irmaos_projeto ?? null,
+        ov_is_produto_base: sp?.is_produto_base === true,
+        ov_requer_produto_base: sp?.requer_produto_base === true,
         ov_variants: sp ? (variantesOverride[sp.id] || []) : [],
         default_description: p.description || null,
         default_image_url: p.image_url || null,
@@ -8497,6 +8520,8 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
         pix_parcela_acrescimo: a.ov_pix_parcela_acrescimo ?? null,
         qty_minima: a.ov_qty_minima ?? null,
         min_irmaos_projeto: a.ov_min_irmaos_projeto ?? null,
+        is_produto_base: a.ov_is_produto_base === true,
+        requer_produto_base: a.ov_requer_produto_base === true,
       }).select('id').single();
       if (spErr) throw spErr;
       if (a.ov_variants_overridden && (a.ov_variants || []).length) {

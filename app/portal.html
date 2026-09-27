@@ -1274,6 +1274,12 @@ let entregaMetodo = null;      // 'retirada' | 'motoboy'
 let entregaEndereco = '';
 let kitsCarrinho  = {};        // { basico: 1, inter: 2 } — qty por kit_type
 let avulsosCarrinho = {};     // { product_id: quantity }
+// "Copias" (migration_063) so' vendem se a familia ja tiver um produto BASE
+// (a Pasta em si, ou a versao IRMAOS) — no carrinho atual OU ja pago antes.
+// A parte "ja pago antes" nao muda durante a visita, entao e' calculada UMA
+// vez no loadCatalogo() e guardada aqui; a parte "no carrinho atual" e'
+// conferida a cada renderAvulsos(), que ja roda de novo a cada mudanca dele.
+let _familiaTemProdutoBasePago = false;
 let currentTerm = null;       // termo de autorização do projeto (ou default)
 let currentUser = null;       // dados completos do user logado (com rg, cpf, parentesco)
 
@@ -4145,8 +4151,26 @@ async function loadCatalogo(user) {
       qty_minima: sp?.qty_minima || 1,
       pix_parcela_acrescimo: sp?.pix_parcela_acrescimo || 0,
       min_irmaos_projeto: sp?.min_irmaos_projeto || null,
+      is_produto_base: sp?.is_produto_base === true,
+      requer_produto_base: sp?.requer_produto_base === true,
     };
   });
+
+  // "Copias" (migration_063) — confere se o aluno ja tem, em pedido PAGO
+  // deste projeto, algum produto marcado como base. So' consulta se existe
+  // produto exigindo isso E produto base configurado, pra nao gastar query
+  // em projeto que nao usa essa regra.
+  _familiaTemProdutoBasePago = false;
+  const idsProdutoBase = avulsosDisp.filter(a => a.is_produto_base).map(a => a.id);
+  if (idsProdutoBase.length && avulsosDisp.some(a => a.requer_produto_base)) {
+    let qBase = supabase.from('orders').select('order_items(product_id)')
+      .eq('student_id', student.id).eq('payment_status', 'paid');
+    if (projId) qBase = qBase.eq('project_id', projId);
+    const { data: pedidosPagosBase } = await qBase;
+    _familiaTemProdutoBasePago = (pedidosPagosBase || []).some(ped =>
+      (ped.order_items || []).some(oi => idsProdutoBase.includes(oi.product_id))
+    );
+  }
 
   renderKits();
   renderAvulsos();
@@ -4248,7 +4272,18 @@ function renderAvulsos() {
   const destaque = destaqueIrmaos || avulsosDisp.find(a => a.featured) || null;
   renderDestaque(destaque);
 
-  el.innerHTML = avulsosDisp.filter(a => a !== destaque).map(a => {
+  // "Copias" (migration_063) — some da grade pra quem ainda nao tem o
+  // produto BASE (a Pasta, ou IRMAOS): nem no carrinho de agora, nem pago
+  // antes. Roda a cada renderAvulsos() (chamado depois de toda mudanca no
+  // carrinho), entao adicionar a Pasta na hora ja libera a copia sem precisar
+  // recarregar a pagina.
+  const idsProdutoBaseNaTela = avulsosDisp.filter(x => x.is_produto_base).map(x => x.id);
+  const temBaseNoCarrinho = idsProdutoBaseNaTela.some(id =>
+    Object.keys(avulsosCarrinho).some(chave => chave.split('::')[0] === id)
+  );
+  const podeVerCopias = temBaseNoCarrinho || _familiaTemProdutoBasePago;
+
+  el.innerHTML = avulsosDisp.filter(a => a !== destaque && (!a.requer_produto_base || podeVerCopias)).map(a => {
     const temVar = a.variants && a.variants.length > 0;
     const price = isPromo ? a.price_with_promo : a.price_without_promo;
     const oldPrice = (isPromo && a.price_without_promo > a.price_with_promo) ? a.price_without_promo : null;

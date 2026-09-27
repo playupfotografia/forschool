@@ -74,11 +74,11 @@ module.exports = async (req, res) => {
 
     // Avulsos: school_prices do projeto tem prioridade; sem elas, as da escola.
     let precosDb = projectId
-      ? await sb(`/school_prices?project_id=eq.${q(projectId)}&select=product_id,available,price_with_promo,price_without_promo,qty_minima,min_irmaos_projeto`)
+      ? await sb(`/school_prices?project_id=eq.${q(projectId)}&select=product_id,available,price_with_promo,price_without_promo,qty_minima,min_irmaos_projeto,is_produto_base,requer_produto_base`)
       : [];
     if (!precosDb.length) {
       precosDb = await sb(
-        `/school_prices?school_id=eq.${q(aluno.school_id)}&project_id=is.null&select=product_id,available,price_with_promo,price_without_promo,qty_minima,min_irmaos_projeto`
+        `/school_prices?school_id=eq.${q(aluno.school_id)}&project_id=is.null&select=product_id,available,price_with_promo,price_without_promo,qty_minima,min_irmaos_projeto,is_produto_base,requer_produto_base`
       );
     }
     const precoPorProduto = {};
@@ -218,6 +218,37 @@ module.exports = async (req, res) => {
         variant_name: variantName,
       });
       total += unit * qtd;
+    }
+
+    // "Copias" (migration_063) — so' vendem se a familia ja tem (neste mesmo
+    // carrinho OU pago antes) um produto marcado como BASE deste projeto. O
+    // portal ja esconde esses avulsos do catalogo pra quem nao qualifica;
+    // aqui e' a mesma regra confirmada no servidor, pro pedido nunca depender
+    // so' do que o navegador deixou passar.
+    const itensQuePrecisaBase = itensFinal.filter((it) => precoPorProduto[it.product_id]?.requer_produto_base);
+    if (itensQuePrecisaBase.length) {
+      const temBaseNoCarrinho = itensFinal.some((it) => precoPorProduto[it.product_id]?.is_produto_base);
+      let temBasePaga = false;
+      if (!temBaseNoCarrinho) {
+        const baseIds = precosDb.filter((p) => p.is_produto_base).map((p) => p.product_id);
+        if (baseIds.length) {
+          const filtroProjeto = projectId ? `&project_id=eq.${q(projectId)}` : '';
+          const pedidosPagos = await sb(`/orders?student_id=eq.${q(studentId)}&payment_status=eq.paid${filtroProjeto}&select=id`);
+          const idsPedidosPagos = (pedidosPagos || []).map((p) => p.id);
+          if (idsPedidosPagos.length) {
+            const itensPagos = await sb(
+              `/order_items?order_id=in.(${idsPedidosPagos.map(q).join(',')})&product_id=in.(${baseIds.map(q).join(',')})&select=id&limit=1`
+            );
+            temBasePaga = (itensPagos || []).length > 0;
+          }
+        }
+      }
+      if (!temBaseNoCarrinho && !temBasePaga) {
+        const nomeProd = produtos.find((p) => p.id === itensQuePrecisaBase[0].product_id)?.name || 'Este item';
+        return res.status(400).json({
+          erro: `${nomeProd} so esta disponivel pra quem ja tem a Pasta Memorias Escolar (ou Irmaos) neste projeto.`,
+        });
+      }
     }
 
     if (!kitsFinal.length && !itensFinal.length) {
