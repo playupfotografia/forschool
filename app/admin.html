@@ -8438,7 +8438,16 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
     await supabase.from('school_kits').delete().eq('project_id', projId);
     for (const type of KIT_TYPES) {
       const k = pjKitsTemp[type];
-      if (!k || (!k.available && k.items.length === 0 && !k.price)) continue;
+      // So pula quem nunca foi mexido (ainda no padrao de kitVazio():
+      // disponivel, sem item, sem preco) — nada real pra gravar. Qualquer
+      // outro estado, INCLUSIVE desmarcado e vazio, precisa virar linha:
+      // senao desmarcar um kit vazio e salvar nao persiste — ao reabrir o
+      // projeto ele volta pro padrao "disponivel" (kitVazio()), e no portal
+      // a ausencia de linha faz cair pros kits da ESCOLA — o kit desmarcado
+      // reaparece no catalogo (achado real, 27/09/2026, "Recordacao Escola
+      // MAIS": os 3 tipos de kit foram desmarcados por nao usar kit nenhum,
+      // e o catalogo mostrava os kits genericos da escola mesmo assim).
+      if (!k || (k.available === true && k.items.length === 0 && !k.price)) continue;
       const { data: kitIns, error: kitErr } = await supabase
         .from('school_kits')
         .insert({ school_id: schoolIdForKits, project_id: projId, kit_type: type, name: k.name || KIT_LABELS[type], description: k.description || null, image_url: k.image_url || null, price: k.price || 0, available: k.available })

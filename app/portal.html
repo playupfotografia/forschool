@@ -4048,15 +4048,25 @@ async function loadCatalogo(user) {
   // Buscar kits + items + produtos — prefere nível de projeto, cai para escola
   const projId = projeto?.id;
   const [kitsProj, kitsEsc, itemsResp, prodsResp, pricesProj, pricesEsc] = await Promise.all([
-    projId ? supabase.from('school_kits').select('*').eq('project_id', projId).eq('available', true).order('kit_type') : Promise.resolve({ data: [] }),
+    // Traz TODOS os kits do projeto, disponivel ou nao — precisa saber se o
+    // projeto ja tem linha configurada pra decidir se cai pros kits da
+    // escola (ver comentario abaixo).
+    projId ? supabase.from('school_kits').select('*').eq('project_id', projId).order('kit_type') : Promise.resolve({ data: [] }),
     supabase.from('school_kits').select('*').eq('school_id', escola.id).is('project_id', null).eq('available', true).order('kit_type'),
     supabase.from('school_kit_items').select('*, kit:school_kits!inner(school_id), product:products(*)').eq('kit.school_id', escola.id),
     supabase.from('products').select('*').eq('active', true).eq('type', 'avulso').order('sort_order'),
     projId ? supabase.from('school_prices').select('*').eq('project_id', projId) : Promise.resolve({ data: [] }),
     supabase.from('school_prices').select('*').eq('school_id', escola.id).is('project_id', null),
   ]);
-  // Usa kits do projeto se existirem, senão usa da escola
-  const kitsResp = (kitsProj.data && kitsProj.data.length) ? kitsProj : kitsEsc;
+  // Projeto que ja tem QUALQUER linha de kit (mesmo as 3 desmarcadas) usa SO'
+  // as dele, filtradas por disponivel — nunca cai pra escola nesse caso. Cair
+  // pra escola e' so' pro projeto que NUNCA configurou kit nenhum. Bug real
+  // corrigido em 27/09/2026: "zero kit disponivel" e "nunca configurou kit"
+  // pareciam a mesma coisa (as duas davam array vazio), entao projeto com
+  // todo kit desmarcado de proposito mostrava os kits genericos da escola.
+  const kitsResp = (kitsProj.data && kitsProj.data.length)
+    ? { data: kitsProj.data.filter(k => k.available) }
+    : kitsEsc;
   // Usa preços do projeto se existirem, senão usa da escola
   const pricesResp = (pricesProj.data && pricesProj.data.length) ? pricesProj : pricesEsc;
 
