@@ -5407,6 +5407,7 @@ function renderProdCards() {
         ${Number(p.production_cost) > 0 ? `<div style="font-size:10px;color:var(--orange);margin-bottom:7px">Custo: ${fmtMoney(p.production_cost)}</div>` : ''}
         <div style="display:flex;gap:5px">
           <button class="btn btn-sm btn-secondary" data-edit="${p.id}" style="flex:1">Editar</button>
+          <button class="btn btn-sm btn-secondary" data-dup="${p.id}" title="Duplicar — copia nome, descrição, preço e imagens pra um produto novo">📋</button>
           <button class="btn btn-sm btn-danger" data-del="${p.id}">✕</button>
         </div>
       </div>
@@ -5414,6 +5415,7 @@ function renderProdCards() {
   }).join('');
 
   grid.querySelectorAll('[data-edit]').forEach(btn => btn.addEventListener('click', () => editarProduto(btn.dataset.edit)));
+  grid.querySelectorAll('[data-dup]').forEach(btn => btn.addEventListener('click', () => duplicarProduto(btn.dataset.dup)));
   grid.querySelectorAll('[data-del]').forEach(btn => btn.addEventListener('click', () => excluirProduto(btn.dataset.del)));
 
   // Drag and drop
@@ -5548,6 +5550,63 @@ async function editarProduto(id) {
     document.getElementById('mod-prod').classList.add('open');
   } catch (err) {
     handleError(err, 'editarProduto');
+  }
+}
+
+// Duplicar produto — mesmo modal de editarProduto, mas com editProdId=null
+// (o "Salvar" cria um produto NOVO em vez de sobrescrever o original) e o
+// nome com "(cópia)" pra nunca confundir os dois na lista. Pensado pra quem
+// so' muda imagem e preço de um produto parecido, sem digitar a descrição
+// de novo (pedido real, 27/09/2026).
+async function duplicarProduto(id) {
+  try {
+    const { data, error } = await supabase.from('products').select('*').eq('id', id).single();
+    if (error) throw error;
+
+    const { data: variantes, error: vErr } = await supabase
+      .from('product_variants').select('*').eq('product_id', id).order('sort_order');
+    if (vErr) console.error('product_variants:', vErr.message);
+
+    editProdId = null;
+    // Variacoes copiadas sem id -> no save viram INSERT (produto novo, nada
+    // pra reconciliar ainda).
+    prVariantesTemp = (variantes || []).map(v => ({
+      id: null, name: v.name, image_url: v.image_url,
+      price_with_promo: v.price_with_promo, price_without_promo: v.price_without_promo,
+      photo_theme: v.photo_theme || '',
+      _file: null,
+    }));
+    prVariantesOriginalIds = new Set();
+    renderPrVariantes();
+
+    document.getElementById('mod-prod-title').textContent = `Novo produto (copiado de "${data.name}")`;
+    document.getElementById('pr-nome').value = `${data.name || ''} (cópia)`;
+    document.getElementById('pr-desc').value = data.description || '';
+    document.getElementById('pr-img').value  = data.image_url || '';
+    document.getElementById('pr-tema').value = data.photo_theme || '';
+    document.getElementById('pr-pcom').value = data.base_price_with_promo || '';
+    document.getElementById('pr-psem').value = data.base_price_without_promo || '';
+    document.getElementById('pr-cost').value = data.production_cost || '';
+    updateProdPreview(data.image_url || '');
+    [2,3,4].forEach(n => {
+      const v = data['image_url_' + n] || '';
+      document.getElementById('pr-img-'+n).value = v;
+      updateExtraPreview(n, v);
+    });
+    // Moldura e slots -- produto duplicado costuma reusar a mesma moldura.
+    prFrameUrl = data.frame_url || null;
+    document.getElementById('pr-frame-w').value = data.frame_width_mm || '';
+    document.getElementById('pr-frame-h').value = data.frame_height_mm || '';
+    document.getElementById('pr-frame-nome').textContent = data.frame_url ? '✓ Moldura cadastrada' : '';
+    const fprev = document.getElementById('pr-frame-preview');
+    fprev.innerHTML = data.frame_url ? `<img src="${data.frame_url}" style="width:100%;height:100%;object-fit:contain">` : '🖼';
+    prSlots = Array.isArray(data.slots) ? JSON.parse(JSON.stringify(data.slots)) : [];
+    prSlotsAtualizarFrame(data.frame_url || null);
+
+    document.getElementById('mod-prod').classList.add('open');
+    toast('Produto copiado — troque a imagem/preço e clique em Salvar pra criar o novo.', 'ok');
+  } catch (err) {
+    handleError(err, 'duplicarProduto');
   }
 }
 
