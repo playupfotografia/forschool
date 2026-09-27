@@ -1271,22 +1271,53 @@ let avulsosCarrinho = {};     // { product_id: quantity }
 let currentTerm = null;       // termo de autorização do projeto (ou default)
 let currentUser = null;       // dados completos do user logado (com rg, cpf, parentesco)
 
-// Acrescimo de parcelamento (migration_061) do que esta no carrinho agora —
-// soma UMA VEZ por produto distinto (nunca pela quantidade), mesma regra do
-// servidor em calcularAcrescimoParcelamento (api/_lib.js). So' estimativa
-// pra tela nao mostrar um numero e cobrar outro — quem vale e' o servidor.
-function estimarAcrescimoParcelamento() {
+// Acrescimo de parcelamento (migration_061) — soma UMA VEZ por produto
+// distinto (nunca pela quantidade), mesma regra do servidor em
+// calcularAcrescimoParcelamento (api/_lib.js). So' estimativa pra tela nao
+// mostrar um numero e cobrar outro — quem vale e' o servidor.
+//
+// Com pedido.id: busca os itens DO PEDIDO DE VERDADE no banco — nao pode
+// depender do carrinho em memoria (avulsosCarrinho), que so' reflete o que
+// acabou de ser montado NESTA mesma visita. Reabrir a tela de pagamento
+// depois (Minha Area, ou um F5) chega aqui com o carrinho vazio, e o
+// acrescimo saia zerado mesmo o pedido tendo o produto certo — bug real
+// achado testando em 27/09/2026.
+// Sem pedido.id (preview antes de existir pedido no banco): cai no
+// carrinho mesmo, que e' a unica fonte disponivel nesse momento.
+async function acrescimoDeProdutoIds(produtoIds) {
+  if (!produtoIds.length) return 0;
+  // Catalogo ja carregado (avulsosDisp populado) — evita 1 query a mais.
+  if (avulsosDisp.length) {
+    return produtoIds.reduce((s, pid) => {
+      const av = avulsosDisp.find(a => a.id === pid);
+      return s + (Number(av?.pix_parcela_acrescimo) || 0);
+    }, 0);
+  }
+  const { data: precos } = await supabase
+    .from('school_prices').select('product_id, pix_parcela_acrescimo')
+    .eq('project_id', projeto.id).in('product_id', produtoIds);
+  return (precos || []).reduce((s, p) => s + (Number(p.pix_parcela_acrescimo) || 0), 0);
+}
+
+// Soma o acrescimo de TODOS os pedidos do grupo (irmaos pagando junto) de
+// uma vez so' — mesma regra do servidor: cada produto conta UMA vez, mesmo
+// que apareca nos dois pedidos (ex: os dois compraram o produto de irmaos).
+async function acrescimoDeOrderIds(orderIds) {
+  const ids = (orderIds || []).filter(Boolean);
+  if (!ids.length) return 0;
+  const { data: itens } = await supabase.from('order_items').select('product_id').in('order_id', ids);
+  const produtoIds = [...new Set((itens || []).map(i => i.product_id).filter(Boolean))];
+  return acrescimoDeProdutoIds(produtoIds);
+}
+
+async function estimarAcrescimoParcelamento(pedido) {
+  if (pedido?.id) return acrescimoDeOrderIds([pedido.id]);
   const ids = new Set();
   Object.keys(avulsosCarrinho || {}).forEach(chave => {
     const pid = chave.split('::')[0];
     if (pid) ids.add(pid);
   });
-  let soma = 0;
-  ids.forEach(pid => {
-    const av = avulsosDisp.find(a => a.id === pid);
-    if (av?.pix_parcela_acrescimo) soma += Number(av.pix_parcela_acrescimo) || 0;
-  });
-  return soma;
+  return acrescimoDeProdutoIds([...ids]);
 }
 
 // ====================================================================
@@ -1591,7 +1622,7 @@ async function authHeaders() {
     : { 'Content-Type': 'application/json' };
 }
 
-function renderPaymentMethods(pedido, el) {
+async function renderPaymentMethods(pedido, el) {
   if (!el) el = document.getElementById('confirm-payment-methods');
   if (!el) return;
   const total = Number(pedido?.total_amount) || 0;
@@ -1617,7 +1648,7 @@ function renderPaymentMethods(pedido, el) {
   const temAutomatico     = pixAuto || cartaoAutomatico;
 
   const blocks = [];
-  if (temAutomatico) blocks.push(blocoEscolhaPagamento(pedido, total));
+  if (temAutomatico) blocks.push(await blocoEscolhaPagamento(pedido, total));
   if (!pixAuto && canPixManual) blocks.push(blocoPixManual(total));
   if (!cartaoAutomatico) blocks.push(blocoCartaoWpp(total, pedido));
 
@@ -1662,7 +1693,7 @@ function renderPaymentMethods(pedido, el) {
   );
 }
 
-function blocoEscolhaPagamento(pedido, total) {
+async function blocoEscolhaPagamento(pedido, total) {
   const oid = pedido?.id || '';
   const opts = [];
   // PIX automatico ou manual: o botao so aparece se for automatico, mas o
@@ -1697,7 +1728,7 @@ function blocoEscolhaPagamento(pedido, total) {
       // dividir pelas parcelas, senao o pai veria um numero aqui e outro
       // maior depois de clicar (o servidor cobra o valor certo de qualquer
       // jeito; isso e' so' pra estimativa bater com a cobranca real).
-      const totalComAcrescimo = total + estimarAcrescimoParcelamento();
+      const totalComAcrescimo = total + await estimarAcrescimoParcelamento(pedido);
       const parcelaEstimativa = Math.ceil((totalComAcrescimo / nParc) * 100) / 100;
       // Vencimento fixo (migration_062) muda o texto — "a cada 30 dias" fica
       // errado quando o projeto tem datas fixas configuradas (ex: sempre dia
@@ -2245,7 +2276,11 @@ async function ofertarPagamentoConjunto(pedido, el) {
     const prazoPixPassou = projeto?.pix_parcelas_ate && new Date().toISOString().slice(0, 10) > projeto.pix_parcelas_ate;
     const nPix = prazoPixPassou ? 0 : (parseInt(projeto?.pix_parcelas, 10) || 0);
     if (pixAutomaticoAtivo() && nPix >= 2) {
-      parcelados.push(['pix_parcelado', nPix, `💚 PIX em ${nPix}× de ${fmtMoney(Math.ceil((totalComDesconto / nPix) * 100) / 100)}`]);
+      // Acrescimo de parcelamento (migration_061) somado ANTES de dividir —
+      // mesma regra da tela solo (blocoEscolhaPagamento), agora somando os
+      // itens dos DOIS pedidos do grupo (uma vez por produto distinto).
+      const totalPixComAcrescimo = totalComDesconto + await acrescimoDeOrderIds(orderIds);
+      parcelados.push(['pix_parcelado', nPix, `💚 PIX em ${nPix}× de ${fmtMoney(Math.ceil((totalPixComAcrescimo / nPix) * 100) / 100)}`]);
     }
     if (PAY_CFG.credito) {
       const antec2 = PAY_CFG.antecipa ? (Number(PAY_CFG.antecParc) || 0) : 0;
@@ -3414,11 +3449,15 @@ async function loadMinhaConta() {
 
     // Instrução de pagamento para pedidos pendentes — pulado quando ja'
     // identificado como pago via outro cadastro (mc-dup-aviso acima cobre).
+    // renderPaymentMethods() e' async (busca o acrescimo de parcelamento no
+    // banco) — precisa terminar (await) ANTES de ofertarPagamentoConjunto()
+    // mexer no mesmo `el`, senao o innerHTML de um sobrescreve o do outro
+    // dependendo de qual Promise resolve primeiro.
     if (!pedidoVinculadoPago) {
-      pedidos.filter(p => p.payment_status === 'pending').forEach(p => {
+      for (const p of pedidos.filter(p => p.payment_status === 'pending')) {
         const el = document.getElementById(`mc-pay-${p.order_number}`);
-        if (el) { renderPaymentMethods(p, el); ofertarPagamentoConjunto(p, el); }
-      });
+        if (el) { await renderPaymentMethods(p, el); await ofertarPagamentoConjunto(p, el); }
+      }
     }
   }
 
@@ -4708,8 +4747,8 @@ document.getElementById('btn-finalizar').addEventListener('click', async () => {
     document.getElementById('confirm-payment-methods').innerHTML = '';
 
     const pedidoConfirm = { id: dados.order_id, order_number: dados.order_number, total_amount: totalReal };
-    renderPaymentMethods(pedidoConfirm);
-    ofertarPagamentoConjunto(pedidoConfirm, document.getElementById('confirm-payment-methods'));
+    await renderPaymentMethods(pedidoConfirm);
+    await ofertarPagamentoConjunto(pedidoConfirm, document.getElementById('confirm-payment-methods'));
     renderIrmaosConfirm();
 
     document.getElementById('link-wpp').href = `https://wa.me/${WPP_NUMERO}?text=${encodeURIComponent(
