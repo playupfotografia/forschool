@@ -1895,8 +1895,13 @@ function blocoCronogramaParcelas(parcelas, atual) {
   const linhas = parcelas.map(p => {
     const data = new Date(p.vencimento + 'T00:00:00').toLocaleDateString('pt-BR');
     const marca = p.numero < atual ? '✓' : (p.numero === atual ? '👉' : '');
+    // Parcela ja paga mostra "pago dd/mm" em vez de "vence dd/mm" — senao da
+    // a entender que ainda esta pra vencer mesmo depois de confirmada (achado
+    // real, 27/09/2026: pai via "vence dia 27" na parcela que ele acabou de
+    // pagar no dia 27).
+    const situacao = p.paga ? `pago ${data}` : `vence ${data}`;
     return `<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13px;${p.numero === atual ? 'font-weight:700' : 'color:var(--gray-500)'}">
-      <span>${marca} Parcela ${p.numero}</span><span>${fmtMoney(p.valor)} — vence ${data}</span>
+      <span>${marca} Parcela ${p.numero}</span><span>${fmtMoney(p.valor)} — ${situacao}</span>
     </div>`;
   }).join('');
   return `<div class="pay-box" style="margin-top:10px">
