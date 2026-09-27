@@ -1963,7 +1963,7 @@ function vigiarParcelamento(orderId, container, payloadInicial, opts = {}) {
           // Valor da parcela nova, cronograma e aviso do grupo (e reinicia
           // este vigia com o QR novo).
           ajustarParcelado(novo, container, opts.idsGrupo || undefined);
-        }, 3000);
+        }, 10000);
       }
     } catch (e) {
       // rede oscilando: tenta de novo no proximo ciclo
