@@ -11751,7 +11751,7 @@ async function editarAluno(id) {
   pedidoSection.style.display = 'none';
   const { data: ord } = await supabase
     .from('orders')
-    .select(`id, order_number, kit_type, total_amount, payment_status, payment_proof_url, paid_at, created_at,
+    .select(`id, order_number, kit_type, total_amount, payment_status, payment_method, payment_proof_url, paid_at, created_at,
       kits:order_kits(id, quantity, unit_price, kit:school_kits(id, name, kit_type)),
       items:order_items(id, quantity, unit_price, product:products(id, name))`)
     .eq('student_id', id)
@@ -11759,6 +11759,23 @@ async function editarAluno(id) {
     .limit(1)
     .maybeSingle();
   if (ord) {
+    // PIX parcelado (migration_058): mesmo resumo "X de Y pagas" que Pedidos
+    // e Alunos & Pedidos ja mostram — sem isso aqui, quem abre o aluno direto
+    // (em vez de passar pela lista) nao tem como saber que ja tem parcela paga.
+    if (ord.payment_method === 'pix_parcelado') {
+      const { data: pcs } = await supabase
+        .from('pix_installments')
+        .select('total_installments, status')
+        .eq('order_id', ord.id)
+        .neq('status', 'cancelada');
+      if (pcs?.length) {
+        ord.parcelasResumo = {
+          pagas: pcs.filter(p => p.status === 'paid').length,
+          total: pcs[0].total_installments,
+          atrasada: pcs.some(p => p.status === 'atrasada'),
+        };
+      }
+    }
     editAlunoOrderData = ord;
     pedidoSection.style.display = 'block';
     renderPedidoNoModal(ord, document.getElementById('al-pedido-content'));
@@ -11913,6 +11930,10 @@ function renderPedidoNoModal(order, el) {
         ${statusBadge}
         <span style="margin-left:auto;font-weight:600;font-size:14px">${fmtCur(order.total_amount)}</span>
       </div>
+      ${order.parcelasResumo ? `
+      <div style="font-size:11px;font-weight:600;margin-bottom:8px;color:${order.parcelasResumo.atrasada ? 'var(--red)' : (order.parcelasResumo.pagas >= order.parcelasResumo.total ? 'var(--green)' : 'var(--orange)')}">
+        ${order.parcelasResumo.atrasada ? '🔴 ' : ''}${order.parcelasResumo.pagas}/${order.parcelasResumo.total} parcelas pagas (PIX parcelado)
+      </div>` : ''}
       ${(kitsHtml || itemsHtml) ? `
       <div style="border-top:1px solid var(--gray-200);padding-top:8px">
         ${kitsHtml}
