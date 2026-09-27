@@ -191,6 +191,12 @@ button,input,select,textarea{font-family:var(--font)}
 .pay-opt{width:100%;text-align:left;background:var(--white);border:2px solid var(--gray-200);border-radius:12px;padding:13px 14px;cursor:pointer;font-family:inherit;transition:border-color .15s,box-shadow .15s}
 .pay-opt:hover:not(:disabled){border-color:var(--blue);box-shadow:0 2px 10px rgba(75,107,251,.13)}
 .pay-opt:disabled{cursor:default}
+/* Botoes de "pagar junto"/"parcelado junto" (ofertarPagamentoConjunto) — sem
+   isso pareciam nao-clicaveis (achado testando em 27/09/2026: funcionavam,
+   so' nao davam nenhuma pista visual de hover, diferente do .pay-opt acima). */
+.pay-junto-btn{cursor:pointer;transition:transform .1s,box-shadow .15s,filter .15s}
+.pay-junto-btn:hover{filter:brightness(0.95);box-shadow:0 2px 8px rgba(0,0,0,.12)}
+.pay-junto-btn:active{transform:scale(0.98)}
 .pay-opt-pix{border-color:var(--green);background:#F0FDF4}
 .pay-opt-pix:hover:not(:disabled){border-color:var(--green);box-shadow:0 2px 10px rgba(39,174,96,.18)}
 .pay-opt-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px}
@@ -2326,7 +2332,7 @@ async function ofertarPagamentoConjunto(pedido, el) {
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         ${metodos.map(([m, label]) => `
-          <button type="button" class="btn" style="background:var(--green);color:#fff;flex:1;padding:10px"
+          <button type="button" class="btn pay-junto-btn" style="background:var(--green);color:#fff;flex:1;padding:10px"
                   onclick="pagarComTodos(['${orderIds[0]}','${orderIds[1]}'],'${m}','${el.id}','${numerosJuntos}',1)">
             ${label} · pagar junto
           </button>`).join('')}
@@ -2335,7 +2341,7 @@ async function ofertarPagamentoConjunto(pedido, el) {
         <div style="font-size:11.5px;color:#1A6B3C;font-weight:600;margin:10px 0 4px">Ou parcelado, junto:</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           ${parcelados.map(([m, n, rotulo]) => `
-            <button type="button" class="btn" style="background:#fff;color:#1A6B3C;border:1.5px solid var(--green);flex:1 1 45%;padding:8px;font-size:12.5px"
+            <button type="button" class="btn pay-junto-btn" style="background:#fff;color:#1A6B3C;border:1.5px solid var(--green);flex:1 1 45%;padding:8px;font-size:12.5px"
                     onclick="pagarComTodos(['${orderIds[0]}','${orderIds[1]}'],'${m}','${el.id}','${numerosJuntos}',${n})">
               ${rotulo}
             </button>`).join('')}
