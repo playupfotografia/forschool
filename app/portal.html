@@ -1121,6 +1121,9 @@ body.modo-demo::after{content:'';position:fixed;inset:0;border:4px solid #7C3AED
   </div>
 </div>
 
+<!-- Recibo em PDF (Minha Area) — mesma biblioteca/versao ja usada no admin -->
+<script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
+
 <!-- ============ JS ============ -->
 <script type="module">
 import { supabase, getCurrentUser, signIn, signUp, signOut, fmtMoney, toast, handleError } from './js/supabase-client.js';
@@ -1219,6 +1222,9 @@ let WPP_NUMERO = '5511999363796';
 let PIX_KEY    = '22.654.700/0001-32';
 let PIX_LABEL  = 'CNPJ Play Up Fotografia';
 let BUSINESS_NAME = 'Play Up Fotografia';
+let BUSINESS_CNPJ = '';
+let BUSINESS_EMAIL = '';
+let BUSINESS_ADDRESS = '';
 let PAY_LINK_URL   = '';
 let PAY_LINK_LABEL = 'Pagar com cartão ou PIX';
 let MIN_INSTALLMENT_VALUE = 40;
@@ -1291,7 +1297,7 @@ async function loadSettings() {
   try {
     const { data, error } = await supabase
       .from('app_settings')
-      .select('whatsapp_number, whatsapp_message, pix_key, pix_key_type, pix_label, business_name, payment_link_url, payment_link_label, min_installment_value, max_installments, aniv_img_cobertura, aniv_img_totem, aniv_img_album, aniv_link_cobertura, aniv_link_totem, aniv_link_album, pay_pix_enabled, pay_credit_enabled, pay_debit_enabled, surcharge_mode, card_fee_percent, card_fee_percent_installment, card_fee_fixed, debit_fee_percent, debit_fee_fixed, anticipation_enabled, anticipation_fee_percent, anticipation_fee_percent_installment')
+      .select('whatsapp_number, whatsapp_message, pix_key, pix_key_type, pix_label, business_name, cnpj, support_email, address, payment_link_url, payment_link_label, min_installment_value, max_installments, aniv_img_cobertura, aniv_img_totem, aniv_img_album, aniv_link_cobertura, aniv_link_totem, aniv_link_album, pay_pix_enabled, pay_credit_enabled, pay_debit_enabled, surcharge_mode, card_fee_percent, card_fee_percent_installment, card_fee_fixed, debit_fee_percent, debit_fee_fixed, anticipation_enabled, anticipation_fee_percent, anticipation_fee_percent_installment')
       .eq('id', 1)
       .maybeSingle();
     if (error) throw error;
@@ -1305,6 +1311,9 @@ async function loadSettings() {
         PIX_LABEL = map[data.pix_key_type] || '';
       }
       if (data.business_name) BUSINESS_NAME = data.business_name;
+      if (data.cnpj) BUSINESS_CNPJ = data.cnpj;
+      if (data.support_email) BUSINESS_EMAIL = data.support_email;
+      if (data.address) BUSINESS_ADDRESS = data.address;
       if (data.payment_link_url) PAY_LINK_URL = data.payment_link_url;
       if (data.payment_link_label) PAY_LINK_LABEL = data.payment_link_label;
       if (data.min_installment_value != null) MIN_INSTALLMENT_VALUE = Number(data.min_installment_value);
@@ -3301,15 +3310,19 @@ async function loadMinhaConta() {
   const { data: pedidos, error: pErr } = await supabase
     .from('orders')
     .select(`
-      id, order_number, payment_status, total_amount, created_at, kit_type,
+      id, order_number, payment_status, total_amount, created_at, paid_at, kit_type,
       amount_charged, installments, pix_payload, pix_qr_image, checkout_url, payment_group_id,
       has_paid_installment, cancelled_at, payment_method,
-      order_kits(quantity, kit:school_kits(name, kit_type)),
-      order_items(quantity, product:products(name))
+      order_kits(quantity, unit_price, kit:school_kits(name, kit_type)),
+      order_items(quantity, unit_price, variant_name, product:products(name))
     `)
     .eq('student_id', student.id)
     .eq('project_id', projeto.id)
     .order('created_at', { ascending: false });
+
+  // Guarda todos (nao so' os pendentes) — o recibo (baixarReciboPDF) precisa
+  // achar o pedido pago sem fazer uma query nova.
+  (pedidos || []).forEach(p => { _pedidosPorId[p.id] = p; });
 
   // Duplicidade de cadastro (migration_035): mesma crianca cadastrada por
   // dois responsaveis diferentes, cada um com seu proprio pedido. Se o
@@ -3321,6 +3334,22 @@ async function loadMinhaConta() {
     const { data: vinc } = await supabase.rpc('get_pedido_vinculado', { p_student_id: student.id });
     const linkado = vinc && vinc[0];
     if (linkado && linkado.payment_status === 'paid') pedidoVinculadoPago = linkado;
+  }
+
+  // Recibo por parcela (PIX parcelado, migration_062 -> recibo) — busca
+  // todas as parcelas JA PAGAS de uma vez pra nao fazer 1 query por pedido.
+  let parcelasPagasPorPedido = {};
+  const idsParcelado = (pedidos || []).filter(p => p.payment_method === 'pix_parcelado').map(p => p.id);
+  if (idsParcelado.length) {
+    const { data: parcelasPagas } = await supabase
+      .from('pix_installments')
+      .select('order_id, installment_number, total_installments, value, paid_at')
+      .in('order_id', idsParcelado)
+      .eq('status', 'paid')
+      .order('installment_number');
+    (parcelasPagas || []).forEach(pp => {
+      (parcelasPagasPorPedido[pp.order_id] ||= []).push(pp);
+    });
   }
 
   const pedidosEl = document.getElementById('mc-pedidos-lista');
@@ -3371,6 +3400,7 @@ async function loadMinhaConta() {
                 : `<div id="mc-pay-${p.order_number}" style="margin-top:10px"></div>
                    ${p.has_paid_installment ? '' : botaoDesistirPedido(p)}`)
             : ''}
+          ${blocoRecibos(p, parcelasPagasPorPedido[p.id] || [])}
         </div>
       </div>`;
     }).join('');
@@ -3773,6 +3803,150 @@ window.desistirDoPedido = async function (orderId, orderNumber) {
   } catch (err) {
     toast(err.message, 'warn');
   }
+};
+
+// ====================================================================
+// RECIBO — autoatendimento (pedido do Daniel: hoje todo pedido de recibo
+// de um pai vira ele pedindo pra gerar na mao; isso deixa disponivel na
+// Minha Area, sem depender de ninguem). Reusa o mesmo padrao visual do
+// recibo que o admin ja gera (montarConteudoRecibo em admin.html) —
+// arquivos diferentes, sem import cruzado entre os dois SPAs, entao o
+// HTML/CSS foi replicado aqui de proposito.
+//
+// PIX à vista/cartão (à vista ou parcelado no cartão): 1 recibo por
+// PEDIDO, so' quando fecha 100% (payment_status === 'paid').
+// PIX parcelado (Woovi): 1 recibo por PARCELA JA PAGA — o pedido inteiro
+// so' vira "paid" na ultima parcela, mas o pai pode querer comprovante de
+// uma parcela especifica no meio do caminho.
+// ====================================================================
+function blocoRecibos(p, parcelasPagas) {
+  if (p.payment_status === 'cancelled' || p.payment_status === 'refunded') return '';
+  const partes = [];
+  if (p.payment_status === 'paid') {
+    partes.push(`<button type="button" class="pay-trocar" style="color:var(--blue);margin-top:8px;display:block" onclick="baixarReciboPDF('${p.id}')">🧾 Baixar recibo</button>`);
+  }
+  if (p.payment_method === 'pix_parcelado' && parcelasPagas.length) {
+    partes.push(parcelasPagas.map(pp => `<button type="button" class="pay-trocar" style="color:var(--blue);margin-top:4px;display:block" onclick="baixarReciboParcelaPDF('${p.id}',${pp.installment_number})">🧾 Recibo da parcela ${pp.installment_number} de ${pp.total_installments}</button>`).join(''));
+  }
+  return partes.join('');
+}
+
+// "parcela" (opcional): { installment_number, total_installments, value, paid_at }
+// — quando presente, o recibo e' de UMA parcela especifica, nao do pedido
+// inteiro (valor e data de pagamento vem dela, nao do total do pedido).
+function montarConteudoRecibo(pedido, parcela) {
+  const dataEmissao = new Date().toLocaleString('pt-BR');
+  const dataPedido = new Date(pedido.created_at).toLocaleDateString('pt-BR');
+  const turma = student?.school_classes;
+  const anoTxt = turma?.year?.name || '';
+  const turmaTxt = turma?.name || '';
+
+  const linhasHtml = [
+    ...(pedido.order_kits || []).map(k => `<tr><td>${escapeHtml(k.kit?.name || k.kit?.kit_type || 'Kit')}</td><td style="text-align:center">${k.quantity}</td><td style="text-align:right">${fmtMoney(Number(k.unit_price || 0) * k.quantity)}</td></tr>`),
+    ...(pedido.order_items || []).map(it => `<tr><td>${escapeHtml(it.product?.name || '—')}${it.variant_name ? ' — ' + escapeHtml(it.variant_name) : ''}</td><td style="text-align:center">${it.quantity}</td><td style="text-align:right">${fmtMoney(Number(it.unit_price || 0) * it.quantity)}</td></tr>`),
+  ].join('');
+
+  const metodoLabels = {
+    pix: 'PIX', pix_parcelado: 'PIX parcelado', cartao_1x: 'Cartão à vista',
+    cartao_2x: 'Cartão parcelado', cartao_debito: 'Cartão débito', dinheiro: 'Dinheiro', outro: 'Outro',
+  };
+  const metodoNome = metodoLabels[pedido.payment_method] || pedido.payment_method || 'Não informado';
+
+  const valorMostrado = parcela ? parcela.value : (pedido.amount_charged ?? pedido.total_amount);
+  const tituloParcela = parcela ? ` — Parcela ${parcela.installment_number} de ${parcela.total_installments}` : '';
+  const dataPagISO = parcela ? parcela.paid_at : pedido.paid_at;
+  const dataPag = dataPagISO ? new Date(dataPagISO).toLocaleDateString('pt-BR') : null;
+
+  return `
+<div class="rec-head">
+  <div class="rec-empresa">${escapeHtml(BUSINESS_NAME)}</div>
+  <div class="rec-empresa-sub">${BUSINESS_CNPJ ? 'CNPJ ' + escapeHtml(BUSINESS_CNPJ) : ''}${BUSINESS_EMAIL ? (BUSINESS_CNPJ ? ' · ' : '') + escapeHtml(BUSINESS_EMAIL) : ''}${BUSINESS_ADDRESS ? '<br>' + escapeHtml(BUSINESS_ADDRESS) : ''}</div>
+</div>
+<div class="rec-titulo">
+  <h1>Recibo — Pedido ${escapeHtml(pedido.order_number || '—')}${tituloParcela}</h1>
+  <span class="rec-status pago">PAGO</span>
+</div>
+<div class="rec-bloco">
+  <b>Aluno</b>
+  ${escapeHtml(student?.name || '—')} — ${escapeHtml(escola?.name || '—')}${anoTxt ? ', ' + escapeHtml(anoTxt) : ''}${turmaTxt ? ' / Turma ' + escapeHtml(turmaTxt) : ''}
+</div>
+<div class="rec-bloco">
+  <b>Responsável</b>
+  ${escapeHtml(currentUser?.name || '—')}${currentUser?.cpf ? ' — CPF ' + escapeHtml(currentUser.cpf) : ''}
+</div>
+<div class="rec-bloco">
+  <b>Itens do pedido</b>
+  <table>
+    <thead><tr><th>Produto</th><th style="text-align:center">Qtd</th><th style="text-align:right">Valor</th></tr></thead>
+    <tbody>${linhasHtml}</tbody>
+  </table>
+</div>
+<div class="rec-bloco">
+  <b>${parcela ? 'Valor desta parcela' : 'Valor pago'}</b>
+  <div class="rec-total"><span>${parcela ? `Parcela ${parcela.installment_number} de ${parcela.total_installments}` : 'Total'}</span><span>${fmtMoney(valorMostrado)}</span></div>
+</div>
+<div class="rec-bloco">
+  <b>Pagamento</b>
+  ${escapeHtml(metodoNome)} — pedido feito em ${dataPedido}${dataPag ? `, pago em ${dataPag}` : ''}
+</div>
+<div class="rec-foot">Recibo de pagamento gerado eletronicamente em ${dataEmissao} — não substitui nota fiscal.</div>`;
+}
+
+async function gerarPdfRecibo(pedido, parcela, nomeArquivo) {
+  if (typeof html2pdf === 'undefined') { toast('Biblioteca de PDF não carregou. Recarregue a página.', 'warn'); return; }
+  toast('Gerando recibo…', 'info');
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;left:-9999px;top:0;width:190mm;background:#fff;font-family:"DM Sans",Arial,sans-serif;font-size:13px;color:#1a1a2e;padding:20px';
+  el.innerHTML = `<style>
+    .rec-head{text-align:center;border-bottom:2px solid #4B6BFB;padding-bottom:12px;margin-bottom:16px}
+    .rec-empresa{font-family:"Playfair Display",serif;font-size:22px;color:#4B6BFB;font-weight:700}
+    .rec-empresa-sub{font-size:11px;color:#888;margin-top:2px}
+    .rec-titulo{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px}
+    .rec-titulo h1{font-size:15px}
+    .rec-status{font-weight:700;padding:3px 10px;border-radius:20px;font-size:11px}
+    .rec-status.pago{background:#E9F7EF;color:#27AE60}
+    .rec-bloco{margin-bottom:14px}
+    .rec-bloco b{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#888;margin-bottom:3px}
+    table{width:100%;border-collapse:collapse;margin-bottom:6px}
+    th{text-align:left;font-size:10px;text-transform:uppercase;color:#888;border-bottom:1px solid #ddd;padding:6px 4px}
+    td{padding:6px 4px;border-bottom:1px solid #f0f0f0}
+    .rec-total{display:flex;justify-content:space-between;font-size:16px;font-weight:700;border-top:2px solid #1a1a2e;padding-top:8px;margin-top:4px}
+    .rec-foot{margin-top:24px;font-size:10.5px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:10px}
+  </style>${montarConteudoRecibo(pedido, parcela)}`;
+  document.body.appendChild(el);
+  try {
+    await html2pdf().set({
+      margin: 10,
+      filename: nomeArquivo,
+      image: { type: 'jpeg', quality: 0.97 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    }).from(el).save();
+    toast('Recibo baixado!', 'ok');
+  } catch (err) {
+    console.error('gerarPdfRecibo', err);
+    toast('Não consegui gerar o recibo. Tenta de novo.', 'warn');
+  } finally {
+    el.remove();
+  }
+}
+
+window.baixarReciboPDF = async function (pedidoId) {
+  const p = _pedidosPorId[pedidoId];
+  if (!p) { toast('Pedido não encontrado. Recarregue a página.', 'warn'); return; }
+  await gerarPdfRecibo(p, null, `Recibo-${(p.order_number || 'pedido').replace(/\s+/g, '_')}.pdf`);
+};
+
+window.baixarReciboParcelaPDF = async function (pedidoId, installmentNumber) {
+  const p = _pedidosPorId[pedidoId];
+  if (!p) { toast('Pedido não encontrado. Recarregue a página.', 'warn'); return; }
+  const { data: parcelas, error } = await supabase
+    .from('pix_installments')
+    .select('installment_number, total_installments, value, paid_at')
+    .eq('order_id', pedidoId).eq('installment_number', installmentNumber).eq('status', 'paid')
+    .limit(1);
+  if (error || !parcelas?.length) { toast('Parcela não encontrada.', 'warn'); return; }
+  await gerarPdfRecibo(p, parcelas[0], `Recibo-${(p.order_number || 'pedido').replace(/\s+/g, '_')}-parcela${installmentNumber}.pdf`);
 };
 
 async function loadCatalogo(user) {
