@@ -9905,8 +9905,12 @@ function celulaContato(a) {
   const jaFoi = !!a.contato;
   // Sem autorizacao ganha um segundo botao, mais urgente, pra quem a sessao
   // e' hoje — mensagem separada (contact_msg_sessao_hoje), sem mexer no
-  // botao generico de sempre.
-  const btnHoje = tipo === 'sem_autorizacao'
+  // botao generico de sempre. So' aparece se a sessao da turma do aluno for
+  // HOJE de verdade (bug real ate 28/09/2026: aparecia pra todo mundo sem
+  // autorizacao, sessao sendo hoje ou nao).
+  const sessaoDoAluno = sessaoPorTurma[a.class_id] || null;
+  const sessaoEhHoje = !!sessaoDoAluno && sessaoDoAluno.photo_date === hojeISO();
+  const btnHoje = (tipo === 'sem_autorizacao' && sessaoEhHoje)
     ? ` <button class="btn btn-sm" style="border:none;cursor:pointer;font-weight:600;background:var(--orange);color:#fff"
           onclick="contatarResponsavel('${a.id}','sessao_hoje')"
           title="Lembrete urgente: a sessão de fotos deste aluno é hoje">📸 Hoje</button>`
@@ -9914,6 +9918,13 @@ function celulaContato(a) {
   return `<button class="btn btn-sm" style="border:none;cursor:pointer;font-weight:600;background:${jaFoi ? 'var(--gray-100)' : '#25D366'};color:${jaFoi ? 'var(--gray-500)' : '#fff'}"
             onclick="contatarResponsavel('${a.id}','${tipo}')"
             title="${jaFoi ? 'Já contatado — clique para falar de novo' : 'Abrir conversa no WhatsApp'}">💬 WhatsApp</button>${btnHoje}${quando}`;
+}
+
+// Data local (nao UTC) em "YYYY-MM-DD", pra comparar com photo_date sem risco
+// de virar o dia errado perto da meia-noite (new Date().toISOString() usa UTC).
+function hojeISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 // "2026-09-30" -> "30/09/2026" e volta. dd/mm e' o formato que o Daniel
