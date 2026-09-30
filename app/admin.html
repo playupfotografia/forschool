@@ -4222,8 +4222,16 @@ function filtrarPedidos() {
   tb.innerHTML = lista.map(p => {
     const data = p.created_at ? new Date(p.created_at).toLocaleDateString('pt-BR') : '—';
     const dupPago = p.payment_status === 'pending' ? duplicadoPagoPorAlunoPedidos[p.student?.id] : null;
+    const pr = p.parcelasResumo;
+    // Pendente com 1+ parcela do PIX parcelado ja paga precisa de uma cor
+    // diferente da pendente "zerada" — sao dois avisos de WhatsApp bem
+    // diferentes (cobrar a 1a parcela x lembrar da proxima), e com a mesma
+    // cor amarela nao dava pra saber quem chamar so' olhando a coluna
+    // Status (pedido real, 30/09/2026).
+    const pendenteParcial = p.payment_status === 'pending' && pr && pr.pagas > 0 && pr.pagas < pr.total;
     const stBadge = p.payment_status === 'paid'    ? '<span class="badge badge-green">Pago</span>' + avisoCredito(p)
                   : dupPago ? `<span class="badge badge-blue" title="Mesma criança, cadastro diferente — pedido lá: ${escapeHtml(dupPago.order_number || '')}, pago">🔗 Duplicado ✓ Pago</span>`
+                  : pendenteParcial ? `<span class="badge" style="background:var(--blue-light);color:var(--blue)" title="Parcela(s) ja' caindo — falta cobrar so' o resto, nao o pedido inteiro">🔵 ${pr.pagas}/${pr.total} pago</span>`
                   : p.payment_status === 'pending' ? '<span class="badge badge-yellow">Pendente</span>'
                   : p.payment_status === 'refunded' ? '<span class="badge badge-gray">Reembolsado</span>'
                   : p.payment_status === 'cancelled' ? `<span class="badge badge-red">Cancelado</span><div style="font-size:10px;color:var(--red)">${descreverCancelamento(p).replace(/^cancelado ?/, '')}</div>`
@@ -4231,7 +4239,6 @@ function filtrarPedidos() {
     const kitBadge = p.kit_type
       ? `<span class="badge ${kitClass[p.kit_type] || 'badge-gray'}">${kitMap[p.kit_type] || p.kit_type}</span>`
       : '<span style="color:var(--gray-400);font-size:11px">só avulsos</span>';
-    const pr = p.parcelasResumo;
     const metBadge = rotuloMetodo(p)
       + (pr
         ? `<div style="font-size:10px;font-weight:600;color:${pr.atrasada ? 'var(--red)' : (pr.pagas >= pr.total ? 'var(--green)' : 'var(--orange)')}"
@@ -9542,6 +9549,14 @@ function filtrarDrillAlunos() {
         // outro cadastro do mesmo aluno ja esta' pago — nao e' mais um
         // "pendente" de verdade, so' o registro duplicado.
         stCell = `<span class="badge badge-blue" title="Mesma criança, cadastro diferente — pedido lá: ${escapeHtml(a.duplicadoPago.order_number || '')}, pago">🔗 Duplicado ✓ Pago</span>`;
+      } else if (o.payment_status === 'pending' && pr && pr.pagas > 0 && pr.pagas < pr.total) {
+        // Pendente com 1+ parcela do PIX parcelado ja' paga precisa de cor
+        // diferente da pendente "zerada" — sao dois avisos de WhatsApp bem
+        // diferentes (cobrar a 1a parcela x lembrar da proxima), e com a
+        // mesma cor amarela nao dava pra saber quem chamar so' olhando a
+        // coluna Status (pedido real, 30/09/2026).
+        stCell = `<button class="btn btn-sm" style="border:none;cursor:pointer;font-weight:600;background:var(--blue-light);color:var(--blue)" onclick="drillMarcarPago('${o.id}')" title="Parcela(s) já caindo — falta cobrar só o resto, não o pedido inteiro. Clique pra marcar como pago na mão.">🔵 ${pr.pagas}/${pr.total} pago</button>`
+               + botaoCancelarPedido(o.id);
       } else if (o.payment_status === 'pending') {
         stCell = `<button class="btn btn-sm badge-yellow" style="border:none;cursor:pointer;font-weight:600" onclick="drillMarcarPago('${o.id}')" title="Clique para marcar como pago">⏳ Pendente</button>`
                + botaoCancelarPedido(o.id);
