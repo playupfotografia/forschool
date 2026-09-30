@@ -4094,8 +4094,13 @@ async function loadCatalogo(user) {
   (pricesResp.data || []).forEach(p => { priceMap[p.product_id] = p; });
   const prodsAtivos = (prodsResp.data || []).filter(p => {
     const sp = priceMap[p.id];
-    // Se não tem linha em school_prices, é disponível por padrão
-    if (sp && sp.available === false) return false;
+    // Sem linha em school_prices, cai no default do PRODUTO
+    // (products.default_visible, migration_064) — produto antigo nasceu true
+    // (preserva o catálogo de todo projeto já configurado), produto criado
+    // pela tela "Novo produto" a partir de 30/09/2026 nasce false (só aparece
+    // onde o admin habilitar explicitamente em Kits & Avulsos do projeto).
+    if (sp) { if (sp.available === false) return false; }
+    else if (p.default_visible === false) return false;
     // Produto exclusivo de irmãos (migration_061) — só aparece pra família
     // com N+ filhos cadastrados NESSA escola. _todosFilhos já vem filtrado
     // por school_id (ver afterLogin), então é exatamente essa contagem.

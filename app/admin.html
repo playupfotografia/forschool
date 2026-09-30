@@ -1919,6 +1919,17 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           Preço c/ Promo = quando o pai escolhe Kit Promocional, esses avulsos saem com desconto.<br>
           Custo de produção = o que você gasta pra produzir 1 unidade (zerado por padrão).
         </div>
+        <div class="form-group" style="background:var(--gray-50);border-radius:8px;padding:8px 10px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer">
+            <input type="checkbox" id="pr-default-visivel">
+            Aparecer em todos os projetos automaticamente
+          </label>
+          <div style="font-size:11px;color:var(--gray-400);margin-top:3px">
+            Desmarcado (padrão pra produto novo): não aparece em nenhum projeto até você habilitar
+            um por um em Projetos → Kits & Avulsos. Marcado: some no catálogo de todo projeto assim
+            que salvar, do jeito que os produtos antigos sempre funcionaram.
+          </div>
+        </div>
         <div class="form-group">
           <label class="form-label">🎨 Tema da foto <span style="font-weight:400;color:var(--gray-400)">(opcional — pra saber na sessão qual foto tirar pra quem comprou. Deixe vazio se o produto não precisa de foto temática)</span></label>
           <input class="form-input" id="pr-tema" list="temas-foto-list" placeholder="Ex: Natal, Pequenos Artistas…">
@@ -5498,6 +5509,7 @@ document.getElementById('btn-novo-produto').addEventListener('click', () => {
   editProdId = null;
   document.getElementById('mod-prod-title').textContent = 'Novo produto';
   ['pr-nome','pr-desc','pr-img','pr-tema','pr-pcom','pr-psem','pr-cost'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('pr-default-visivel').checked = false;
   updateProdPreview('');
   [2,3,4].forEach(n => { document.getElementById('pr-img-'+n).value = ''; updateExtraPreview(n, ''); });
   prVariantesTemp = [];
@@ -5531,6 +5543,7 @@ async function editarProduto(id) {
     document.getElementById('pr-pcom').value = data.base_price_with_promo || '';
     document.getElementById('pr-psem').value = data.base_price_without_promo || '';
     document.getElementById('pr-cost').value = data.production_cost || '';
+    document.getElementById('pr-default-visivel').checked = data.default_visible !== false;
     updateProdPreview(data.image_url || '');
     [2,3,4].forEach(n => {
       const v = data['image_url_' + n] || '';
@@ -5587,6 +5600,9 @@ async function duplicarProduto(id) {
     document.getElementById('pr-pcom').value = data.base_price_with_promo || '';
     document.getElementById('pr-psem').value = data.base_price_without_promo || '';
     document.getElementById('pr-cost').value = data.production_cost || '';
+    // Duplicado e' produto NOVO pra fins de visibilidade — nasce desligado
+    // como qualquer outro, mesmo que o original estivesse ligado em todo lugar.
+    document.getElementById('pr-default-visivel').checked = false;
     updateProdPreview(data.image_url || '');
     [2,3,4].forEach(n => {
       const v = data['image_url_' + n] || '';
@@ -5949,6 +5965,7 @@ document.getElementById('btn-salvar-produto').addEventListener('click', async ()
       frame_width_mm:   parseInt(document.getElementById('pr-frame-w').value)  || null,
       frame_height_mm:  parseInt(document.getElementById('pr-frame-h').value)  || null,
       slots:            prSlots.length ? prSlots : null,
+      default_visible:  document.getElementById('pr-default-visivel').checked,
     };
 
     let resp;
