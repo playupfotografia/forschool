@@ -10039,6 +10039,23 @@ function dataPorExtenso(iso) {
   return `${Number(m[3])} de ${meses[Number(m[2]) - 1]}`;
 }
 
+// Mesma conta de api/_lib.js:calcularAcrescimoParcelamento() e de
+// portal.html:acrescimoDeOrderIds() — soma UMA VEZ por produto distinto do
+// pedido o school_prices.pix_parcela_acrescimo (migration_061). E' o que faz
+// {opcoes_cartao} na mensagem de WhatsApp bater com o que o servidor cobra
+// de verdade quando o pai escolhe cartao (regra 22 do CLAUDE.md — as tres
+// contas tem que concordar).
+async function acrescimoParcelamentoDoPedido(orderId, projectId) {
+  if (!orderId || !projectId) return 0;
+  const { data: itens } = await supabase.from('order_items').select('product_id').eq('order_id', orderId);
+  const produtoIds = [...new Set((itens || []).map(i => i.product_id).filter(Boolean))];
+  if (!produtoIds.length) return 0;
+  const { data: precos } = await supabase
+    .from('school_prices').select('pix_parcela_acrescimo')
+    .eq('project_id', projectId).in('product_id', produtoIds);
+  return (precos || []).reduce((s, p) => s + (Number(p.pix_parcela_acrescimo) || 0), 0);
+}
+
 let contatoMsgCache = null;   // modelos de mensagem, buscados uma vez
 
 // Monta a frase do cartao pra mensagem de cobranca, com os MESMOS numeros que
@@ -10124,6 +10141,9 @@ window.contatarResponsavel = async function (studentId, tipo) {
       : 'https://forschool.playupfotografia.com.br';
 
     const sessao = sessaoPorTurma[a.class_id] || null;
+    const acrescimoParc = a.order
+      ? await acrescimoParcelamentoDoPedido(a.order.id, drillProjeto?.id)
+      : 0;
 
     const texto = modelo
       .replaceAll('{responsavel}', primeiroNome(a.responsible_name))
@@ -10139,7 +10159,7 @@ window.contatarResponsavel = async function (studentId, tipo) {
       // Chave PIX na propria mensagem: no fluxo manual e' o que faz o pai
       // pagar sem ter que voltar ao portal procurar.
       .replaceAll('{chave_pix}', contatoMsgCache.pix_key || '')
-      .replaceAll('{opcoes_cartao}', a.order ? frasesCartao(a.order.total_amount, contatoMsgCache, drillProjeto) : '')
+      .replaceAll('{opcoes_cartao}', a.order ? frasesCartao(Number(a.order.total_amount || 0) + acrescimoParc, contatoMsgCache, drillProjeto) : '')
       .replaceAll('{link}', link);
 
     // Frase com variavel vazia vira "as fotos sao dia ." — melhor avisar antes

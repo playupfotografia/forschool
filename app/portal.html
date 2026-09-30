@@ -1662,7 +1662,7 @@ async function renderPaymentMethods(pedido, el) {
   const blocks = [];
   if (temAutomatico) blocks.push(await blocoEscolhaPagamento(pedido, total));
   if (!pixAuto && canPixManual) blocks.push(blocoPixManual(total));
-  if (!cartaoAutomatico) blocks.push(blocoCartaoWpp(total, pedido));
+  if (!cartaoAutomatico) blocks.push(await blocoCartaoWpp(total, pedido));
 
   // Inter — placeholder, sempre exibido se marcado, independente do resto.
   if (escola?.payment_inter) {
@@ -1763,6 +1763,13 @@ async function blocoEscolhaPagamento(pedido, total) {
   const antec1 = PAY_CFG.antecipa ? (Number(PAY_CFG.antecAvista) || 0) : 0;
   const antec2 = PAY_CFG.antecipa ? (Number(PAY_CFG.antecParc) || 0) : 0;
 
+  // Cartao/debito partem do mesmo preco "cheio" ja usado no PIX parcelado
+  // (school_prices.pix_parcela_acrescimo, migration_061) — R$170 a vista no
+  // PIX vira R$180 de base pra eles, e so' DEPOIS entra a taxa em cima. So'
+  // preview: quem cobra de verdade e' o servidor (criar-cobranca.js), que
+  // faz essa mesma conta.
+  const totalCard = total + await estimarAcrescimoParcelamento(pedido);
+
   // O pai decide comparando com o PIX, entao o rotulo mostra a diferenca, nao
   // a composicao da taxa. Sem PIX disponivel (nem automatico nem manual) a
   // comparacao nao faz sentido.
@@ -1773,7 +1780,7 @@ async function blocoEscolhaPagamento(pedido, total) {
   };
 
   if (PAY_CFG.credito) {
-    const c1 = repassaTaxa() ? valorComTaxa(total, (Number(PAY_CFG.feeCredito) || 0) + antec1, PAY_CFG.feeCreditoFixa) : total;
+    const c1 = repassaTaxa() ? valorComTaxa(totalCard, (Number(PAY_CFG.feeCredito) || 0) + antec1, PAY_CFG.feeCreditoFixa) : totalCard;
     economia = c1 - total;
     opts.push(`
       <button type="button" class="pay-opt" onclick="escolherPagamento('${oid}','credito',1)">
@@ -1784,7 +1791,7 @@ async function blocoEscolhaPagamento(pedido, total) {
 
     // Uma opcao por parcelamento possivel (2×, 3×…), ate' o maximo do projeto
     // ou do geral. Parcela que nao alcanca o minimo nao entra.
-    const c2 = repassaTaxa() ? valorComTaxa(total, (Number(PAY_CFG.feeCreditoParc) || 0) + antec2, PAY_CFG.feeCreditoFixa) : total;
+    const c2 = repassaTaxa() ? valorComTaxa(totalCard, (Number(PAY_CFG.feeCreditoParc) || 0) + antec2, PAY_CFG.feeCreditoFixa) : totalCard;
     for (let n = 2; n <= Math.min(maxParcelas(), 12); n++) {
       const parcela = Math.ceil((c2 / n) * 100) / 100;
       if (parcela < MIN_INSTALLMENT_VALUE) continue;
@@ -1798,7 +1805,7 @@ async function blocoEscolhaPagamento(pedido, total) {
   }
 
   if (PAY_CFG.debito) {
-    const d1 = repassaTaxa() ? valorComTaxa(total, PAY_CFG.feeDebito, PAY_CFG.feeDebitoFixa) : total;
+    const d1 = repassaTaxa() ? valorComTaxa(totalCard, PAY_CFG.feeDebito, PAY_CFG.feeDebitoFixa) : totalCard;
     opts.push(`
       <button type="button" class="pay-opt" onclick="escolherPagamento('${oid}','debito',1)">
         <div class="pay-opt-head"><span class="pay-opt-nome">💳 Cartão de débito</span></div>
@@ -2498,7 +2505,7 @@ window.pagarComTodos = async function (orderIds, metodo, containerId, numerosPed
 // Cartao no fluxo manual: nao ha checkout aqui, o link e' gerado a mao e
 // mandado pelo WhatsApp. A mensagem ja vai com aluno, pedido e valor pra a
 // Play Up nao precisar perguntar nada antes de gerar o link.
-function blocoCartaoWpp(total, pedido) {
+async function blocoCartaoWpp(total, pedido) {
   const aluno = student?.name ? ` do(a) ${student.name}` : '';
   const num   = pedido?.order_number ? ` ${pedido.order_number}` : '';
   // Sem o nome do responsavel a frase perde o sujeito, entao muda a abertura.
@@ -2506,17 +2513,19 @@ function blocoCartaoWpp(total, pedido) {
     ? `Aqui é ${currentUser.name}, responsável${aluno}`
     : `Sou responsável${aluno}`;
 
-  // Mesma conta do fluxo online (gross-up + antecipacao): o pai ve aqui o
-  // valor que vai pagar de fato no link, e leva esse valor na mensagem — pra
-  // ninguem combinar um preco no WhatsApp e receber um link com outro.
+  // Mesma conta do fluxo online (gross-up + antecipacao + acrescimo de
+  // parcelamento, migration_061): o pai ve aqui o valor que vai pagar de
+  // fato no link, e leva esse valor na mensagem — pra ninguem combinar um
+  // preco no WhatsApp e receber um link com outro.
+  const totalCard = total + await estimarAcrescimoParcelamento(pedido);
   const antec1 = PAY_CFG.antecipa ? (Number(PAY_CFG.antecAvista) || 0) : 0;
   const antec2 = PAY_CFG.antecipa ? (Number(PAY_CFG.antecParc) || 0) : 0;
   const c1 = repassaTaxa()
-    ? valorComTaxa(total, (Number(PAY_CFG.feeCredito) || 0) + antec1, PAY_CFG.feeCreditoFixa)
-    : total;
+    ? valorComTaxa(totalCard, (Number(PAY_CFG.feeCredito) || 0) + antec1, PAY_CFG.feeCreditoFixa)
+    : totalCard;
   const c2 = repassaTaxa()
-    ? valorComTaxa(total, (Number(PAY_CFG.feeCreditoParc) || 0) + antec2, PAY_CFG.feeCreditoFixa)
-    : total;
+    ? valorComTaxa(totalCard, (Number(PAY_CFG.feeCreditoParc) || 0) + antec2, PAY_CFG.feeCreditoFixa)
+    : totalCard;
 
   // O pai compara com o PIX, entao o rotulo mostra a diferenca, nao a
   // composicao da taxa. Igual ao blocoEscolhaPagamento.

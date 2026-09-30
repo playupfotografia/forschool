@@ -25,7 +25,7 @@
 // PIX parcelado combinado fica em criar-parcelamento-pix.js.
 // ============================================================================
 
-const { asaas, woovi, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, dividirProporcional, calcularDescontoIrmaos, cancelarParcelasPix } = require('./_lib.js');
+const { asaas, woovi, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, dividirProporcional, calcularDescontoIrmaos, calcularAcrescimoParcelamento, cancelarParcelasPix } = require('./_lib.js');
 const crypto = require('crypto');
 
 const BILLING = { pix: 'PIX', credito: 'CREDIT_CARD', debito: 'DEBIT_CARD' };
@@ -150,7 +150,18 @@ module.exports = async (req, res) => {
     // ganha isso sozinho). Calculado aqui no SERVIDOR: o navegador so mandou
     // QUAIS pedidos, nunca o valor.
     const descontoIrmaos = combinado ? calcularDescontoIrmaos(valorBase0, projCfg) : 0;
-    const valorBase = Math.round((valorBase0 - descontoIrmaos) * 100) / 100;
+    const valorPixAvista = Math.round((valorBase0 - descontoIrmaos) * 100) / 100;
+    // Cartao/debito nao herdam o "desconto" implicito do PIX a vista: o preco
+    // de tabela pra eles e' o mesmo ja usado no PIX parcelado
+    // (school_prices.pix_parcela_acrescimo, migration_061) — R$170 a vista no
+    // PIX vira R$180 de base no cartao, e so' DEPOIS entra a taxa do cartao em
+    // cima. PIX fica de fora de proposito (metodo==='pix' aqui e' sempre a
+    // vista; parcelado e' outro arquivo, criar-parcelamento-pix.js, que ja
+    // fazia essa conta certa desde a migration_061).
+    const acrescimoParcelamento = (metodo !== 'pix' && pedido.project_id)
+      ? await calcularAcrescimoParcelamento(orderIds, pedido.project_id)
+      : 0;
+    const valorBase = Math.round((valorPixAvista + acrescimoParcelamento) * 100) / 100;
 
     // pix_mode do projeto manda MAIS que o geral quando preenchido — e' o que
     // permite forcar um projeto especifico pra automatico (ou manual) mesmo
@@ -209,7 +220,10 @@ module.exports = async (req, res) => {
       }
     }
 
-    const acrescimo = Math.round((valorCobrado - valorBase) * 100) / 100;
+    // "X a mais que no PIX" (portal) compara com o PIX A VISTA, nao com o
+    // valorBase ja acrescido do parcelamento — senao o rotulo esconderia os
+    // R$10 do produto e mostraria so' a taxa do cartao por cima.
+    const acrescimo = Math.round((valorCobrado - valorPixAvista) * 100) / 100;
 
     // ---- 4. Dados do cliente (reaproveitados pelo CPF) ----------------------
     const alunosNomes = pedidosGrupo.map((p) => p.students?.name).filter(Boolean);
