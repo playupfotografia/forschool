@@ -10340,17 +10340,45 @@ async function loadAlunos() {
     alunosCache        = data || [];
     alunosEscolasCache = esc  || [];
 
-    // Popular filtro de escolas
+    // Popular filtro de escolas preservando a selecao atual — loadAlunos()
+    // roda de novo apos excluir um aluno (excluirAluno), e sem isso o filtro
+    // voltava pra "Todas as escolas" no meio de uma conferencia (bug real,
+    // 30/09/2026). Rebuild do <select> sempre reseta o valor escolhido.
+    const prevEsc = document.getElementById('al-fesc').value;
+    const prevAno = document.getElementById('al-fano').value;
+    const prevTur = document.getElementById('al-ftur').value;
+
     const fesc = document.getElementById('al-fesc');
     fesc.innerHTML = '<option value="">Todas as escolas</option>';
     alunosEscolasCache.forEach(e => {
       const o = document.createElement('option'); o.value = e.id; o.textContent = e.name;
       fesc.appendChild(o);
     });
+    fesc.value = prevEsc;
 
-    // Resetar filtros dependentes
+    // Reconstroi os filtros dependentes (ano/turma) so' se a escola
+    // continuar selecionada, restaurando ano/turma na sequencia — select.value
+    // com um id que sumiu cai sozinho pro vazio, sem precisar checar antes.
     document.getElementById('al-fano').innerHTML = '<option value="">Todos os anos</option>';
     document.getElementById('al-ftur').innerHTML = '<option value="">Todas as turmas</option>';
+    if (fesc.value) {
+      const { data: anos } = await supabase
+        .from('school_years').select('id, name').eq('school_id', fesc.value).order('sort_order');
+      (anos || []).forEach(y => {
+        const o = document.createElement('option'); o.value = y.id; o.textContent = y.name;
+        document.getElementById('al-fano').appendChild(o);
+      });
+      document.getElementById('al-fano').value = prevAno;
+      if (document.getElementById('al-fano').value) {
+        const { data: turmas } = await supabase
+          .from('school_classes').select('id, name').eq('year_id', prevAno).order('name');
+        (turmas || []).forEach(t => {
+          const o = document.createElement('option'); o.value = t.id; o.textContent = t.name;
+          document.getElementById('al-ftur').appendChild(o);
+        });
+        document.getElementById('al-ftur').value = prevTur;
+      }
+    }
 
     // Popular select de escola no modal
     const mesc = document.getElementById('al-esc');
