@@ -2867,6 +2867,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
         <span id="drill-al-count" style="font-size:12px;color:var(--gray-400);align-self:center"></span>
         <span id="drill-ficha-sel-count" style="font-size:12px;color:var(--blue);align-self:center;font-weight:600"></span>
         <button class="btn btn-sm btn-primary" id="btn-drill-imprimir-fichas" onclick="imprimirFichasSelecionadasDrill()" disabled style="opacity:.45;cursor:not-allowed" title="Marque alunos na tabela pra imprimir as fichas deles">🖨 Imprimir fichas marcadas</button>
+        <button class="btn btn-sm btn-secondary" onclick="imprimirRelatorioSituacao()" title="Relatório agrupado por situação (sem autorização, pendente, pendente com parcela paga, sem pedido, pago...), pra imprimir ou salvar em PDF">📋 Relatório da situação</button>
       </div>
       <div class="table-wrap">
         <table class="drill-tbl">
@@ -10563,6 +10564,130 @@ function montarFichaCard(a, ped, todosTemas = []) {
 
   return { html, qrPayload };
 }
+
+// ---------------------------------------------------------------------------
+// RELATÓRIO DA SITUAÇÃO — Alunos & Pedidos (30/09/2026)
+//
+// Reusa drillAlunosData (ja' carregado na tela, sem reconsultar o banco).
+// Agrupa cada aluno em EXATAMENTE uma situacao — sem autorizacao, pendente,
+// pendente com parcela do PIX parcelado ja' paga (cor azul, pra distinguir de
+// quem ainda nao pagou nada — mesma cor/regra do badge de Status em
+// Pedidos/Alunos & Pedidos), sem pedido, pago, recusou, cancelado — e monta
+// um relatorio pra imprimir ou salvar em PDF (mesmo padrao de janela do
+// relatorio financeiro: window.print(), sem precisar de lib nova).
+// Checkbox "Ocultar valores" fica na PROPRIA janela (nao aqui), pra poder
+// ligar/desligar sem reabrir o relatorio.
+// ---------------------------------------------------------------------------
+async function imprimirRelatorioSituacao() {
+  if (!drillAlunosData.length) { toast('Nada pra mostrar ainda.', 'warn'); return; }
+
+  const { data: cfg } = await supabase
+    .from('app_settings').select('business_name, cnpj').eq('id', 1).maybeSingle();
+  const empresa = cfg?.business_name || 'Play Up Fotografia';
+  const dataEmissao = new Date().toLocaleString('pt-BR');
+
+  const grupos = {
+    semAut:          { titulo: 'Sem autorização (não respondeu)', cor: '#4B5563', lista: [] },
+    pendente:        { titulo: 'Pendente',                         cor: '#854D0E', lista: [] },
+    pendenteParcial: { titulo: 'Pendente — 1ª parcela já paga',    cor: '#2D4BDB', lista: [] },
+    semPedido:       { titulo: 'Só cadastrado (sem pedido)',       cor: '#4B5563', lista: [] },
+    pago:            { titulo: 'Pago',                             cor: '#1A6B3C', lista: [] },
+    recusou:         { titulo: 'Recusou autorização',              cor: '#9B1C1C', lista: [] },
+    cancelado:       { titulo: 'Cancelado',                        cor: '#9B1C1C', lista: [] },
+  };
+
+  drillAlunosData.forEach(a => {
+    if (a.autorizacao === 'pendente') { grupos.semAut.lista.push(a); return; }
+    if (a.autorizacao === 'recusou')  { grupos.recusou.lista.push(a); return; }
+    const o = a.order;
+    if (!o) { grupos.semPedido.lista.push(a); return; }
+    if (o.payment_status === 'paid') { grupos.pago.lista.push(a); return; }
+    if (o.payment_status === 'cancelled' || o.payment_status === 'refunded') { grupos.cancelado.lista.push(a); return; }
+    const pr = o.parcelasResumo;
+    if (pr && pr.pagas > 0 && pr.pagas < pr.total) { grupos.pendenteParcial.lista.push(a); return; }
+    grupos.pendente.lista.push(a);
+  });
+
+  // Ordem pensada pra quem vai chamar no WhatsApp: mais urgente primeiro.
+  const ordem = ['semAut', 'pendente', 'pendenteParcial', 'semPedido', 'pago', 'recusou', 'cancelado'];
+
+  const linhaAluno = a => `<tr>
+    <td>${escapeHtml(a.name)}</td>
+    <td style="color:#666;font-size:11px">${escapeHtml(a.responsible_name)}</td>
+    <td style="font-size:11px">${escapeHtml(a.year_name)}${a.class_name !== '—' ? ' — ' + escapeHtml(a.class_name) : ''}</td>
+    <td class="valor-col" style="text-align:right;font-weight:600">${a.order ? fmtMoney(a.order.total_amount) : '—'}</td>
+  </tr>`;
+
+  const blocoHtml = g => !g.lista.length ? '' : `
+    <div class="rr-bloco">
+      <h2 style="color:${g.cor}"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${g.cor};margin-right:6px"></span>${escapeHtml(g.titulo)} <span style="font-weight:400;color:#999">(${g.lista.length})</span></h2>
+      <table>
+        <thead><tr><th>Aluno</th><th>Responsável</th><th>Turma</th><th class="valor-col" style="text-align:right">Valor</th></tr></thead>
+        <tbody>${g.lista.map(linhaAluno).join('')}</tbody>
+      </table>
+    </div>`;
+
+  const cardsHtml = ordem.filter(k => grupos[k].lista.length).map(k => {
+    const g = grupos[k];
+    return `<div class="rr-card" style="border-top:3px solid ${g.cor}">${escapeHtml(g.titulo)}<b style="color:${g.cor}">${g.lista.length}</b></div>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="UTF-8">
+<title>Situação dos alunos — ${escapeHtml(drillProjeto?.name || '')}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',Arial,sans-serif;background:#fff;color:#1a1a2e;font-size:13px;line-height:1.5}
+@page{size:A4 portrait;margin:15mm}
+@media screen{body{padding:20px;max-width:190mm;margin:0 auto}
+  .btn-row{display:flex;gap:16px;align-items:center;justify-content:center;margin-bottom:18px;flex-wrap:wrap}
+  .btn-row button{padding:9px 18px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;background:#4B6BFB;color:#fff}
+  .btn-row label{font-size:13px;color:#555;display:flex;align-items:center;gap:6px;cursor:pointer}}
+@media print{.btn-row{display:none}}
+.rr-head{text-align:center;border-bottom:2px solid #4B6BFB;padding-bottom:12px;margin-bottom:16px}
+.rr-empresa{font-family:'Playfair Display',serif;font-size:22px;color:#4B6BFB;font-weight:700}
+.rr-sub{font-size:11px;color:#888;margin-top:2px}
+.rr-titulo{font-size:16px;font-weight:700;margin-bottom:4px}
+.rr-filtro{font-size:12px;color:#666;margin-bottom:16px}
+.rr-cards{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.rr-card{flex:1;min-width:140px;border:1px solid #eee;border-radius:8px;padding:10px 12px;font-size:12px}
+.rr-card b{display:block;font-size:20px;margin-top:2px}
+.rr-bloco{margin-bottom:18px;break-inside:avoid}
+.rr-bloco h2{font-size:13px;margin-bottom:8px;display:flex;align-items:center}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:10px;text-transform:uppercase;color:#888;border-bottom:1px solid #ddd;padding:5px 4px}
+td{padding:5px 4px;border-bottom:1px solid #f5f5f5}
+.rr-foot{margin-top:20px;font-size:10.5px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:8px}
+.valor-col.oculto{display:none}
+</style>
+</head><body>
+<div class="btn-row">
+  <button onclick="window.print()">🖨 Imprimir / Salvar como PDF</button>
+  <label><input type="checkbox" id="chkOcultar" onchange="toggleValoresRelatorio()"> Ocultar valores em R$</label>
+</div>
+<div class="rr-head">
+  <div class="rr-empresa">${escapeHtml(empresa)}</div>
+  <div class="rr-sub">${cfg?.cnpj ? 'CNPJ ' + escapeHtml(cfg.cnpj) : ''}</div>
+</div>
+<div class="rr-titulo">Situação dos alunos</div>
+<div class="rr-filtro">${escapeHtml(drillProjeto?.school?.name || '')}${drillProjeto?.name ? ' — ' + escapeHtml(drillProjeto.name) : ''} · Gerado em ${dataEmissao}</div>
+<div class="rr-cards">${cardsHtml}</div>
+${ordem.map(k => blocoHtml(grupos[k])).join('')}
+<div class="rr-foot">Relatório gerado eletronicamente em ${dataEmissao} pelo sistema For School.</div>
+<script>
+function toggleValoresRelatorio(){
+  var oculto = document.getElementById('chkOcultar').checked;
+  document.querySelectorAll('.valor-col').forEach(function(el){ el.classList.toggle('oculto', oculto); });
+}
+</script>
+</body></html>`;
+
+  const win = window.open('', '_blank', 'width=900,height=800');
+  win.document.write(html);
+  win.document.close();
+}
+window.imprimirRelatorioSituacao = imprimirRelatorioSituacao;
 
 /**
  * Abre a janela de impressão com as fichas já montadas + script de QR code.
