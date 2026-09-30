@@ -1509,6 +1509,14 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+// Ignora acento/caixa pra comparar nome ("Julião" == "juliao") — mesma ideia
+// de admin.html:normalizarNome(), usada aqui pra detectar filho ja cadastrado.
+function normalizarNome(n) {
+  return String(n || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
 function daysUntilBirthday(dob) {
   const today = new Date(); today.setHours(0,0,0,0);
   const b = new Date(dob);
@@ -3110,6 +3118,23 @@ document.getElementById('form-add-filho').addEventListener('submit', async e => 
   }
   try {
     const user = await getCurrentUser();
+
+    // Nome igual a um filho que o responsavel ja tem cadastrado NESTA escola
+    // (ignorando acento/caixa) — sem essa checagem, um pai que digita o mesmo
+    // nome de novo (por engano, ou clicando "Adicionar outro filho" sem saber
+    // que o primeiro ja' tinha funcionado) cria um cadastro vazio duplicado,
+    // sem autorizacao nem pedido. Caso real, 30/09/2026 (Escola MAIS): uma
+    // mae tentou 10 vezes achando que nao estava salvando, e cada tentativa
+    // criou um "Rafael Ramos Bastos" novo.
+    const { data: jaTem } = await supabase
+      .from('students').select('id, name').eq('user_id', user.id).eq('school_id', escola.id);
+    const existente = (jaTem || []).find(s => normalizarNome(s.name) === normalizarNome(alNome));
+    if (existente) {
+      erroEl.innerHTML = `Você já tem um(a) filho(a) chamado(a) <b>"${escapeHtml(existente.name)}"</b> cadastrado(a) nesta escola. Se algo estiver errado, fale com a gente.`;
+      erroEl.style.display = 'block';
+      return;
+    }
+
     const nextSeq = await proximoNumeroFicha();
     const { error: stErr } = await supabase.from('students').insert({
       name: alNome,
