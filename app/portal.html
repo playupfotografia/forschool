@@ -4126,7 +4126,12 @@ async function loadCatalogo(user) {
   const pricesResp = (pricesProj.data && pricesProj.data.length) ? pricesProj : pricesEsc;
 
   if (kitsResp.error) { handleError(kitsResp.error, 'loadKits'); return; }
-  kits = (kitsResp.data || []).map(k => ({
+  // Kit com preco R$0 nunca e' promocao de verdade — e' kit padrao que
+  // ninguem precificou (achado real em 30/09/2026: escola com kits nunca
+  // configurados, projeto sem kit proprio caiu no fallback da escola e quase
+  // deixou pai levar kit de graca). api/salvar-pedido.js ja recusa isso no
+  // servidor; aqui nem mostra, pra nao deixar escolher algo que vai falhar.
+  kits = (kitsResp.data || []).filter(k => Number(k.price) > 0).map(k => ({
     ...k,
     items: (itemsResp.data || []).filter(it => it.kit_id === k.id).map(it => ({
       product: it.product, quantity: it.quantity

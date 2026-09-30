@@ -136,6 +136,12 @@ module.exports = async (req, res) => {
       const kit = kitsDb.find((k) => k.kit_type === tipo);
       if (!kit) continue;                       // kit indisponivel: ignora
       const unit = Number(kit.price) || 0;
+      // Kit com preco R$0 nunca e' promocao de verdade — e' kit esquecido sem
+      // preco configurado (achado real em 30/09/2026: escola com kits padrao
+      // nunca precificados, projeto sem kit proprio caiu no fallback da
+      // escola e deixou pai levar kit de graca). Trata como indisponivel,
+      // igual "kit nao encontrado" — nunca deixa fechar pedido de R$0.
+      if (unit <= 0) continue;
       kitsFinal.push({ kit_id: kit.id, quantity: qtd, unit_price: unit });
       total += unit * qtd;
       if (!kitPrincipal || (KIT_RANK[tipo] || 0) > (KIT_RANK[kitPrincipal] || 0)) kitPrincipal = tipo;
