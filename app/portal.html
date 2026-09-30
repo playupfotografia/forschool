@@ -3591,7 +3591,17 @@ document.getElementById('btn-confirm-minha-conta').addEventListener('click', asy
 
 function showAutorizacao(user) {
   document.getElementById('auth-aluno-nome').textContent = student.name;
-  document.getElementById('auth-empresa').textContent = BUSINESS_NAME;
+  // #auth-empresa vive DENTRO de #auth-term, e mais abaixo nesta mesma funcao
+  // (linha ~3641) o termo customizado do projeto SOBRESCREVE o innerHTML de
+  // #auth-term inteiro — some o elemento junto. Na 1a chamada (1o filho)
+  // ainda existe (html estatico original); a partir da 2a chamada na mesma
+  // sessao (2o filho em "Adicionar outro filho", sem reload da pagina) ja'
+  // foi destruido, e sem essa checagem a tela trava aqui: o aluno ja' tinha
+  // sido gravado no banco no passo anterior, mas o responsavel via so' um
+  // erro vermelho, sem autorizar e sem saber que o cadastro ja' existia —
+  // mesmo padrao do bug de #denied-empresa corrigido em 24/09/2026.
+  const empEl = document.getElementById('auth-empresa');
+  if (empEl) empEl.textContent = BUSINESS_NAME;
   document.getElementById('auth-signature').value = currentUser?.name || '';
   document.getElementById('auth-individual').checked = true;
   document.getElementById('auth-class').checked = true;
