@@ -10627,7 +10627,8 @@ async function imprimirRelatorioSituacao() {
       </table>
     </div>`;
 
-  const cardsHtml = ordem.filter(k => grupos[k].lista.length).map(k => {
+  const cardTotal = `<div class="rr-card" style="border-top:3px solid #1a1a2e;background:#F9FAFB">Total de alunos cadastrados<b style="color:#1a1a2e">${drillAlunosData.length}</b></div>`;
+  const cardsHtml = cardTotal + ordem.filter(k => grupos[k].lista.length).map(k => {
     const g = grupos[k];
     return `<div class="rr-card" style="border-top:3px solid ${g.cor}">${escapeHtml(g.titulo)}<b style="color:${g.cor}">${g.lista.length}</b></div>`;
   }).join('');
