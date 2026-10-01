@@ -113,6 +113,14 @@ def supabase_get(table, params):
     return r.json()
 
 
+def _chave_ordem(nome):
+    # Ordem alfabetica sem diferenciar maiuscula/minuscula nem acento
+    # ("ANTONELLA" junto de "Antonio", "Benício" junto de "Benicio").
+    import unicodedata
+    n = unicodedata.normalize('NFD', nome)
+    return ''.join(c for c in n if unicodedata.category(c) != 'Mn').casefold()
+
+
 def buscar_temas_ativos():
     """Temas de foto cadastrados no admin (ex: Natal, Pequenos Artistas).
 
@@ -271,6 +279,7 @@ class App(tk.Tk):
         self.pasta_saida    = tk.StringVar()
         self.alunos_info    = {}   # nome_pasta → info
         self.foto_vars      = {}   # nome_pasta → StringVar (foto escolhida)
+        self._limpar_escolha = {}  # (nome_pasta, tema) → função que cancela a escolha
 
         self._build_ui()
 
@@ -650,16 +659,80 @@ class App(tk.Tk):
             nova = pasta / nome_pasta
             info['pasta'] = str(nova)
             info['fotos'] = [str(nova / Path(f).name) for f in info.get('fotos', [])]
+        # Pastas de aluno que existem no disco mas ficaram fora do indice (o
+        # indice era sobrescrito a cada rodada da Fase 1 na mesma saida) voltam
+        # pra lista a partir do que esta' na pasta. Visto ao vivo em 01/10/2026:
+        # 92 pastas no disco, so' as da ultima rodada na tela de escolher.
+        recuperados = self._recuperar_pastas_fora_do_indice(pasta, alunos_info)
+        if recuperados:
+            try:
+                with open(indice_path, 'w', encoding='utf-8') as f:
+                    json.dump(alunos_info, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+            sem_id = sum(1 for n in recuperados if not alunos_info[n].get('id'))
+            msg = f'{len(recuperados)} aluno(s) estavam na pasta mas fora da lista e foram recuperados.'
+            if sem_id:
+                msg += (f'\n\n{sem_id} deles não foram achados no cadastro pelo nome — '
+                        'sem o cadastro o programa não encontra o pedido deles na montagem '
+                        '(caem em _SO_AUTORIZOU).')
+            messagebox.showinfo('Alunos recuperados', msg)
         self.alunos_info = alunos_info
         self._pasta_organizada = pasta
         self._carregar_aba2(pasta, alunos_info)
         self.nb.select(1)
+
+    def _recuperar_pastas_fora_do_indice(self, pasta, alunos_info):
+        """Acrescenta em alunos_info (in place) as pastas 'Nome - Ano - Turma X'
+        que nao estao no indice. Devolve a lista de nomes de pasta recuperados."""
+        exts = {'.jpg', '.jpeg', '.png'}
+        novos = []
+        for sub in sorted(pasta.iterdir(), key=lambda p: p.name.lower()):
+            if not sub.is_dir() or sub.name.startswith('_') or sub.name in alunos_info:
+                continue
+            fotos = sorted(f for f in sub.iterdir() if f.is_file() and f.suffix.lower() in exts)
+            if not fotos:
+                continue
+            partes = [p.strip() for p in sub.name.split(' - ')]
+            turma = ano = ''
+            if partes and partes[-1].startswith('Turma '):
+                turma = partes.pop()[6:].strip()
+            if len(partes) > 1:
+                ano = partes.pop()
+            nome = ' - '.join(partes)
+            alunos_info[sub.name] = {
+                'id': self._achar_id_aluno(nome, ano, turma), 'nome': nome,
+                'turma': turma, 'ano': ano, 'escola': '',
+                'pasta': str(sub), 'fotos': [str(f) for f in fotos],
+                'blocos': [1] * len(fotos), 'bloco_atual': 1,
+                'fotos_count': len(fotos),
+            }
+            novos.append(sub.name)
+        return novos
+
+    def _achar_id_aluno(self, nome, ano, turma):
+        """Procura o aluno no cadastro pelo nome. So' devolve id se achar um
+        unico candidato (desempata por ano/turma); na duvida, vazio."""
+        try:
+            rows = supabase_get('students', {
+                'select': 'id,name,class:school_classes(name,year:school_years(name))',
+                'name': f'ilike.{nome}', 'limit': '10'})
+        except Exception:
+            return ''
+        if len(rows) > 1:
+            def bate(r):
+                cl = r.get('class') or {}
+                return ((cl.get('year') or {}).get('name', '') == ano
+                        and cl.get('name', '').strip() == turma.strip())
+            rows = [r for r in rows if bate(r)]
+        return rows[0]['id'] if len(rows) == 1 else ''
 
     def _carregar_aba2(self, pasta_saida, alunos_info):
         # Limpa frame
         for w in self.frame_alunos.winfo_children():
             w.destroy()
         self.foto_vars = {}
+        self._limpar_escolha = {}
         self._linhas_pendentes = set()
 
         # Escolhas ficam gravadas na propria pasta: fechar o programa (ou ele
@@ -695,7 +768,7 @@ class App(tk.Tk):
                      bg=COR_BG, fg=COR_CINZA, font=('Segoe UI', 9)).pack(
                      anchor='w', padx=10, pady=(0,6))
 
-        for nome_pasta, info in sorted(alunos_info.items()):
+        for nome_pasta, info in sorted(alunos_info.items(), key=lambda kv: _chave_ordem(kv[0])):
             fotos = info.get('fotos', [])
             self._linha_aluno(nome_pasta, info, fotos)
 
@@ -760,16 +833,37 @@ class App(tk.Tk):
             else:
                 lbl.config(text='— ainda não escolhida', fg=COR_CINZA)
 
+        mudo = [False]
+
         def ao_escolher(*_):
+            if mudo[0]:
+                return
             salvas[tema] = var.get()
             atualizar_rotulo()
             self._salvar_escolhas()
+
+        def limpar():
+            # Cancela a escolha (foto marcada errada): volta pra "ainda nao
+            # escolhida". `mudo` evita que o set() abaixo regrave a escolha.
+            salvas.pop(tema, None)
+            mudo[0] = True
+            try:
+                var.set(Path(fotos[0]).name if fotos else '')
+            finally:
+                mudo[0] = False
+            atualizar_rotulo()
+            self._salvar_escolhas()
+        self._limpar_escolha[(nome_pasta, tema)] = limpar
 
         atualizar_rotulo()
         var.trace_add('write', ao_escolher)
 
         def abrir_visor(np=nome_pasta, v=var, fl=fotos, t=rot, bl=blocos):
             self._abrir_visor(np, v, fl, t, bl)
+        tk.Button(linha, text='✕ Limpar', command=limpar,
+                  bg='#E2E8F0', fg=COR_TEXTO, relief='flat',
+                  font=('Segoe UI', 9), padx=8, pady=2,
+                  cursor='hand2').pack(side='right', padx=(4, 0))
         tk.Button(linha, text='🔍 Escolher', command=abrir_visor,
                   bg=COR_AZUL, fg='white', relief='flat',
                   font=('Segoe UI', 9, 'bold'), padx=10, pady=2,
@@ -786,176 +880,262 @@ class App(tk.Tk):
             messagebox.showwarning('Aviso', f'Não consegui salvar a escolha no disco:\n{e}')
 
     def _abrir_visor(self, nome_pasta, var, fotos, tema='', blocos=None):
-        """Abre janela de visualização de fotos com navegação por teclado.
+        """Visor unico, maximizado, que percorre TODOS os alunos em ordem.
 
-        `blocos` diz a que bloco cada foto pertence (1 = uniforme, 2 = tema
-        seguinte...). Serve pra pular direto pro trecho certo em vez de
-        navegar foto a foto procurando onde a roupa mudou.
+        Setas ←/→ andam de foto em foto e, passando da ultima foto de um
+        aluno, ja' entram no proximo (nome grande no topo). Teclas 1, 2, 3...
+        (ou os botoes da direita) escolhem a foto atual pra cada tema; apertar
+        o mesmo numero de novo numa foto ja' escolhida cancela a escolha.
         """
-        from PIL import Image, ImageTk
+        from PIL import Image, ImageTk, ImageOps
 
+        temas_ordem = [''] + list(getattr(self, 'temas', []))[:8]
+        tema_real = '' if tema == 'Uniforme' else tema
+
+        def ordem():
+            return sorted((k for k, v in self.alunos_info.items() if v.get('fotos')),
+                          key=_chave_ordem)
+
+        estado = {'key': nome_pasta, 'i': 0}
+        ja = self._escolhas_salvas.get(nome_pasta, {}).get(tema_real)
+        nomes0 = [Path(f).name for f in self.alunos_info[nome_pasta].get('fotos', [])]
+        if ja in nomes0:
+            estado['i'] = nomes0.index(ja)
+
+        def info():     return self.alunos_info[estado['key']]
+        def fotos_():   return info().get('fotos', [])
+        def blocos_():
+            b = info().get('blocos', [])
+            return b if len(b) == len(fotos_()) else []
+        def escolhida(t):
+            return self._escolhas_salvas.get(estado['key'], {}).get(t)
+
+        BG = '#1a1a2e'
         win = tk.Toplevel(self)
         win.title('Escolher foto')
-        win.configure(bg='#1a1a2e')
-        win.geometry('900x700')
+        win.configure(bg=BG)
+        win.geometry('1280x800')
+        try:
+            win.state('zoomed')   # abre maximizado
+        except Exception:
+            pass
         win.grab_set()  # modal
 
-        idx = [0]  # índice atual (lista para ser mutável no closure)
-        # Tenta começar na foto já selecionada
-        nome_atual = var.get()
-        nomes = [Path(f).name for f in fotos]
-        if nome_atual in nomes:
-            idx[0] = nomes.index(nome_atual)
-
-        # ── Layout ────────────────────────────────────────────────────────────
-        # Topo: nome do aluno
-        info_al = self.alunos_info.get(nome_pasta, {})
-        nome_al = info_al.get('nome', nome_pasta)
-        titulo  = f'{nome_al}  —  {tema}' if tema else nome_al
-        tk.Label(win, text=titulo, bg='#1a1a2e', fg='white',
-                 font=('Segoe UI', 13, 'bold')).pack(pady=(14,2))
-
-        lbl_contador = tk.Label(win, text='', bg='#1a1a2e', fg='#8888aa',
-                                font=('Segoe UI', 10))
+        # ── Topo: nome GRANDE do aluno (muda a cada aluno) ───────────────────
+        lbl_nome = tk.Label(win, text='', bg=BG, fg='white', font=('Segoe UI', 28, 'bold'))
+        lbl_nome.pack(pady=(10, 0))
+        lbl_sub = tk.Label(win, text='', bg=BG, fg='#aaaacc', font=('Segoe UI', 12))
+        lbl_sub.pack()
+        lbl_contador = tk.Label(win, text='', bg=BG, fg='#8888aa', font=('Segoe UI', 10))
         lbl_contador.pack()
 
-        # Canvas da foto
-        canvas = tk.Canvas(win, bg='#1a1a2e', highlightthickness=0)
-        canvas.pack(fill='both', expand=True, padx=20, pady=10)
+        # ── Rodape (empacotado antes pra nao sumir quando a janela encolhe) ──
+        rodape = tk.Frame(win, bg=BG)
+        rodape.pack(side='bottom', fill='x', padx=20, pady=(0, 12))
 
-        # Botões de navegação + escolher
-        rodape = tk.Frame(win, bg='#1a1a2e')
-        rodape.pack(fill='x', padx=20, pady=(0,14))
+        meio = tk.Frame(win, bg=BG)
+        meio.pack(fill='both', expand=True, padx=20, pady=8)
 
-        btn_ant = tk.Button(rodape, text='◀  Anterior', font=('Segoe UI', 10, 'bold'),
-                            bg='#2d2d4e', fg='white', relief='flat',
-                            padx=16, pady=8, cursor='hand2')
-        btn_ant.pack(side='left')
+        # ── Painel direito: um botao por tema ────────────────────────────────
+        painel = tk.Frame(meio, bg=BG, width=300)
+        painel.pack(side='right', fill='y', padx=(12, 0))
+        painel.pack_propagate(False)
+        tk.Label(painel, text='Esta foto é de qual tema?', bg=BG, fg='white',
+                 font=('Segoe UI', 11, 'bold')).pack(anchor='w', pady=(0, 8))
 
-        btn_prox = tk.Button(rodape, text='Próxima  ▶', font=('Segoe UI', 10, 'bold'),
-                             bg='#2d2d4e', fg='white', relief='flat',
-                             padx=16, pady=8, cursor='hand2')
-        btn_prox.pack(side='left', padx=8)
+        canvas = tk.Canvas(meio, bg=BG, highlightthickness=0)
+        canvas.pack(side='left', fill='both', expand=True)
 
-        # Pulo entre blocos — so' aparece quando o aluno tem mais de um
-        blocos_lista = list(blocos or [])
-        tem_blocos = len(set(blocos_lista)) > 1 and len(blocos_lista) == len(fotos)
-        if tem_blocos:
-            inicios = {}          # bloco -> indice da 1a foto dele
-            for i, b in enumerate(blocos_lista):
-                inicios.setdefault(b, i)
-            ordem_blocos = sorted(inicios)
+        btns = {}
 
-            def pular(passo):
-                atual = blocos_lista[idx[0]]
-                pos   = ordem_blocos.index(atual)
-                novo  = ordem_blocos[(pos + passo) % len(ordem_blocos)]
-                mostrar(inicios[novo])
+        def escolher_tema(t):
+            key = estado['key']
+            if key not in self.foto_vars or t not in self.foto_vars[key]:
+                lbl_aviso.config(text='Este aluno ainda não tem linha na lista — feche e reabra.')
+                return
+            nome_arq = Path(fotos_()[estado['i']]).name
+            rot = 'Uniforme' if t == '' else t
+            if escolhida(t) == nome_arq:
+                self._limpar_escolha[(key, t)]()
+                lbl_aviso.config(text=f'❌ Escolha de {rot} cancelada.', fg='#ffb4b4')
+            else:
+                self.foto_vars[key][t][0].set(nome_arq)
+                lbl_aviso.config(text=f'✅ Esta foto agora é {rot}.', fg='#9be39b')
+            refresh_painel()
 
-            tk.Button(rodape, text='⏮ Bloco', font=('Segoe UI', 10, 'bold'),
-                      bg='#3a3a5e', fg='white', relief='flat', padx=12, pady=8,
-                      cursor='hand2', command=lambda: pular(-1)).pack(side='left', padx=(16,4))
-            tk.Button(rodape, text='Bloco ⏭', font=('Segoe UI', 10, 'bold'),
-                      bg='#3a3a5e', fg='white', relief='flat', padx=12, pady=8,
-                      cursor='hand2', command=lambda: pular(1)).pack(side='left')
+        def limpar_tema(t):
+            key = estado['key']
+            if escolhida(t) and (key, t) in self._limpar_escolha:
+                self._limpar_escolha[(key, t)]()
+                lbl_aviso.config(text=f'❌ Escolha de {"Uniforme" if t == "" else t} cancelada.',
+                                 fg='#ffb4b4')
+                refresh_painel()
 
-        dica = '← → navegar  •  Espaço escolher' + ('  •  PgUp/PgDn troca de bloco' if tem_blocos else '')
-        tk.Label(rodape, text=dica,
-                 bg='#1a1a2e', fg='#666688', font=('Segoe UI', 9)).pack(side='left', padx=16)
+        for n, t in enumerate(temas_ordem, 1):
+            linha = tk.Frame(painel, bg=BG)
+            linha.pack(fill='x', pady=4)
+            b = tk.Button(linha, text='', font=('Segoe UI', 12, 'bold'), relief='flat',
+                          fg='white', bg='#2d2d4e', justify='left', anchor='w',
+                          padx=12, pady=8, cursor='hand2',
+                          command=lambda t=t: escolher_tema(t))
+            b.pack(side='left', fill='x', expand=True)
+            x = tk.Button(linha, text='✕', font=('Segoe UI', 11, 'bold'), relief='flat',
+                          fg='white', bg='#8b2e2e', padx=10, cursor='hand2',
+                          command=lambda t=t: limpar_tema(t))
+            x.pack(side='left', fill='y', padx=(4, 0))
+            btns[t] = (b, x)
 
-        btn_escolher = tk.Button(rodape, text='✅  Escolher esta foto  [Espaço]',
-                                 font=('Segoe UI', 11, 'bold'),
-                                 bg=COR_VERDE, fg='white', relief='flat',
-                                 padx=20, pady=8, cursor='hand2')
-        btn_escolher.pack(side='right')
+        lbl_aviso = tk.Label(painel, text='', bg=BG, fg='#9be39b', wraplength=290,
+                             justify='left', font=('Segoe UI', 10, 'bold'))
+        lbl_aviso.pack(anchor='w', pady=(10, 0))
 
-        # Caso real: esqueceu de trocar o QR antes de fotografar o proximo
-        # aluno, e a foto foi parar na pasta errada. Em vez de sair do
-        # programa e mexer nos arquivos na mao, resolve aqui: escolhe o
-        # aluno certo (com busca) e o programa move + renomeia sozinho.
-        btn_mover = tk.Button(rodape, text='➡ Mover p/ outro aluno',
-                              font=('Segoe UI', 10, 'bold'),
-                              bg='#7C3AED', fg='white', relief='flat',
-                              padx=14, pady=8, cursor='hand2')
-        btn_mover.pack(side='right', padx=(0,10))
+        def refresh_painel():
+            nomes = [Path(f).name for f in fotos_()]
+            atual = nomes[estado['i']]
+            for n, t in enumerate(temas_ordem, 1):
+                rot = 'Uniforme' if t == '' else t
+                esc = escolhida(t)
+                b, x = btns[t]
+                if esc == atual:
+                    b.config(text=f'{n}  ·  {rot}\n✅ ESTA FOTO', bg=COR_VERDE)
+                    x.config(state='normal')
+                elif esc in nomes:
+                    num = Path(esc).stem.rsplit(' - ', 1)[-1]
+                    b.config(text=f'{n}  ·  {rot}\nescolhida: foto {num}', bg='#2d2d4e')
+                    x.config(state='normal')
+                else:
+                    b.config(text=f'{n}  ·  {rot}\n— não escolhida', bg='#2d2d4e')
+                    x.config(state='disabled')
 
-        # ── Lógica ────────────────────────────────────────────────────────────
-        img_tk_ref = [None]  # mantém referência para não ser coletado pelo GC
+        # ── Rodape: navegacao ────────────────────────────────────────────────
+        def mk(txt, cmd, bg='#2d2d4e', side='left', padx=(0, 8)):
+            bt = tk.Button(rodape, text=txt, command=cmd, font=('Segoe UI', 10, 'bold'),
+                           bg=bg, fg='white', relief='flat', padx=14, pady=8, cursor='hand2')
+            bt.pack(side=side, padx=padx)
+            return bt
 
-        def mostrar(i, tentativa=0):
-            idx[0] = i % len(fotos)
-            path = Path(fotos[idx[0]])
-            txt = f'{idx[0]+1} / {len(fotos)}  —  {path.name}'
-            if len(blocos_lista) == len(fotos) and blocos_lista:
-                b = blocos_lista[idx[0]]
-                txt += f'   •   Bloco {b} de {max(blocos_lista)}'
+        mk('◀ Foto', lambda: andar_foto(-1))
+        mk('Foto ▶', lambda: andar_foto(1))
+        mk('⏮ Aluno', lambda: mudar_aluno(-1), '#3a3a5e', padx=(12, 4))
+        mk('Aluno ⏭', lambda: mudar_aluno(1), '#3a3a5e')
+        mk('⏮ Bloco', lambda: pular(-1), '#3a3a5e', padx=(12, 4))
+        mk('Bloco ⏭', lambda: pular(1), '#3a3a5e')
+        mk('Fechar [Esc]', win.destroy, '#555577', side='right', padx=(8, 0))
+        mk('➡ Mover p/ outro aluno', lambda: mover_para_outro(), '#7C3AED', side='right')
+        tk.Label(rodape,
+                 text='← → fotos (passa pro próximo aluno sozinho)  •  1 2 3… escolhe o tema  •  '
+                      'mesmo número de novo cancela  •  PgUp/PgDn aluno  •  ↑ ↓ bloco',
+                 bg=BG, fg='#666688', font=('Segoe UI', 9)).pack(side='left', padx=14)
+
+        # ── Logica ───────────────────────────────────────────────────────────
+        img_tk_ref = [None]
+
+        def mostrar(tentativa=0):
+            ks = ordem()
+            if not ks:
+                win.destroy()
+                return
+            if estado['key'] not in ks:
+                estado['key'], estado['i'] = ks[0], 0
+            fl = fotos_()
+            estado['i'] %= len(fl)
+            i = estado['i']
+            inf = info()
+            lbl_nome.config(text=inf.get('nome', estado['key']))
+            partes = [p for p in [inf.get('ano', ''),
+                                  f"Turma {inf['turma']}" if inf.get('turma') else ''] if p]
+            lbl_sub.config(text=f"Aluno {ks.index(estado['key'])+1} de {len(ks)}"
+                                + ('   •   ' + ' · '.join(partes) if partes else ''))
+            path = Path(fl[i])
+            txt = f'Foto {i+1} de {len(fl)}   —   {path.name}'
+            bl = blocos_()
+            if bl:
+                txt += f'   •   Bloco {bl[i]} de {max(bl)}'
             lbl_contador.config(text=txt)
+            refresh_painel()
 
-            # Carrega e redimensiona a imagem
+            cw = max(canvas.winfo_width(), 200)
+            ch = max(canvas.winfo_height(), 200)
             try:
                 img = Image.open(path)
-                # Respeita rotação EXIF (fotos de câmera/celular)
                 try:
-                    from PIL import ImageOps
-                    img = ImageOps.exif_transpose(img)
+                    img.draft('RGB', (cw * 2, ch * 2))   # JPEG grande abre bem mais rapido
                 except Exception:
                     pass
-                img.thumbnail((860, 560), Image.LANCZOS)
+                img = ImageOps.exif_transpose(img)
+                img.thumbnail((cw, ch), Image.LANCZOS)
                 photo = ImageTk.PhotoImage(img)
                 img_tk_ref[0] = photo
                 canvas.delete('all')
-                cw = canvas.winfo_width() or 860
-                ch = canvas.winfo_height() or 560
-                canvas.create_image(cw//2, ch//2, anchor='center', image=photo)
+                canvas.create_image(cw // 2, ch // 2, anchor='center', image=photo)
             except Exception as e:
-                # A foto pode ter acabado de ser copiada pela Fase 1 (que roda
-                # numa thread separada e pode ainda estar em andamento — nada
-                # trava a Aba 2 enquanto isso) ou o Windows/antivirus segurou o
-                # arquivo por uma fração de segundo logo depois de criado.
-                # Tenta de novo antes de desistir, em vez de mostrar erro numa
-                # foto que na verdade existe. Visto ao vivo em 22/09/2026.
-                if tentativa < 5:
-                    canvas.delete('all')
-                    cw = canvas.winfo_width() or 860
-                    ch = canvas.winfo_height() or 560
-                    canvas.create_text(cw//2, ch//2, text='Carregando…',
-                                       fill='#8888aa', font=('Segoe UI', 12))
-                    win.after(400, lambda: mostrar(i, tentativa + 1))
-                    return
+                # Arquivo recem-copiado pela Fase 1 pode estar preso por
+                # instantes (Windows/antivirus): tenta de novo antes de desistir.
                 canvas.delete('all')
-                cw = canvas.winfo_width() or 860
-                ch = canvas.winfo_height() or 560
-                canvas.create_text(cw//2, ch//2,
-                                   text=f'Não consegui abrir esta foto:\n{path.name}\n\n{e}\n\nClique aqui pra tentar de novo',
-                                   fill='red', font=('Segoe UI', 12), justify='center', width=cw-60)
-                canvas.tag_bind('all', '<Button-1>', lambda e: mostrar(i, 0))
-                canvas.bind('<Button-1>', lambda e: mostrar(i, 0))
+                if tentativa < 5:
+                    canvas.create_text(cw // 2, ch // 2, text='Carregando…',
+                                       fill='#8888aa', font=('Segoe UI', 12))
+                    win.after(400, lambda: mostrar(tentativa + 1))
+                    return
+                canvas.create_text(cw // 2, ch // 2, fill='red', font=('Segoe UI', 12),
+                                   justify='center', width=cw - 60,
+                                   text=f'Não consegui abrir esta foto:\n{path.name}\n\n{e}\n\nClique aqui pra tentar de novo')
+                canvas.bind('<Button-1>', lambda ev: mostrar(0))
 
-        def escolher():
-            var.set(Path(fotos[idx[0]]).name)
-            win.destroy()
+        def andar_foto(passo):
+            fl = fotos_()
+            novo = estado['i'] + passo
+            if 0 <= novo < len(fl):
+                estado['i'] = novo
+            else:
+                ks = ordem()
+                npos = ks.index(estado['key']) + passo
+                if not (0 <= npos < len(ks)):
+                    lbl_aviso.config(text='Fim da lista de alunos.' if passo > 0
+                                     else 'Início da lista de alunos.', fg='#ffd98a')
+                    return
+                estado['key'] = ks[npos]
+                estado['i'] = 0 if passo > 0 else len(fotos_()) - 1
+            lbl_aviso.config(text='')
+            mostrar()
 
-        def anterior():
-            mostrar(idx[0] - 1)
+        def mudar_aluno(passo):
+            ks = ordem()
+            npos = ks.index(estado['key']) + passo
+            if not (0 <= npos < len(ks)):
+                lbl_aviso.config(text='Fim da lista de alunos.' if passo > 0
+                                 else 'Início da lista de alunos.', fg='#ffd98a')
+                return
+            estado['key'], estado['i'] = ks[npos], 0
+            lbl_aviso.config(text='')
+            mostrar()
 
-        def proximo():
-            mostrar(idx[0] + 1)
+        def pular(passo):
+            bl = blocos_()
+            if not bl or len(set(bl)) < 2:
+                return
+            inicios = {}
+            for k, b in enumerate(bl):
+                inicios.setdefault(b, k)
+            ordem_b = sorted(inicios)
+            pos = ordem_b.index(bl[estado['i']])
+            estado['i'] = inicios[ordem_b[(pos + passo) % len(ordem_b)]]
+            mostrar()
 
         def mover_para_outro():
-            destino_key = self._escolher_aluno_destino(excluir=nome_pasta)
+            key = estado['key']
+            destino_key = self._escolher_aluno_destino(excluir=key)
             if not destino_key:
                 return
 
-            pos = idx[0]
-            origem_path = Path(fotos[pos])
-            origem_info  = self.alunos_info[nome_pasta]
+            pos = estado['i']
+            origem_info = self.alunos_info[key]
             destino_info = self.alunos_info[destino_key]
+            origem_path = Path(origem_info['fotos'][pos])
             destino_pasta = Path(destino_info['pasta'])
             destino_pasta.mkdir(exist_ok=True)
 
-            # Acha o proximo numero livre olhando os arquivos que ja' estao
-            # la' — nunca confia em len(fotos) sozinho, pra nao sobrescrever
-            # foto de quem ja' esta' na pasta se algum numero tiver pulado.
+            # Proximo numero livre lendo a pasta — nunca confia so' em len(fotos).
             numeros = []
             for f in destino_pasta.glob(f'{destino_key} - *'):
                 try:
@@ -968,36 +1148,29 @@ class App(tk.Tk):
             try:
                 shutil.move(str(origem_path), str(novo_caminho))
             except Exception as e:
-                messagebox.showerror('Erro ao mover', str(e))
+                messagebox.showerror('Erro ao mover', str(e), parent=win)
                 return
 
-            # Mantem o bloco (volta do QR) de onde a foto veio: a foto de outra
-            # crianca no meio do bloco de Natal do aluno errado tambem e' de
-            # Natal. Antes cada foto movida virava um bloco novo.
+            # Se essa foto era a escolhida de algum tema do aluno errado, a
+            # escolha cai junto (senao apontaria pra arquivo que nao esta' mais la').
+            for t in temas_ordem:
+                if escolhida(t) == origem_path.name and (key, t) in self._limpar_escolha:
+                    self._limpar_escolha[(key, t)]()
+
+            # Mantem o bloco (volta do QR) de onde a foto veio.
             bloco_origem = (origem_info['blocos'][pos]
-                            if pos < len(origem_info['blocos']) else 1)
-
-            # Tira do aluno errado. `fotos` aqui e' o mesmo objeto de
-            # origem_info['fotos'] (mesma lista, nao copia), entao o pop
-            # ja' atualiza os dois ao mesmo tempo.
-            fotos.pop(pos)
-            if pos < len(origem_info['blocos']):
+                            if pos < len(origem_info.get('blocos', [])) else 1)
+            origem_info['fotos'].pop(pos)
+            if pos < len(origem_info.get('blocos', [])):
                 origem_info['blocos'].pop(pos)
-            if pos < len(blocos_lista):
-                blocos_lista.pop(pos)
 
-            # Poe no aluno certo
             destino_info['fotos'].append(str(novo_caminho))
-            destino_info['blocos'].append(bloco_origem)
+            destino_info.setdefault('blocos', []).append(bloco_origem)
 
-            # Aluno criado agora (QR nao lido): ganha a linha na Aba 2 assim
-            # que tem a 1a foto. As proximas entram na mesma lista (mesmo
-            # objeto), entao a linha nao precisa ser redesenhada.
+            # Aluno criado agora (QR nao lido) ganha linha na Aba 2 na 1a foto.
             if destino_key in self._linhas_pendentes:
                 self._linhas_pendentes.discard(destino_key)
                 self._linha_aluno(destino_key, destino_info, destino_info['fotos'])
-            # Sem isso, reabrir a pasta depois traria a foto de volta no aluno
-            # errado (apontando pra um arquivo que ja' saiu de la').
             try:
                 pasta_org = getattr(self, '_pasta_organizada', None)
                 if pasta_org:
@@ -1005,40 +1178,39 @@ class App(tk.Tk):
                         json.dump(self.alunos_info, f, ensure_ascii=False, indent=2)
             except Exception as e:
                 messagebox.showwarning('Aviso',
-                    f'A foto foi movida, mas não consegui atualizar o índice:\n{e}')
+                    f'A foto foi movida, mas não consegui atualizar o índice:\n{e}', parent=win)
 
-            # Aviso no titulo em vez de janela: mover 10+ fotos de uma crianca
-            # com um "OK" pra clicar a cada uma cansa.
-            win.title(f'Escolher foto   —   ✓ movida pra {destino_info.get("nome", destino_key)}')
-
-            if not fotos:
-                win.destroy()
+            lbl_aviso.config(text=f'✓ Movida pra {destino_info.get("nome", destino_key)}', fg='#9be39b')
+            if origem_info['fotos']:
+                estado['i'] = min(pos, len(origem_info['fotos']) - 1)
             else:
-                mostrar(pos % len(fotos))
-
-        btn_ant.config(command=anterior)
-        btn_prox.config(command=proximo)
-        btn_escolher.config(command=escolher)
-        btn_mover.config(command=mover_para_outro)
+                ks = ordem()
+                if not ks:
+                    win.destroy()
+                    return
+                depois = [k for k in ks if _chave_ordem(k) >= _chave_ordem(key)]
+                estado['key'], estado['i'] = (depois[0] if depois else ks[-1]), 0
+            mostrar()
 
         def tecla(e):
-            if e.keysym == 'Left':   anterior()
-            elif e.keysym == 'Right': proximo()
-            elif e.keysym == 'space': escolher()
-            elif e.keysym == 'Escape': win.destroy()
-            elif e.keysym == 'Prior' and tem_blocos: pular(-1)   # PgUp
-            elif e.keysym == 'Next'  and tem_blocos: pular(1)    # PgDn
+            ks = e.keysym
+            if ks == 'Left':    andar_foto(-1)
+            elif ks == 'Right': andar_foto(1)
+            elif ks == 'Up':    pular(-1)
+            elif ks == 'Down':  pular(1)
+            elif ks == 'Prior': mudar_aluno(-1)   # PgUp
+            elif ks == 'Next':  mudar_aluno(1)    # PgDn
+            elif ks == 'Escape': win.destroy()
+            else:
+                d = e.char if e.char and e.char in '123456789' else \
+                    (ks[-1] if ks.startswith('KP_') and ks[-1] in '123456789' else '')
+                if d and int(d) <= len(temas_ordem):
+                    escolher_tema(temas_ordem[int(d) - 1])
 
         win.bind('<Key>', tecla)
         win.focus_set()
-
-        # Redimensiona canvas quando janela muda
-        def on_resize(e):
-            mostrar(idx[0])
-        canvas.bind('<Configure>', on_resize)
-
-        # Mostra primeira foto
-        win.after(100, lambda: mostrar(idx[0]))
+        canvas.bind('<Configure>', lambda e: mostrar())
+        win.after(150, mostrar)
 
     def _escolher_aluno_destino(self, excluir):
         """Janela pequena com busca pra escolher pra qual aluno uma foto
@@ -1292,7 +1464,7 @@ class App(tk.Tk):
         relatorio  = {}
         sem_pedido = []
 
-        for nome_pasta, info in sorted(self.alunos_info.items()):
+        for nome_pasta, info in sorted(self.alunos_info.items(), key=lambda kv: _chave_ordem(kv[0])):
             nome    = info.get('nome', nome_pasta)
             aluno_id = info.get('id', '')
             fotos   = info.get('fotos', [])
