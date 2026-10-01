@@ -418,6 +418,23 @@ class App(tk.Tk):
         sem_aluno   = 0
         pasta_sem   = saida / '_sem_aluno'
 
+        # Rodar a Fase 1 de novo apontando pra MESMA pasta de saida (cartao da
+        # tarde depois do da manha, ou 2a camera no mesmo dia) nao pode perder
+        # quem ja' tinha sido organizado antes. Sem isso, o _indice_alunos.json
+        # era sobrescrito do zero a cada rodada e a Fase 2 so' mostrava os
+        # alunos da ultima leva — mesmo com a pasta de todo mundo ja' no disco.
+        # Visto ao vivo em 01/10/2026 (92 pastas no disco, bem menos alunos na
+        # tela de escolher foto).
+        indice_existente = saida / '_indice_alunos.json'
+        if indice_existente.exists():
+            try:
+                with open(indice_existente, encoding='utf-8') as f:
+                    alunos_info = json.load(f)
+                if alunos_info:
+                    self._log1(f'📎 Pasta já tinha {len(alunos_info)} aluno(s) organizados antes — mantendo e somando.\n')
+            except Exception:
+                alunos_info = {}
+
         turmas_info = {}   # nome_pasta -> quantas fotos de turma
 
         for i, foto in enumerate(fotos, 1):
