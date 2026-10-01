@@ -25,7 +25,7 @@
 // PIX parcelado combinado fica em criar-parcelamento-pix.js.
 // ============================================================================
 
-const { asaas, woovi, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, dividirProporcional, calcularDescontoIrmaos, calcularAcrescimoParcelamento, cancelarParcelasPix } = require('./_lib.js');
+const { descricaoCobranca, asaas, woovi, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, dividirProporcional, calcularDescontoIrmaos, calcularAcrescimoParcelamento, cancelarParcelasPix } = require('./_lib.js');
 const crypto = require('crypto');
 
 const BILLING = { pix: 'PIX', credito: 'CREDIT_CARD', debito: 'DEBIT_CARD' };
@@ -74,7 +74,7 @@ module.exports = async (req, res) => {
     const pedidosBrutos = await sb(
       `/orders?id=in.(${idsSql})&select=` +
       'id,order_number,total_amount,payment_status,gateway,gateway_id,payment_group_id,has_paid_installment,student_id,project_id,' +
-      'user_id,payment_link_token,users(name,email,cpf,phone),students(name)'
+      'user_id,payment_link_token,users(name,email,cpf,phone),students(name),school:schools(name),project:projects(name)'
     );
     if (!pedidosBrutos || pedidosBrutos.length !== orderIds.length) {
       return res.status(404).json({ erro: 'Pedido nao encontrado.' });
@@ -228,7 +228,12 @@ module.exports = async (req, res) => {
     // ---- 4. Dados do cliente (reaproveitados pelo CPF) ----------------------
     const alunosNomes = pedidosGrupo.map((p) => p.students?.name).filter(Boolean);
     const numerosPedidos = pedidosGrupo.map((p) => p.order_number).filter(Boolean).join('+');
-    const descricao = `Pedido${combinado ? 's' : ''} ${numerosPedidos}${alunosNomes.length ? ' - ' + alunosNomes.join(' + ') : ''}`;
+    const descricao = descricaoCobranca({
+      escola: pedido.school?.name,
+      projeto: pedido.project?.name,
+      numeros: numerosPedidos,
+      alunos: alunosNomes.join(' + '),
+    });
     let pixPayload = null, pixQr = null;
 
     const resp = pedido.users || {};

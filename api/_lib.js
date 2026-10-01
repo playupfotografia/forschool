@@ -190,6 +190,22 @@ function apenasDigitos(s) {
   return String(s || '').replace(/\D/g, '');
 }
 
+// Descricao que aparece no painel do Asaas e da Woovi. Escola e projeto vem
+// PRIMEIRO: com varias escolas/projetos juntos, e' por eles que se acha uma
+// cobranca depois. Cortada em 140 caracteres (limite do comentario da Woovi);
+// o corte tira so' o fim (nomes dos alunos), nunca a escola.
+function descricaoCobranca({ escola, projeto, numeros, alunos, extra }) {
+  const partes = [
+    escola,
+    projeto && projeto !== escola ? projeto : null,
+    numeros ? `Pedido ${numeros}` : null,
+    alunos,
+    extra,
+  ].filter(Boolean);
+  const txt = partes.join(' - ');
+  return txt.length > 140 ? txt.slice(0, 139) + '…' : txt;
+}
+
 // ---------------------------------------------------------------------------
 // Divide um valor total entre pesos, proporcionalmente — usado pra ratear o
 // liquido/tarifa de uma cobranca combinada (irmaos pagando junto,
@@ -1025,4 +1041,4 @@ async function avisarParcelaAtrasada(pedido, parcela) {
   });
 }
 
-module.exports = { env, asaas, woovi, assinaturaWooviValida, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, dividirProporcional, calcularDescontoIrmaos, calcularAcrescimoParcelamento, cancelarParcelasPix, resumoFinanceiro, liquidoCrivel, avisarVenda, avisarPedidoPendente, avisarPedidoCancelado, avisarPagamentoDesfeito, avisarParcelaPaga, avisarPedidoPagoPai, avisarLembreteParcela, avisarParcelaAtrasada };
+module.exports = { descricaoCobranca, env, asaas, woovi, assinaturaWooviValida, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, dividirProporcional, calcularDescontoIrmaos, calcularAcrescimoParcelamento, cancelarParcelasPix, resumoFinanceiro, liquidoCrivel, avisarVenda, avisarPedidoPendente, avisarPedidoCancelado, avisarPagamentoDesfeito, avisarParcelaPaga, avisarPedidoPagoPai, avisarLembreteParcela, avisarParcelaAtrasada };

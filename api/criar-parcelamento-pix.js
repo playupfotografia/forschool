@@ -26,7 +26,7 @@
 // (gera UMA 2a tentativa por cobranca, nao uma por linha).
 // ============================================================================
 
-const { woovi, asaas, sb, usuarioDoToken, apenasDigitos, telefoneBR, dividirProporcional, calcularDescontoIrmaos, calcularAcrescimoParcelamento, cancelarParcelasPix } = require('./_lib.js');
+const { descricaoCobranca, woovi, asaas, sb, usuarioDoToken, apenasDigitos, telefoneBR, dividirProporcional, calcularDescontoIrmaos, calcularAcrescimoParcelamento, cancelarParcelasPix } = require('./_lib.js');
 const crypto = require('crypto');
 
 // Multa/juros: testado no sandbox em 22/09/2026 — a Woovi ignora
@@ -64,7 +64,7 @@ module.exports = async (req, res) => {
     const brutos = await sb(
       `/orders?id=in.(${idsSql})&select=` +
       'id,order_number,total_amount,payment_status,has_paid_installment,project_id,student_id,user_id,' +
-      'gateway,gateway_id,payment_group_id,users(name,email,cpf,phone),students(name)'
+      'gateway,gateway_id,payment_group_id,users(name,email,cpf,phone),students(name),school:schools(name),project:projects(name)'
     );
     if (!brutos || brutos.length !== orderIds.length) {
       return res.status(404).json({ erro: 'Pedido nao encontrado.' });
@@ -211,7 +211,13 @@ module.exports = async (req, res) => {
           daysAfterDueDate: DIAS_GRACA,
           fines: { value: MULTA_PCT, type: 'PERCENTAGE' },
           interests: { value: JUROS_PCT, type: 'PERCENTAGE' },
-          comment: `Pedido${combinado ? 's' : ''} ${numeros}${alunos ? ' - ' + alunos : ''} - parcela ${k}/${n}`,
+          comment: descricaoCobranca({
+            escola: pedido.school?.name,
+            projeto: pedido.project?.name,
+            numeros,
+            alunos,
+            extra: `parcela ${k}/${n}`,
+          }),
           customer: {
             name: resp.name || 'Responsavel',
             taxID: cpf,
