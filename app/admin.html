@@ -1016,7 +1016,8 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
       <div class="topbar-title">Bilhete &amp; QR Code</div>
       <div class="topbar-actions">
         <button class="btn btn-secondary" id="btn-copiar-link-bil">Copiar link</button>
-        <button class="btn btn-secondary" id="btn-wpp-bil" style="background:#25D366;color:#fff;border-color:#25D366">💬 Mensagem WhatsApp</button>
+        <button class="btn btn-secondary" id="btn-copiar-msg-bil">📋 Copiar mensagem</button>
+        <button class="btn btn-secondary" id="btn-wpp-bil" style="background:#25D366;color:#fff;border-color:#25D366">💬 Abrir no WhatsApp</button>
         <button class="btn btn-secondary" id="btn-preview-imprimir">🖨 Visualizar / Imprimir</button>
         <button class="btn btn-primary" id="btn-baixar-pdf-bil">Baixar PDF</button>
       </div>
@@ -12879,6 +12880,19 @@ function montarTextoWhatsAppBilhete() {
   l.push('', '👉 *Acesse o portal para autorizar a imagem e escolher os produtos:*', link, '', `Qualquer dúvida, é só chamar. — ${empresa}`);
   return l.join('\n');
 }
+
+// Só copia o texto (sem abrir o WhatsApp) — pra mandar pra escola, que repassa
+// aos pais. O texto ja' sai com *negrito* e o link por extenso.
+document.getElementById('btn-copiar-msg-bil').addEventListener('click', async () => {
+  if (!bilheteProj?.slug) { toast('Selecione um projeto primeiro', 'warn'); return; }
+  const texto = montarTextoWhatsAppBilhete();
+  try {
+    await navigator.clipboard.writeText(texto);
+    toast('Mensagem copiada! É só colar no WhatsApp.', 'ok');
+  } catch {
+    window.prompt('Copie a mensagem abaixo (Ctrl+C):', texto);
+  }
+});
 
 document.getElementById('btn-wpp-bil').addEventListener('click', async () => {
   if (!bilheteProj?.slug) { toast('Selecione um projeto primeiro', 'warn'); return; }
