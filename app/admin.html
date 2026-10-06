@@ -12864,7 +12864,14 @@ function montarTextoWhatsAppBilhete() {
   const l = [];
   l.push(`📸 *${bilheteProj.name}*${escola ? ' — ' + escola : ''}`);
   l.push('', 'Queridos pais e responsáveis,');
-  l.push('', `Informamos que a *${empresa}* estará realizando o projeto *${bilheteProj.name}* com os alunos${escola ? ' em ' + escola : ''}. Para o aluno participar é necessário *autorizar o uso de imagem* e, se desejarem, escolher os produtos — tudo pelo portal, no link abaixo.`);
+  l.push('', `Chegou o momento de guardar mais uma fase do seu filho(a)! 💛 A *${empresa}* estará realizando o projeto *${bilheteProj.name}* com os alunos${escola ? ' em ' + escola : ''}.`);
+  l.push('', '*É rápido, pelo celular, em 2 passos:*',
+    '1️⃣ Faça o cadastro e *autorize o uso de imagem* — é gratuito e *não gera nenhuma cobrança*',
+    '2️⃣ Escolha a lembrança que mais te agradar');
+  // Urgencia REAL: so' sai ficha (e so' e' fotografado) quem ja autorizou.
+  // O prazo e' a data da primeira sessao do projeto.
+  const primeira = (bilheteProj.sessions || []).map(x => x.photo_date).filter(Boolean).sort()[0];
+  l.push('', `⚠️ *Sem a autorização, o aluno não participa das fotos.*${primeira ? ' Faça até ' + fmtData(primeira) + '.' : ''}`);
 
   const sessoes = bilheteProj.sessions || [];
   if (sessoes.length) {
@@ -12883,7 +12890,7 @@ function montarTextoWhatsAppBilhete() {
   }
   if (bilheteProj.delivery_date) l.push('', `📦 *Entrega:* ${fmtData(bilheteProj.delivery_date)}, na escola`);
 
-  l.push('', '👉 *Acesse o portal:*', link);
+  l.push('', '👉 *Comece agora:*', link);
   if (fone) l.push('', `💬 Dúvidas? Fale com a ${empresa}:`, `https://wa.me/${fone}`);
   return l.join('\n');
 }
