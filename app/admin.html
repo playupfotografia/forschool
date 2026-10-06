@@ -12855,29 +12855,36 @@ function montarTextoWhatsAppBilhete() {
   const empresa = bilheteAppSettings?.business_name || 'Play Up Fotografia';
   const escola  = bilheteProj.school?.name || '';
   const link    = `${location.origin}/${encodeURIComponent(bilheteProj.slug)}`;
-  const intro   = (bilheteProj.inf_intro_text || '').replace(/<[^>]*>/g, '').trim();
+  // Numero da Play Up pro link de duvidas: so' digitos, com 55 na frente.
+  let fone = String(bilheteAppSettings?.whatsapp_number || '5511999363796').replace(/\D/g, '');
+  if (fone && !fone.startsWith('55')) fone = '55' + fone;
 
+  // O texto e' escrito pra a ESCOLA enviar aos pais — por isso fala da Play Up
+  // em terceira pessoa e nao termina assinado por nos.
   const l = [];
   l.push(`📸 *${bilheteProj.name}*${escola ? ' — ' + escola : ''}`);
-  if (intro) l.push('', intro);
+  l.push('', 'Queridos pais e responsáveis,');
+  l.push('', `Informamos que a *${empresa}* estará realizando o projeto *${bilheteProj.name}* com os alunos${escola ? ' em ' + escola : ''}. Para o aluno participar é necessário *autorizar o uso de imagem* e, se desejarem, escolher os produtos — tudo pelo portal, no link abaixo.`);
 
   const sessoes = bilheteProj.sessions || [];
   if (sessoes.length) {
     l.push('', '📅 *Dias das fotos*');
     sessoes.forEach(s => {
-      const turmas = (s.project_session_classes || []).map(c => {
+      const per = periodoLabel[s.period] || s.period || '';
+      l.push('', `*${s.photo_date ? fmtData(s.photo_date) : '—'}${per ? ' — ' + per : ''}*`);
+      (s.project_session_classes || []).forEach(c => {
         const ano = c.school_class?.year?.name || '';
         const nome = c.school_class?.name || '';
-        return ano ? `${ano} ${nome}` : nome;
-      }).filter(Boolean).join(', ');
-      const per = periodoLabel[s.period] || s.period || '';
-      l.push(`• ${s.photo_date ? fmtData(s.photo_date) : '—'}${per ? ' (' + per + ')' : ''}${turmas ? ' — ' + turmas : ''}`);
-      if (s.order_deadline) l.push(`   ⏰ Pedidos até ${fmtData(s.order_deadline)}`);
+        const t = ano ? `${ano} — ${nome}` : nome;
+        if (t) l.push(`• ${t}`);
+      });
+      if (s.order_deadline) l.push(`⏰ Pedidos até ${fmtData(s.order_deadline)}`);
     });
   }
   if (bilheteProj.delivery_date) l.push('', `📦 *Entrega:* ${fmtData(bilheteProj.delivery_date)}, na escola`);
 
-  l.push('', '👉 *Acesse o portal para autorizar a imagem e escolher os produtos:*', link, '', `Qualquer dúvida, é só chamar. — ${empresa}`);
+  l.push('', '👉 *Acesse o portal:*', link);
+  if (fone) l.push('', `💬 Dúvidas? Fale com a ${empresa}:`, `https://wa.me/${fone}`);
   return l.join('\n');
 }
 
