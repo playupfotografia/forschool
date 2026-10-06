@@ -2475,7 +2475,13 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           <div class="form-group">
             <label class="form-label">Data de entrega das fotos</label>
             <input class="form-input" type="date" id="pj-entrega">
-            <div class="slug-hint">Única para todo o projeto. O prazo de pedido de cada sessão fica na aba "Sessões de foto".</div>
+            <div class="slug-hint">Única para todo o projeto.</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Data limite para o pedido</label>
+            <input class="form-input" type="date" id="pj-prazo-pedido">
+            <div class="slug-hint">Única para todo o projeto — aparece no bilhete, na mensagem de WhatsApp e no portal. Só informa os pais, não bloqueia ninguém. A data limite para <b>autorizar</b> a imagem fica em cada sessão, na aba "Sessões de foto". (Se uma sessão tiver prazo de pedido próprio, ele vale no lugar deste.)</div>
           </div>
 
           <div class="alert alert-info" style="font-size:12px">
@@ -7295,7 +7301,11 @@ function renderSessoes() {
           <input class="form-input" type="date" value="${s.photo_date}" onchange="window.updateSessao(${idx},'photo_date',this.value)" style="width:155px">
         </div>
         <div class="form-group" style="margin:0">
-          <label class="form-label">Data limite para o pedido</label>
+          <label class="form-label">Autorizar a imagem até</label>
+          <input class="form-input" type="date" value="${s.auth_deadline||''}" onchange="window.updateSessao(${idx},'auth_deadline',this.value)" style="width:155px">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label class="form-label" title="Opcional. Só preencha se esta sessão tiver prazo de pedido diferente do geral do projeto (aba Datas).">Pedido até (só se diferente)</label>
           <input class="form-input" type="date" value="${s.order_deadline||''}" onchange="window.updateSessao(${idx},'order_deadline',this.value)" style="width:155px">
         </div>
         <div class="form-group" style="margin:0">
@@ -7426,7 +7436,7 @@ document.getElementById('btn-pj-copiar-escola').addEventListener('click', async 
 });
 
 document.getElementById('btn-add-sessao').addEventListener('click', () => {
-  sessoesTemp.push({ photo_date: '', order_deadline: '', period: 'manhã', class_ids: [] });
+  sessoesTemp.push({ photo_date: '', order_deadline: '', auth_deadline: '', period: 'manhã', class_ids: [] });
   renderSessoes();
 });
 
@@ -8061,7 +8071,7 @@ async function abrirModalProjeto() {
 }
 
 async function resetModalProjeto() {
-  ['pj-nome','pj-slug','pj-ano','pj-entrega',
+  ['pj-nome','pj-slug','pj-ano','pj-entrega','pj-prazo-pedido',
    'pj-rep-valor','pj-delivery','pj-material','pj-obs',
    'pj-inf-intro','pj-inf-body','pj-inf-delivery','pj-inf-uniform','pj-inf-footer',
    'pj-encerrado-msg'].forEach(id => {
@@ -8158,7 +8168,7 @@ async function editarProjeto(id) {
     if (error) throw error;
 
     const [sessResp, sessClassResp] = await Promise.all([
-      supabase.from('project_sessions').select('id, photo_date, order_deadline, period, sort_order').eq('project_id', id).order('sort_order'),
+      supabase.from('project_sessions').select('id, photo_date, order_deadline, auth_deadline, period, sort_order').eq('project_id', id).order('sort_order'),
       supabase.from('project_session_classes').select('session_id, school_class_id').in('session_id',
         // placeholder — será ignorado se sessões vazias
         ['00000000-0000-0000-0000-000000000000']
@@ -8195,6 +8205,7 @@ async function editarProjeto(id) {
         _id: s.id,
         photo_date: s.photo_date || '',
         order_deadline: s.order_deadline || '',
+        auth_deadline: s.auth_deadline || '',
         period: s.period || 'manhã',
         class_ids: todas.filter(id => idsValidos.has(id)),
       };
@@ -8232,6 +8243,7 @@ async function editarProjeto(id) {
     document.getElementById('pj-bilhete').value = p.bilhete_template_id || '';
     document.getElementById('pj-termo').value   = p.authorization_term_id || '';
     document.getElementById('pj-entrega').value = p.delivery_date || '';
+    document.getElementById('pj-prazo-pedido').value = p.order_deadline || '';
     document.getElementById('pj-entrega-taxa').value     = p.delivery_fee ?? 35;
     document.getElementById('pj-entrega-corte').value    = p.delivery_cutoff_days ?? 5;
     document.getElementById('pj-entrega-retirada').checked = p.pickup_enabled !== false;
@@ -8405,7 +8417,7 @@ async function duplicarProjeto(id) {
     await editarProjeto(id);
     projEditId = null;
     // Limpar IDs das sessões copiadas (serão inseridas como novas)
-    sessoesTemp = sessoesTemp.map(s => ({ photo_date: s.photo_date, order_deadline: s.order_deadline, period: s.period, class_ids: [...s.class_ids] }));
+    sessoesTemp = sessoesTemp.map(s => ({ photo_date: s.photo_date, order_deadline: s.order_deadline, auth_deadline: s.auth_deadline, period: s.period, class_ids: [...s.class_ids] }));
     // Limpar IDs dos kits copiados
     KIT_TYPES.forEach(t => { if (pjKitsTemp[t]) delete pjKitsTemp[t]._id; });
     document.getElementById('mod-proj-title').textContent = 'Duplicar projeto — preencha o novo nome';
@@ -8473,6 +8485,7 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
     bilhete_template_id: document.getElementById('pj-bilhete').value || null,
     authorization_term_id: document.getElementById('pj-termo').value || null,
     delivery_date: document.getElementById('pj-entrega').value || null,
+    order_deadline: document.getElementById('pj-prazo-pedido').value || null,
     pix_mode: document.getElementById('pj-pix-mode').value || null,
     pix_parcelas: parseInt(document.getElementById('pj-pix-parcelas').value, 10) || null,
     pix_parcelas_ate: document.getElementById('pj-pix-parcelas-ate').value || null,
@@ -8530,7 +8543,7 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
         if (!s.photo_date) continue;
         const { data: newSess, error: sErr } = await supabase
           .from('project_sessions')
-          .insert({ project_id: projId, photo_date: s.photo_date, order_deadline: s.order_deadline || null, period: s.period, sort_order: i })
+          .insert({ project_id: projId, photo_date: s.photo_date, order_deadline: s.order_deadline || null, auth_deadline: s.auth_deadline || null, period: s.period, sort_order: i })
           .select('id').single();
         if (sErr) { console.error('sessão', sErr); continue; }
         if (s.class_ids.length) {
@@ -12639,10 +12652,10 @@ async function onBilheteProj() {
   try {
     const [projResp, sessResp, kitsResp] = await Promise.all([
       supabase.from('projects')
-        .select('id, name, slug, delivery_date, payment_external_link, inf_intro_text, inf_body_html, inf_delivery_text, inf_uniform_text, inf_footer_text, school:schools(id, name)')
+        .select('id, name, slug, delivery_date, order_deadline, payment_external_link, inf_intro_text, inf_body_html, inf_delivery_text, inf_uniform_text, inf_footer_text, school:schools(id, name)')
         .eq('id', projId).single(),
       supabase.from('project_sessions')
-        .select('id, photo_date, period, order_deadline, project_session_classes(school_class:school_classes(id, name, year:school_years(id, name, sort_order)))')
+        .select('id, photo_date, period, order_deadline, auth_deadline, project_session_classes(school_class:school_classes(id, name, year:school_years(id, name, sort_order)))')
         .eq('project_id', projId).order('photo_date'),
       supabase.from('school_kits')
         .select('*').eq('project_id', projId).eq('available', true),
@@ -12681,7 +12694,10 @@ async function onBilheteProj() {
       listaEl.innerHTML = bilheteProj.sessions.map(s => {
         const dt    = s.photo_date ? new Date(s.photo_date + 'T00:00:00').toLocaleDateString('pt-BR') : '—';
         const per   = periodoLabel[s.period] || s.period || '—';
-        const prazo = s.order_deadline ? new Date(s.order_deadline + 'T00:00:00').toLocaleDateString('pt-BR') : null;
+        // Prazo da sessao ganha do geral do projeto (quem ja tinha por sessao nao muda)
+        const prazoISO = s.order_deadline || bilheteProj.order_deadline;
+        const prazo = prazoISO ? new Date(prazoISO + 'T00:00:00').toLocaleDateString('pt-BR') : null;
+        const aut   = s.auth_deadline ? new Date(s.auth_deadline + 'T00:00:00').toLocaleDateString('pt-BR') : null;
         const turmas = (s.project_session_classes || []).map(c => {
           const ano  = c.school_class?.year?.name || '';
           const nome = c.school_class?.name || '';
@@ -12690,6 +12706,7 @@ async function onBilheteProj() {
         return `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:6px;padding:7px 10px">
           <div style="font-weight:600;color:var(--blue)">📅 ${dt} — ${per}</div>
           <div style="color:var(--gray-600);font-size:12px;margin-top:2px">${turmas}</div>
+          ${aut ? `<div style="font-size:11px;color:var(--blue);margin-top:3px">✍️ Autorizar a imagem até ${aut}</div>` : ''}
           ${prazo ? `<div style="font-size:11px;color:var(--orange);margin-top:3px">⏰ Pedidos até ${prazo}</div>` : ''}
         </div>`;
       }).join('');
@@ -12734,7 +12751,8 @@ function renderBilhetePreview() {
   sessions.forEach(s => {
     const dt     = fmtData(s.photo_date);
     const per    = periodoLabel[s.period] || s.period || '—';
-    const prazo  = s.order_deadline ? fmtData(s.order_deadline) : null;
+    const prazo  = (s.order_deadline || bilheteProj?.order_deadline) ? fmtData(s.order_deadline || bilheteProj.order_deadline) : null;
+    const aut    = s.auth_deadline ? fmtData(s.auth_deadline) : null;
     const turmas = (s.project_session_classes || []).map(c => {
       const ano  = c.school_class?.year?.name || '';
       const nome = c.school_class?.name || '';
@@ -12746,6 +12764,7 @@ function renderBilhetePreview() {
         <div>
           ${turmas.length ? `<div style="font-size:12.5px">${turmas.map(escapeHtml).join('<br>')}</div>` : ''}
           <div style="margin-top:4px"><span style="display:inline-block;background:#FFD60A;color:#000;font-weight:700;font-size:10.5px;padding:2px 8px;border-radius:3px">Período: ${escapeHtml(per)}</span></div>
+          ${aut ? `<div style="margin-top:4px"><span style="display:inline-block;background:#2D5BFF;color:#fff;font-weight:700;font-size:10.5px;padding:2px 8px;border-radius:3px">✍️ Autorizar a imagem até ${aut}</span></div>` : ''}
           ${prazo ? `<div style="margin-top:4px"><span style="display:inline-block;background:#E74C3C;color:#fff;font-weight:700;font-size:10.5px;padding:2px 8px;border-radius:3px">⏰ Prazo para pedido até ${prazo}</span></div>` : ''}
         </div>
       </div>`;
@@ -12867,11 +12886,16 @@ function montarTextoWhatsAppBilhete() {
   l.push('', `Chegou o momento de guardar mais uma fase do seu filho(a)! 💛 A *${empresa}* estará realizando o projeto *${bilheteProj.name}* com os alunos${escola ? ' em ' + escola : ''}.`);
   l.push('', '*É rápido, pelo celular, em 2 passos:*',
     '1️⃣ Faça o cadastro e *autorize o uso de imagem* — é gratuito e *não gera nenhuma cobrança*',
-    '2️⃣ Escolha a lembrança que mais te agradar');
+    '2️⃣ Escolha a lembrança que mais te agradar',
+    '',
+    '💡 Pode autorizar agora, para garantir as fotos, e decidir sobre a lembrança depois — com calma, até o prazo dos pedidos.');
   // Urgencia REAL: so' sai ficha (e so' e' fotografado) quem ja autorizou.
-  // O prazo e' a data da primeira sessao do projeto.
-  const primeira = (bilheteProj.sessions || []).map(x => x.photo_date).filter(Boolean).sort()[0];
-  l.push('', `⚠️ *Sem a autorização, o aluno não participa das fotos.*${primeira ? ' Faça até ' + fmtData(primeira) + '.' : ''}`);
+  // Prazo = o MAIS CEDO entre as datas de autorizacao das sessoes; sem nenhuma
+  // preenchida, cai na data da primeira sessao (como era antes).
+  const sess0 = bilheteProj.sessions || [];
+  const prazoAut = sess0.map(x => x.auth_deadline).filter(Boolean).sort()[0]
+    || sess0.map(x => x.photo_date).filter(Boolean).sort()[0];
+  l.push('', `⚠️ *Sem a autorização, o aluno não participa das fotos.*${prazoAut ? ' Faça até ' + fmtData(prazoAut) + '.' : ''}`);
 
   const sessoes = bilheteProj.sessions || [];
   if (sessoes.length) {
@@ -12885,7 +12909,9 @@ function montarTextoWhatsAppBilhete() {
         const t = ano ? `${ano} — ${nome}` : nome;
         if (t) l.push(`• ${t}`);
       });
-      if (s.order_deadline) l.push(`⏰ Pedidos até ${fmtData(s.order_deadline)}`);
+      if (s.auth_deadline) l.push(`✍️ Autorizar a imagem até ${fmtData(s.auth_deadline)}`);
+      const pedAte = s.order_deadline || bilheteProj.order_deadline;
+      if (pedAte) l.push(`⏰ Pedidos até ${fmtData(pedAte)}`);
     });
   }
   if (bilheteProj.delivery_date) l.push('', `📦 *Entrega:* ${fmtData(bilheteProj.delivery_date)}, na escola`);
