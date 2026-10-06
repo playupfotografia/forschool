@@ -1016,6 +1016,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
       <div class="topbar-title">Bilhete &amp; QR Code</div>
       <div class="topbar-actions">
         <button class="btn btn-secondary" id="btn-copiar-link-bil">Copiar link</button>
+        <button class="btn btn-secondary" id="btn-wpp-bil" style="background:#25D366;color:#fff;border-color:#25D366">💬 Mensagem WhatsApp</button>
         <button class="btn btn-secondary" id="btn-preview-imprimir">🖨 Visualizar / Imprimir</button>
         <button class="btn btn-primary" id="btn-baixar-pdf-bil">Baixar PDF</button>
       </div>
@@ -12841,6 +12842,49 @@ document.getElementById('btn-copiar-link-bil').addEventListener('click', async (
   } catch {
     toast(url, 'info');
   }
+});
+
+// Monta o informativo em TEXTO pra WhatsApp (negrito com *...*) com o link do
+// portal por extenso — o WhatsApp so' deixa o link clicavel (e com previa)
+// quando ele vai em texto, com https:// completo; dentro de PDF nao funciona.
+// wa.me sem numero abre o WhatsApp pra escolher a conversa ou o grupo.
+function montarTextoWhatsAppBilhete() {
+  const fmtData = d => new Date(d + 'T00:00:00').toLocaleDateString('pt-BR');
+  const periodoLabel = { manha: 'Manhã', tarde: 'Tarde', integral: 'Integral', outro: 'Outro' };
+  const empresa = bilheteAppSettings?.business_name || 'Play Up Fotografia';
+  const escola  = bilheteProj.school?.name || '';
+  const link    = `${location.origin}/${encodeURIComponent(bilheteProj.slug)}`;
+  const intro   = (bilheteProj.inf_intro_text || '').replace(/<[^>]*>/g, '').trim();
+
+  const l = [];
+  l.push(`📸 *${bilheteProj.name}*${escola ? ' — ' + escola : ''}`);
+  if (intro) l.push('', intro);
+
+  const sessoes = bilheteProj.sessions || [];
+  if (sessoes.length) {
+    l.push('', '📅 *Dias das fotos*');
+    sessoes.forEach(s => {
+      const turmas = (s.project_session_classes || []).map(c => {
+        const ano = c.school_class?.year?.name || '';
+        const nome = c.school_class?.name || '';
+        return ano ? `${ano} ${nome}` : nome;
+      }).filter(Boolean).join(', ');
+      const per = periodoLabel[s.period] || s.period || '';
+      l.push(`• ${s.photo_date ? fmtData(s.photo_date) : '—'}${per ? ' (' + per + ')' : ''}${turmas ? ' — ' + turmas : ''}`);
+      if (s.order_deadline) l.push(`   ⏰ Pedidos até ${fmtData(s.order_deadline)}`);
+    });
+  }
+  if (bilheteProj.delivery_date) l.push('', `📦 *Entrega:* ${fmtData(bilheteProj.delivery_date)}, na escola`);
+
+  l.push('', '👉 *Acesse o portal para autorizar a imagem e escolher os produtos:*', link, '', `Qualquer dúvida, é só chamar. — ${empresa}`);
+  return l.join('\n');
+}
+
+document.getElementById('btn-wpp-bil').addEventListener('click', async () => {
+  if (!bilheteProj?.slug) { toast('Selecione um projeto primeiro', 'warn'); return; }
+  const texto = montarTextoWhatsAppBilhete();
+  window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
+  try { await navigator.clipboard.writeText(texto); } catch { /* o WhatsApp ja' abre com o texto */ }
 });
 
 document.getElementById('btn-preview-imprimir').addEventListener('click', () => {
