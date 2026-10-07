@@ -2879,6 +2879,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
         <span id="drill-al-count" style="font-size:12px;color:var(--gray-400);align-self:center"></span>
         <span id="drill-ficha-sel-count" style="font-size:12px;color:var(--blue);align-self:center;font-weight:600"></span>
         <button class="btn btn-sm btn-primary" id="btn-drill-imprimir-fichas" onclick="imprimirFichasSelecionadasDrill()" disabled style="opacity:.45;cursor:not-allowed" title="Marque alunos na tabela pra imprimir as fichas deles">🖨 Imprimir fichas marcadas</button>
+        <button class="btn btn-sm btn-secondary" onclick="exportarDrillExcel()" title="Baixa a lista que está na tela (com os filtros aplicados) para abrir no Excel">⬇ Exportar Excel</button>
         <button class="btn btn-sm btn-secondary" onclick="imprimirRelatorioSituacao()" title="Relatório agrupado por situação (sem autorização, pendente, pendente com parcela paga, sem pedido, pago...), pra imprimir ou salvar em PDF">📋 Relatório da situação</button>
       </div>
       <div class="table-wrap">
@@ -9435,6 +9436,86 @@ function pmCopiarLink() {
 }
 window.pmCopiarLink = pmCopiarLink;
 
+let drillListaFiltrada = [];
+
+// Carrega a biblioteca de planilha so' quando alguem clica em exportar
+// (nao pesa no carregamento normal do admin).
+function carregarSheetJS() {
+  if (window.XLSX) return Promise.resolve();
+  return new Promise((ok, erro) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = ok;
+    s.onerror = () => erro(new Error('Não consegui carregar a biblioteca de Excel (internet?).'));
+    document.head.appendChild(s);
+  });
+}
+
+// Exporta a lista de Alunos & Pedidos EXATAMENTE como esta' filtrada na tela
+// (busca, turma, status, ordem) num .xlsx de verdade. O telefone vira link
+// clicavel pro WhatsApp (wa.me). So' le dados ja' carregados.
+async function exportarDrillExcel() {
+  const lista = drillListaFiltrada || [];
+  if (!lista.length) { toast('Nada para exportar — a lista está vazia.', 'warn'); return; }
+  try { await carregarSheetJS(); } catch (e) { toast(e.message, 'error'); return; }
+
+  const stTxt = { paid: 'Pago', pending: 'Pendente', cancelled: 'Cancelado', refunded: 'Estornado' };
+  const autTxt = { ok: 'Autorizou', recusou: 'Recusou', pendente: 'Não respondeu' };
+  const fotoTxt = { foto: 'Fotografado', faltou: 'Faltou', refazer: 'Refazer' };
+  const kitMap = { basico: 'Básico', inter: 'Intermediário', promo: 'Promocional' };
+  const dt = iso => iso ? new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '';
+  const vazio = v => (v === '—' ? '' : v);
+  const cab = ['Aluno','Ano','Turma','Responsável','WhatsApp','2º responsável','Irmãos','Autorização','Foto','Obs. foto','Nº pedido','Data do pedido','Pago em','Kit','Avulsos','Status','Forma de pagamento','Gateway','Preço tabela','Cobrado','Parcelas pagas','Último contato','Obs.'];
+  const COL_FONE = 4, COL_TAB = 18, COL_COB = 19;
+
+  const linhas = lista.map(a => {
+    const o = a.order;
+    const itens = o ? (o.items || []).map(i => `${i.product?.name || '?'}${i.variant_name ? ` (${i.variant_name})` : ''}${i.quantity > 1 ? ' x' + i.quantity : ''}`).join(', ') : '';
+    const pr = o?.parcelasResumo;
+    return [
+      a.name, vazio(a.year_name), vazio(a.class_name), vazio(a.responsible_name), a.responsible_phone || '',
+      a.guardian2_name || '', (a.irmaos || []).join(', '), autTxt[a.autorizacao] || '', fotoTxt[a.fotoStatus] || '', a.fotoNota || '',
+      o?.order_number || '', dt(o?.created_at), dt(o?.paid_at),
+      o?.kit_type ? (kitMap[o.kit_type] || o.kit_type) : '', itens,
+      o ? (stTxt[o.payment_status] || o.payment_status) : 'Sem pedido',
+      o?.payment_method ? (METODO_LABEL[o.payment_method] || o.payment_method) : '',
+      o ? (o.gateway || 'manual') : '',
+      o ? Number(o.total_amount || 0) : '',
+      o ? Number(o.amount_charged != null ? o.amount_charged : o.total_amount || 0) : '',
+      pr ? `${pr.pagas}/${pr.total}` : '', dt(a.contato?.contacted_at), a.notes || '',
+    ];
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet([cab, ...linhas]);
+  linhas.forEach((l, i) => {
+    const r = i + 1;
+    // telefone -> link clicavel do WhatsApp (55 + DDD + numero)
+    const fone = String(l[COL_FONE] || '').replace(/\D/g, '');
+    if (fone.length >= 10) {
+      const num = fone.startsWith('55') && fone.length >= 12 ? fone : '55' + fone;
+      ws[XLSX.utils.encode_cell({ r, c: COL_FONE })] = {
+        t: 's', v: l[COL_FONE], l: { Target: 'https://wa.me/' + num, Tooltip: 'Abrir conversa no WhatsApp' },
+        s: { font: { color: { rgb: '0563C1' }, underline: true } },
+      };
+    }
+    [COL_TAB, COL_COB].forEach(c => {
+      const cel = ws[XLSX.utils.encode_cell({ r, c })];
+      if (cel && cel.t === 'n') cel.z = '"R$" #,##0.00';
+    });
+  });
+  ws['!cols'] = cab.map((h, c) => ({ wch: Math.min(40, Math.max(h.length + 2, ...linhas.map(l => String(l[c] ?? '').length + 1))) }));
+  ws['!freeze'] = { xSplit: 1, ySplit: 1 };
+  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: linhas.length, c: cab.length - 1 } }) };
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Alunos e Pedidos');
+  const nome = (document.getElementById('drill-proj-sel')?.selectedOptions[0]?.text || 'projeto')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+  XLSX.writeFile(wb, `alunos-pedidos-${nome}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  toast(`${lista.length} aluno(s) exportado(s).`, 'ok');
+}
+window.exportarDrillExcel = exportarDrillExcel;
+
 function filtrarDrillAlunos() {
   const busca = (document.getElementById('drill-al-busca').value || '').toLowerCase().trim();
   const ftur  = document.getElementById('drill-al-ftur').value;
@@ -9482,6 +9563,7 @@ function filtrarDrillAlunos() {
     return a.name.localeCompare(b.name, 'pt-BR');
   });
 
+  drillListaFiltrada = lista;   // o que esta' na tela agora — usado pelo exportar Excel
   document.getElementById('drill-al-count').textContent = lista.length + ' aluno(s)';
 
   const kitMap   = { basico: 'Básico', inter: 'Intermediário', promo: 'Promocional' };
