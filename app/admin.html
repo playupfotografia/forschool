@@ -2885,6 +2885,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
         <span id="drill-al-count" style="font-size:12px;color:var(--gray-400);align-self:center"></span>
         <span id="drill-ficha-sel-count" style="font-size:12px;color:var(--blue);align-self:center;font-weight:600"></span>
         <button class="btn btn-sm btn-primary" id="btn-drill-imprimir-fichas" onclick="imprimirFichasSelecionadasDrill()" disabled style="opacity:.45;cursor:not-allowed" title="Marque alunos na tabela pra imprimir as fichas deles">🖨 Imprimir fichas marcadas</button>
+        <button class="btn btn-sm btn-secondary" onclick="marcarFichasImpressasDrill()" title="Marca como impressa a ficha de todos que ainda aparecem como 'falta ficha' — EXCETO os alunos que você deixou marcados (✓) na tabela">✅ Marcar fichas como impressas</button>
         <button class="btn btn-sm btn-secondary" onclick="exportarDrillExcel()" title="Baixa a lista que está na tela (com os filtros aplicados) para abrir no Excel">⬇ Exportar Excel</button>
         <button class="btn btn-sm btn-secondary" onclick="imprimirRelatorioSituacao()" title="Relatório agrupado por situação (sem autorização, pendente, pendente com parcela paga, sem pedido, pago...), pra imprimir ou salvar em PDF">📋 Relatório da situação</button>
       </div>
@@ -9537,6 +9538,40 @@ window.exportarDrillExcel = exportarDrillExcel;
 // Situacao da ficha impressa — mesma regra do modal "Fichas por turma":
 // precisa imprimir se nunca saiu OU se o pedido mudou depois da impressao.
 // Quem recusou a autorizacao nao recebe ficha (null).
+// Marca como impressa a ficha de quem aparece como "falta ficha", EXCETO os
+// alunos marcados (checkbox) na tabela — esses continuam na fila. Serve pra
+// quando as fichas foram impressas por fora do modal "Fichas por turma" (que
+// e' o unico que grava o registro). So' ACRESCENTA registros em ficha_prints;
+// nada de aluno/pedido muda e "Desmarcar impressas" desfaz.
+async function marcarFichasImpressasDrill() {
+  if (!drillProjetoId) return;
+  const alvo = drillAlunosData.filter(a => ['nunca', 'desatualizada'].includes(fichaStatusDe(a)) && !drillFichaSel.has(a.id));
+  const ficam = drillAlunosData.filter(a => drillFichaSel.has(a.id));
+  if (!alvo.length) { toast('Nenhuma ficha para marcar.', 'warn'); return; }
+  const NL = String.fromCharCode(10);
+  const lista = ficam.slice(0, 12).map(a => '- ' + a.name).join(NL) + (ficam.length > 12 ? NL + '... e mais ' + (ficam.length - 12) : '');
+  const msg = 'Marcar como IMPRESSA a ficha de ' + alvo.length + ' aluno(s)?' + NL + NL +
+    (ficam.length
+      ? 'Continuam como "falta ficha" os ' + ficam.length + ' marcados na tabela:' + NL + lista
+      : 'ATENCAO: voce nao marcou ninguem na tabela, entao TODOS serao marcados como impressos.');
+  if (!confirm(msg)) return;
+  try {
+    const agora = new Date().toISOString();
+    for (let i = 0; i < alvo.length; i += 200) {
+      const { error } = await supabase.from('ficha_prints').upsert(
+        alvo.slice(i, i + 200).map(a => ({ student_id: a.id, project_id: drillProjetoId, printed_at: agora })),
+        { onConflict: 'student_id,project_id' });
+      if (error) throw error;
+    }
+    alvo.forEach(a => { a.fichaEm = agora; });
+    filtrarDrillAlunos();
+    toast(`${alvo.length} ficha(s) marcada(s) como impressa(s).`, 'ok');
+  } catch (err) {
+    handleError(err, 'marcarFichasImpressasDrill');
+  }
+}
+window.marcarFichasImpressasDrill = marcarFichasImpressasDrill;
+
 function fichaStatusDe(a) {
   if (a.autorizacao === 'recusou') return null;
   if (!a.fichaEm) return 'nunca';
