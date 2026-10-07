@@ -2868,6 +2868,11 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           <option value="faltou">Faltaram</option>
           <option value="refazer">Precisa refazer</option>
         </select>
+        <select class="form-select" style="width:165px" id="drill-al-fficha" onchange="filtrarDrillAlunos()" title="Qual ficha já foi impressa neste projeto">
+          <option value="">🖨 Ficha: todas</option>
+          <option value="falta">Falta imprimir</option>
+          <option value="ok">Já impressas</option>
+        </select>
         <label class="chk-inline" style="align-self:center;white-space:nowrap" title="Esconde quem você já chamou no WhatsApp neste projeto">
           <input type="checkbox" id="drill-al-fcont" onchange="filtrarDrillAlunos()">
           <span style="font-size:12px">Só não contatados</span>
@@ -9032,6 +9037,16 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       });
     }
 
+    // 4d. Qual ficha ja' foi impressa NESTE projeto (migration_041). So' leitura:
+    // quem imprime e grava e' o modal "Fichas por turma".
+    const fichaPorAluno = {};
+    if (alunoIds.length) {
+      const { data: fps, error: fpErr } = await supabase
+        .from('ficha_prints').select('student_id, printed_at').eq('project_id', projectId);
+      if (fpErr) console.error('ficha_prints:', fpErr.message);
+      (fps || []).forEach(f => { fichaPorAluno[f.student_id] = f.printed_at; });
+    }
+
     // 5. Montar drillAlunosData
     // Duplicidade de cadastro (migration_035): se este aluno esta' linkado a
     // outro (nos dois sentidos) e o pedido do OUTRO lado esta' pago, guarda
@@ -9078,6 +9093,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       // Historico: pedidos cancelados/estornados alem do que esta' na linha
       cancelados: (canceladosPorAluno[a.id] || []).filter(c => c.id !== pedidosPorAluno[a.id]?.id),
       contato: contatoPorAluno[a.id] || null,
+      fichaEm:    fichaPorAluno[a.id] || null,   // quando a ficha foi impressa (null = nunca)
       fotoEm:     fotoPorAluno[a.id]?.em || null,
       fotoStatus: fotoPorAluno[a.id]?.status || null,   // 'foto' | 'faltou' | 'refazer' | null
       fotoNota:   fotoPorAluno[a.id]?.nota || null,     // o que falta refazer (so' com status 'refazer')
@@ -9516,6 +9532,16 @@ async function exportarDrillExcel() {
 }
 window.exportarDrillExcel = exportarDrillExcel;
 
+// Situacao da ficha impressa — mesma regra do modal "Fichas por turma":
+// precisa imprimir se nunca saiu OU se o pedido mudou depois da impressao.
+// Quem recusou a autorizacao nao recebe ficha (null).
+function fichaStatusDe(a) {
+  if (a.autorizacao === 'recusou') return null;
+  if (!a.fichaEm) return 'nunca';
+  const mexido = a.order?.updated_at;
+  return mexido && mexido > a.fichaEm ? 'desatualizada' : 'ok';
+}
+
 function filtrarDrillAlunos() {
   const busca = (document.getElementById('drill-al-busca').value || '').toLowerCase().trim();
   const ftur  = document.getElementById('drill-al-ftur').value;
@@ -9543,6 +9569,10 @@ function filtrarDrillAlunos() {
   else if (ffoto === 'feito')   lista = lista.filter(a => a.fotoStatus === 'foto');
   else if (ffoto === 'faltou')  lista = lista.filter(a => a.fotoStatus === 'faltou');
   else if (ffoto === 'refazer') lista = lista.filter(a => a.fotoStatus === 'refazer');
+
+  const ffic = document.getElementById('drill-al-fficha')?.value;
+  if (ffic === 'falta') lista = lista.filter(a => ['nunca', 'desatualizada'].includes(fichaStatusDe(a)));
+  else if (ffic === 'ok') lista = lista.filter(a => fichaStatusDe(a) === 'ok');
 
   // "Ainda nao contatados" cruza com o filtro de situacao em vez de substituir:
   // o uso real e' "sem pedido E que eu ainda nao chamei".
@@ -9704,7 +9734,7 @@ function filtrarDrillAlunos() {
       : a.fotoStatus === 'foto' ? ' class="row-foto"' : '';
     return `<tr${rowCls} style="cursor:pointer" onclick="editarAluno('${a.id}')">
       <td onclick="event.stopPropagation()"><input type="checkbox" class="drill-ficha-chk" data-id="${a.id}" ${drillFichaSel.has(a.id) ? 'checked' : ''} onchange="toggleFichaSelDrill('${a.id}', this.checked)"></td>
-      <td id="nome-td-${a.id}" style="font-weight:500">${celulaNomeAluno(a)}${avisoAut}</td>
+      <td id="nome-td-${a.id}" style="font-weight:500">${celulaNomeAluno(a)}${avisoAut}${avisoFicha(a)}</td>
       <td class="conf-td" id="foto-td-${a.id}" onclick="event.stopPropagation()">${celulaFoto(a)}</td>
       <td>${escapeHtml(a.year_name && a.year_name !== '—' ? a.year_name + ' — ' + a.class_name : a.class_name)}</td>
       <td style="font-size:13px">${escapeHtml(a.responsible_name)}</td>
@@ -9727,6 +9757,13 @@ function filtrarDrillAlunos() {
 // completo; aqui e' so' um atalho rapido de dentro da lista, no mesmo padrao
 // de anotarContato/anotarConferencia (prompt + redesenha so' a celula).
 // ---------------------------------------------------------------------------
+function avisoFicha(a) {
+  const st = fichaStatusDe(a);
+  if (st === 'nunca') return '<div><span class="badge badge-orange" style="font-size:10px" title="A ficha deste aluno ainda não foi impressa">🖨 falta ficha</span></div>';
+  if (st === 'desatualizada') return '<div><span class="badge badge-orange" style="font-size:10px" title="O pedido mudou depois que a ficha foi impressa — imprima de novo">🖨 ficha desatualizada</span></div>';
+  return '';
+}
+
 function celulaNomeAluno(a) {
   const icone = a.notes ? '📝' : '🖊️';
   const titulo = a.notes ? `Editar observação: ${a.notes}` : 'Adicionar observação sobre este aluno';
