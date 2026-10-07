@@ -2877,9 +2877,10 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           <input type="checkbox" id="drill-al-fcont" onchange="filtrarDrillAlunos()">
           <span style="font-size:12px">Só não contatados</span>
         </label>
-        <select class="form-select" style="width:150px" id="drill-al-sort" onchange="filtrarDrillAlunos()" title="Ordem da lista">
+        <select class="form-select" style="width:240px" id="drill-al-sort" onchange="filtrarDrillAlunos()" title="Ordem da lista">
           <option value="recente">🕐 Mais recentes</option>
           <option value="nome">Nome A-Z</option>
+          <option value="cadastro">🆕 Cadastro mais novo (nº da ficha)</option>
         </select>
         <span id="drill-al-count" style="font-size:12px;color:var(--gray-400);align-self:center"></span>
         <span id="drill-ficha-sel-count" style="font-size:12px;color:var(--blue);align-self:center;font-weight:600"></span>
@@ -9072,6 +9073,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       return {
       id: a.id,
       name: a.name,
+      fichaNum: a.photo_seq_number ?? null,   // numero da ficha = ordem de cadastro na escola
       notes: a.notes || null,
       irmaos,
       duplicataSuspeita: irmaos.some(n => nomesQuaseIguais(n, a.name)),
@@ -9587,6 +9589,7 @@ function filtrarDrillAlunos() {
   const sortMode = document.getElementById('drill-al-sort')?.value || 'recente';
   lista = [...lista].sort((a, b) => {
     if (sortMode === 'nome') return a.name.localeCompare(b.name, 'pt-BR');
+    if (sortMode === 'cadastro') return (b.fichaNum ?? -1) - (a.fichaNum ?? -1) || a.name.localeCompare(b.name, 'pt-BR');
     const ta = a.order?.created_at ? new Date(a.order.created_at).getTime() : -Infinity;
     const tb = b.order?.created_at ? new Date(b.order.created_at).getTime() : -Infinity;
     if (ta !== tb) return tb - ta;
@@ -9771,7 +9774,8 @@ function celulaNomeAluno(a) {
   const preview = a.notes
     ? `<div style="font-size:11px;color:#92400e;background:#FEF3C7;border-radius:4px;padding:1px 6px;margin-top:2px;display:inline-block;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(a.notes)}">📝 ${escapeHtml(a.notes)}</div>`
     : '';
-  return `${escapeHtml(a.name)}${gatilho}${preview}`;
+  const ficha = a.fichaNum ? `<span style="font-size:10px;color:var(--gray-400);margin-left:6px" title="Número da ficha — quanto maior, mais novo o cadastro">#${a.fichaNum}</span>` : '';
+  return `${escapeHtml(a.name)}${ficha}${gatilho}${preview}`;
 }
 
 function atualizarCelulaNome(studentId) {
