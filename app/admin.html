@@ -1364,11 +1364,15 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
         </div>
         <button class="btn btn-primary" id="btn-gerar-rel">Gerar relatório</button>
         <button class="btn btn-secondary" id="btn-imprimir-rel">🖨 Imprimir / PDF</button>
+        <button class="btn btn-secondary" id="btn-csv-rel">⬇ Exportar Excel (CSV)</button>
       </div>
     </div>
 
     <!-- Cards de resumo -->
     <div id="rel-resumo" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:11px;margin-bottom:18px"></div>
+
+    <!-- Painel financeiro por forma de pagamento (so' leitura — ver gerarRelPagamentos) -->
+    <div id="rel-pagamentos" style="margin-bottom:18px"></div>
 
     <!-- DRE simplificado -->
     <div id="rel-dre" class="card card-pad" style="margin-bottom:14px;display:none">
@@ -13341,6 +13345,282 @@ document.getElementById('btn-gerar-rel').addEventListener('click', async () => {
     handleError(err, 'gerarRelatorio');
     resumoEl.innerHTML = '<div style="color:var(--red);font-size:13px">Erro ao gerar relatório.</div>';
   }
+
+  // Painel por forma de pagamento: independente do calculo acima. Se falhar,
+  // so' ele mostra o erro — o relatorio de sempre ja' foi desenhado.
+  gerarRelPagamentos(projetoId, statusFiltro);
+});
+
+// ---------------------------------------------------------------------------
+// PAINEL FINANCEIRO POR FORMA DE PAGAMENTO
+//
+// O relatorio original soma orders.total_amount (preco de tabela), entao PIX,
+// cartao e PIX parcelado aparecem todos pelo mesmo valor. Aqui separamos:
+//   tabela   = total_amount (a receita)
+//   cobrado  = amount_charged (o que o responsavel realmente paga — inclui o
+//              acrescimo do cartao/parcelamento e desconta o de irmaos)
+//   tarifa   = gateway_fee, liquido = net_amount (numeros do proprio gateway)
+// PIX parcelado: pedido fica "pending" ate' a ultima parcela, entao o que ja'
+// entrou vem de pix_installments (status 'paid'), nao do pedido.
+// So' LE o banco. HTML com hex literal de proposito: o mesmo texto vai pra
+// janela de impressao, que nao enxerga as CSS vars (regra 21).
+// ---------------------------------------------------------------------------
+let relPag = null;   // ultimo painel gerado — usado pelo CSV e pelo Imprimir
+
+async function gerarRelPagamentos(projetoId, statusFiltro) {
+  const el = document.getElementById('rel-pagamentos');
+  el.innerHTML = '<div class="loading"><span class="spinner"></span>Calculando por forma de pagamento…</div>';
+  relPag = null;
+  if (relDados) relDados.pagHtml = '';
+  try {
+    // --- pedidos (paginado: PostgREST corta em 1000 linhas) ---
+    const cols = `id, order_number, total_amount, amount_charged, surcharge_amount, net_amount, gateway_fee,
+      gateway, gateway_status, payment_method, payment_status, installments, credited_at, credit_expected_date,
+      has_paid_installment, payment_group_id, created_at,
+      student:students(name), user:users(name), project:projects(id, name, school:schools(name))`;
+    let pedidos = [];
+    for (let ini = 0; ; ini += 1000) {
+      let q = supabase.from('orders').select(cols).neq('is_test', true)
+        .order('created_at', { ascending: false }).range(ini, ini + 999);
+      if (projetoId)    q = q.eq('project_id', projetoId);
+      if (statusFiltro) q = q.eq('payment_status', statusFiltro);
+      const { data, error } = await q;
+      if (error) throw error;
+      pedidos = pedidos.concat(data || []);
+      if (!data || data.length < 1000) break;
+    }
+
+    // --- parcelas do PIX parcelado ---
+    const idsParc = pedidos.filter(p => p.payment_method === 'pix_parcelado').map(p => p.id);
+    let parcelas = [];
+    for (let i = 0; i < idsParc.length; i += 80) {
+      const { data, error } = await supabase.from('pix_installments')
+        .select('order_id, installment_number, total_installments, value, due_date, status, attempt, paid_at')
+        .in('order_id', idsParc.slice(i, i + 80));
+      if (error) throw error;
+      parcelas = parcelas.concat(data || []);
+    }
+    const parcPorPedido = {};
+    parcelas.forEach(x => (parcPorPedido[x.order_id] = parcPorPedido[x.order_id] || []).push(x));
+
+    const n = v => Number(v || 0);
+    const r2 = v => Math.round(v * 100) / 100;
+
+    // --- enriquece cada pedido com os numeros financeiros ---
+    pedidos.forEach(p => {
+      p._forma = p.payment_method || 'sem_forma';
+      p._tabela = n(p.total_amount);
+      p._cobrado = p.amount_charged != null ? n(p.amount_charged) : p._tabela;
+      p._auto = GATEWAYS_AUTOMATICOS.has(p.gateway);
+      p._parc = parcPorPedido[p.id] || [];
+      if (p._forma === 'pix_parcelado') {
+        const ativas = p._parc.filter(x => x.status !== 'cancelada');
+        p._parcPagas   = ativas.filter(x => x.status === 'paid');
+        p._parcAbertas = ativas.filter(x => x.status !== 'paid');
+        p._recebido = r2(p._parcPagas.reduce((s, x) => s + n(x.value), 0));
+        // pedido quitado sem linhas de parcela (nao deveria): cai no cobrado
+        if (p.payment_status === 'paid' && !p._parcPagas.length) p._recebido = p._cobrado;
+        p._aReceber = p.payment_status === 'paid' ? 0 : r2(p._parcAbertas.reduce((s, x) => s + n(x.value), 0));
+      }
+      // liquido: do gateway quando existe; pagamento manual nao tem tarifa
+      p._tarifa = p.net_amount != null ? n(p.gateway_fee) : 0;
+      if (p.net_amount != null) p._liquido = n(p.net_amount);
+      else if (!p._auto) p._liquido = p._cobrado;
+      else p._liquido = null; // gateway ainda nao informou
+    });
+
+    const pagos     = pedidos.filter(p => p.payment_status === 'paid');
+    const pendentes = pedidos.filter(p => p.payment_status === 'pending');
+    const cancel    = pedidos.filter(p => p.payment_status === 'cancelled' || p.payment_status === 'refunded');
+    const soma = (arr, f) => r2(arr.reduce((s, p) => s + f(p), 0));
+    const parcelados = pedidos.filter(p => p._forma === 'pix_parcelado' && p.payment_status !== 'cancelled' && p.payment_status !== 'refunded');
+
+    // --- linhas por forma de pagamento ---
+    const ordemForma = ['pix', 'pix_parcelado', 'cartao_1x', 'cartao_2x', 'cartao_debito', 'dinheiro', 'outro', 'sem_forma'];
+    const nomeForma = { ...METODO_LABEL, sem_forma: 'Sem forma definida' };
+    const linhas = ordemForma.map(f => {
+      const pg = pagos.filter(p => p._forma === f);
+      const pe = pendentes.filter(p => p._forma === f);
+      const semLiq = pg.filter(p => p._liquido === null);
+      return {
+        forma: f, nome: nomeForma[f] || f,
+        qtd: pg.length,
+        tabela: soma(pg, p => p._tabela),
+        cobrado: soma(pg, p => p._cobrado),
+        tarifa: soma(pg, p => p._tarifa),
+        liquido: soma(pg, p => p._liquido ?? 0),
+        semLiq: semLiq.length, semLiqValor: soma(semLiq, p => p._cobrado),
+        qtdPend: pe.length,
+        valPend: f === 'pix_parcelado' ? soma(pe, p => p._aReceber ?? p._cobrado) : soma(pe, p => p._cobrado),
+        recebParc: f === 'pix_parcelado' ? soma(pe, p => p._recebido ?? 0) : 0,
+      };
+    }).filter(l => l.qtd || l.qtdPend);
+
+    const T = {
+      qtd: pagos.length,
+      tabela: soma(pagos, p => p._tabela),
+      cobrado: soma(pagos, p => p._cobrado),
+      tarifa: soma(pagos, p => p._tarifa),
+      liquido: soma(pagos, p => p._liquido ?? 0),
+      semLiq: pagos.filter(p => p._liquido === null).length,
+      semLiqValor: soma(pagos.filter(p => p._liquido === null), p => p._cobrado),
+    };
+    // dinheiro de parcelado que ja' entrou mas o pedido ainda nao quitou
+    const recebParcAberto = soma(parcelados.filter(p => p.payment_status !== 'paid'), p => p._recebido);
+    const aReceberParc    = soma(parcelados, p => p._aReceber || 0);
+    const atrasadoParc    = soma(parcelados.filter(p => p.payment_status !== 'paid'),
+      p => r2(p._parcAbertas.filter(x => x.status === 'atrasada').reduce((s, x) => s + n(x.value), 0)));
+    const pendSemParc     = pendentes.filter(p => p._forma !== 'pix_parcelado');
+    const pendSemParcVal  = soma(pendSemParc, p => p._cobrado);
+
+    // cartao: caiu x aguardando
+    const cartoes = pagos.filter(p => p._forma === 'cartao_1x' || p._forma === 'cartao_2x' || p._forma === 'cartao_debito');
+    const cartCaiu = cartoes.filter(p => p.credited_at);
+    const cartAg   = cartoes.filter(p => !p.credited_at);
+
+    // --- HTML ---
+    const M = v => fmtMoney(v);
+    const card = (tit, val, cor, sub) => `<div style="flex:1;min-width:170px;border:1px solid #eee;border-top:3px solid ${cor};border-radius:8px;padding:10px 12px;background:#fff">
+      <div style="font-size:11px;color:#888">${tit}</div>
+      <div style="font-size:19px;font-weight:700;color:${cor};margin-top:2px">${val}</div>
+      ${sub ? `<div style="font-size:11px;color:#999;margin-top:2px">${sub}</div>` : ''}</div>`;
+    const th = (t, r) => `<th style="text-align:${r ? 'right' : 'left'};font-size:10px;text-transform:uppercase;color:#888;border-bottom:1px solid #ddd;padding:6px 6px;white-space:nowrap">${t}</th>`;
+    const td = (t, r, extra) => `<td style="padding:6px;border-bottom:1px solid #f3f3f3;${r ? 'text-align:right;' : ''}font-size:12px;${extra || ''}">${t}</td>`;
+    const h2 = t => `<div style="font-size:13px;font-weight:700;margin:18px 0 8px;color:#1a1a2e">${t}</div>`;
+    const sub = t => `<div style="font-size:11px;color:#999;margin:-4px 0 8px">${t}</div>`;
+
+    let html = `<div style="font-size:14px;font-weight:700;margin-bottom:10px;color:#1a1a2e">💰 Painel financeiro por forma de pagamento</div>`;
+
+    html += `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+      ${card('Vendas pagas (preço de tabela)', M(T.tabela), '#27AE60', `${T.qtd} pedidos — é a receita`)}
+      ${card('Cobrado dos responsáveis', M(T.cobrado), '#4B6BFB', 'inclui acréscimo do cartão/parcelado, menos desconto de irmãos')}
+      ${card('Tarifas dos gateways', '−' + M(T.tarifa), '#E74C3C', 'Asaas / Woovi — informado por eles')}
+      ${card('Líquido que entra na conta', M(T.liquido), '#0D9488', T.semLiq ? `+ ${T.semLiq} pedido(s) (${M(T.semLiqValor)}) ainda sem líquido do gateway` : 'conferido com o gateway')}
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      ${card('Cartão aguardando crédito', M(soma(cartAg, p => p._cobrado)), '#E3815A', `${cartAg.length} pedido(s) — já passou, falta cair`)}
+      ${card('PIX parcelado já recebido', M(recebParcAberto), '#7C3AED', 'parcelas pagas de pedidos ainda não quitados')}
+      ${card('PIX parcelado a receber', M(aReceberParc), '#7C3AED', atrasadoParc > 0 ? `<span style="color:#E74C3C">${M(atrasadoParc)} atrasado</span>` : 'nenhuma parcela atrasada')}
+      ${card('Pendente (sem pagar)', M(pendSemParcVal), '#E3815A', `${pendSemParc.length} pedido(s) aguardando`)}
+    </div>`;
+
+    // tabela por forma
+    html += h2('Por forma de pagamento') + sub('Só pedidos pagos nas colunas de valores. "Pendentes" = ainda não quitados.');
+    html += `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><thead><tr>
+      ${th('Forma')}${th('Pagos', 1)}${th('Preço tabela', 1)}${th('Cobrado', 1)}${th('Ajuste', 1)}${th('Tarifa', 1)}${th('Líquido', 1)}${th('Ticket médio', 1)}${th('Pendentes', 1)}${th('A receber', 1)}
+      </tr></thead><tbody>`;
+    html += linhas.map(l => {
+      const aj = r2(l.cobrado - l.tabela);
+      return `<tr>${td(`<b>${escapeHtml(l.nome)}</b>`)}${td(l.qtd, 1)}${td(M(l.tabela), 1)}${td(M(l.cobrado), 1, 'font-weight:600')}
+        ${td(aj === 0 ? '—' : (aj > 0 ? '+' : '−') + M(Math.abs(aj)), 1, `color:${aj > 0 ? '#27AE60' : aj < 0 ? '#E74C3C' : '#999'}`)}
+        ${td(l.tarifa ? '−' + M(l.tarifa) : '—', 1, 'color:#E74C3C')}
+        ${td(M(l.liquido) + (l.semLiq ? `<span title="${l.semLiq} pedido(s) sem líquido do gateway" style="color:#E3815A"> *</span>` : ''), 1, 'font-weight:600')}
+        ${td(l.qtd ? M(l.cobrado / l.qtd) : '—', 1)}
+        ${td(l.qtdPend || '—', 1)}${td(l.valPend ? M(l.valPend) : '—', 1, 'color:#E3815A')}</tr>`;
+    }).join('') + `<tr style="background:#fafafa">${td('<b>TOTAL</b>')}${td(`<b>${T.qtd}</b>`, 1)}${td(`<b>${M(T.tabela)}</b>`, 1)}${td(`<b>${M(T.cobrado)}</b>`, 1)}
+        ${td(`<b>${M(r2(T.cobrado - T.tabela))}</b>`, 1)}${td(`<b>${T.tarifa ? '−' + M(T.tarifa) : '—'}</b>`, 1)}${td(`<b>${M(T.liquido)}</b>`, 1)}${td(T.qtd ? `<b>${M(T.cobrado / T.qtd)}</b>` : '—', 1)}
+        ${td(`<b>${pendentes.length}</b>`, 1)}${td(`<b>${M(pendSemParcVal + aReceberParc)}</b>`, 1)}</tr></tbody></table></div>`;
+    if (T.semLiq) html += `<div style="font-size:11px;color:#E3815A;margin-top:4px">* Líquido ainda não informado pelo gateway (comum no cartão recém-aprovado). Esses pedidos não entram na coluna Líquido — use "Ressincronizar" no pedido se demorar.</div>`;
+
+    // cartao
+    if (cartoes.length) {
+      html += h2('💳 Cartão — o que já caiu e o que falta cair');
+      html += `<div style="display:flex;gap:10px;flex-wrap:wrap">
+        ${card('Já caiu na conta', M(soma(cartCaiu, p => p._liquido ?? p._cobrado)), '#27AE60', `${cartCaiu.length} pedido(s), líquido`)}
+        ${card('Aguardando crédito', M(soma(cartAg, p => p._liquido ?? p._cobrado)), '#E3815A', `${cartAg.length} pedido(s)${cartAg.some(p => p._liquido === null) ? ' (parte estimada pelo cobrado)' : ''}`)}
+        ${card('Acréscimo repassado ao responsável', M(soma(cartoes, p => Math.max(0, p._cobrado - p._tabela))), '#4B6BFB', 'taxa do cartão paga pelo pai')}
+        ${card('Custo real do cartão', M(soma(cartoes, p => p._tarifa)), '#E74C3C', 'tarifa + antecipação')}
+      </div>`;
+    }
+
+    // pix parcelado
+    if (parcelados.length) {
+      const todasParc = parcelados.flatMap(p => p._parcPagas.concat(p._parcAbertas));
+      const quitados = parcelados.filter(p => p.payment_status === 'paid').length;
+      html += h2('🔁 PIX parcelado — situação das parcelas');
+      html += sub(`${parcelados.length} pedido(s): ${quitados} quitado(s), ${parcelados.length - quitados} em andamento. O pedido só vira "Pago" na última parcela.`);
+      html += `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        ${card('Parcelas pagas', M(soma(parcelados, p => p._recebido)), '#27AE60', `${todasParc.filter(x => x.status === 'paid').length} parcela(s)`)}
+        ${card('Parcelas a vencer / abertas', M(soma(parcelados, p => r2(p._parcAbertas.filter(x => x.status !== 'atrasada').reduce((s, x) => s + n(x.value), 0)) * (p.payment_status === 'paid' ? 0 : 1))), '#7C3AED', 'ainda dentro do prazo')}
+        ${card('Parcelas atrasadas', M(atrasadoParc), '#E74C3C', 'cobrança manual')}
+      </div>`;
+      html += `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><thead><tr>
+        ${th('Pedido')}${th('Aluno')}${th('Parcelas pagas', 1)}${th('Cobrado total', 1)}${th('Recebido', 1)}${th('Falta', 1)}${th('Próx. vencimento', 1)}${th('Situação')}
+        </tr></thead><tbody>` + parcelados.map(p => {
+        const tot = p._parcPagas.length + p._parcAbertas.length;
+        const prox = p._parcAbertas.map(x => x.due_date).filter(Boolean).sort()[0];
+        const atras = p._parcAbertas.some(x => x.status === 'atrasada');
+        const sit = p.payment_status === 'paid' ? '<span style="color:#27AE60">Quitado</span>' : atras ? '<span style="color:#E74C3C">Atrasado</span>' : '<span style="color:#7C3AED">Em dia</span>';
+        return `<tr>${td(escapeHtml(p.order_number || '—'))}${td(escapeHtml(p.student?.name || '—'))}${td(`${p._parcPagas.length}/${tot || (p.installments || '?')}`, 1)}
+          ${td(M(p._cobrado), 1)}${td(M(p._recebido), 1, 'color:#27AE60;font-weight:600')}${td(M(p._aReceber), 1, 'color:#E3815A')}
+          ${td(prox ? new Date(prox + 'T12:00:00').toLocaleDateString('pt-BR') : '—', 1)}${td(sit)}</tr>`;
+      }).join('') + '</tbody></table></div>';
+    }
+
+    // por projeto (so' quando varios) e por mes
+    const agrupar = (arr, chave) => {
+      const m = {};
+      arr.forEach(p => { const k = chave(p); (m[k] = m[k] || []).push(p); });
+      return m;
+    };
+    const grupoTab = (titulo, mapa, ordenar) => {
+      const ks = Object.keys(mapa).sort(ordenar);
+      if (ks.length < 1) return '';
+      return h2(titulo) + `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><thead><tr>
+        ${th('')}${th('Pagos', 1)}${th('Preço tabela', 1)}${th('Cobrado', 1)}${th('Tarifa', 1)}${th('Líquido', 1)}${th('Pendentes', 1)}${th('Valor pendente', 1)}</tr></thead><tbody>` +
+        ks.map(k => {
+          const arr = mapa[k], pg = arr.filter(p => p.payment_status === 'paid'), pe = arr.filter(p => p.payment_status === 'pending');
+          return `<tr>${td(`<b>${escapeHtml(k)}</b>`)}${td(pg.length, 1)}${td(M(soma(pg, p => p._tabela)), 1)}${td(M(soma(pg, p => p._cobrado)), 1)}
+            ${td(soma(pg, p => p._tarifa) ? '−' + M(soma(pg, p => p._tarifa)) : '—', 1, 'color:#E74C3C')}${td(M(soma(pg, p => p._liquido ?? 0)), 1, 'font-weight:600')}
+            ${td(pe.length || '—', 1)}${td(pe.length ? M(soma(pe, p => p._forma === 'pix_parcelado' ? p._aReceber : p._cobrado)) : '—', 1, 'color:#E3815A')}</tr>`;
+        }).join('') + '</tbody></table></div>';
+    };
+    const vivos = pedidos.filter(p => p.payment_status !== 'cancelled' && p.payment_status !== 'refunded');
+    if (!projetoId) {
+      html += grupoTab('🏫 Por escola / projeto',
+        agrupar(vivos, p => `${p.project?.school?.name || '—'} — ${p.project?.name || 'sem projeto'}`),
+        (a, b) => a.localeCompare(b, 'pt-BR'));
+    }
+    html += grupoTab('📅 Por mês do pedido',
+      agrupar(vivos, p => (p.created_at || '').slice(0, 7) || '—'),
+      (a, b) => b.localeCompare(a));
+
+    if (cancel.length) {
+      html += h2('Cancelados e estornados') + `<div style="font-size:12px;color:#666">${cancel.length} pedido(s), ${M(soma(cancel, p => p._cobrado))} — não entram em nenhum total acima.</div>`;
+    }
+    html += `<div style="font-size:10.5px;color:#999;margin-top:14px">Pedidos de conferência (teste) ficam de fora. "Ajuste" = cobrado − preço de tabela (acréscimo de cartão/parcelamento positivo; desconto de irmãos negativo). Valores de tarifa e líquido vêm do próprio gateway.</div>`;
+
+    el.innerHTML = html;
+    relPag = { pedidos, nomeForma };
+    if (relDados) relDados.pagHtml = html;
+  } catch (err) {
+    console.error('gerarRelPagamentos', err);
+    el.innerHTML = '<div style="color:#E74C3C;font-size:13px">Não consegui montar o painel por forma de pagamento: ' + escapeHtml(err.message || String(err)) + '</div>';
+  }
+}
+
+// Exporta cada pedido com os numeros financeiros (abre direto no Excel)
+document.getElementById('btn-csv-rel').addEventListener('click', () => {
+  if (!relPag) { toast('Clique em "Gerar relatório" primeiro.', 'warn'); return; }
+  const num = v => v == null ? '' : String(Number(v).toFixed(2)).replace('.', ',');
+  const cab = ['Pedido','Data','Escola','Projeto','Aluno','Responsável','Status','Forma de pagamento','Gateway','Preço tabela','Cobrado','Tarifa','Líquido','Recebido (parcelado)','A receber (parcelado)','Parcelas pagas','Crédito em conta'];
+  const stTxt = { paid: 'Pago', pending: 'Pendente', cancelled: 'Cancelado', refunded: 'Estornado' };
+  const linhas = relPag.pedidos.map(p => [
+    p.order_number || '', p.created_at ? new Date(p.created_at).toLocaleDateString('pt-BR') : '',
+    p.project?.school?.name || '', p.project?.name || '', p.student?.name || '', p.user?.name || '',
+    stTxt[p.payment_status] || p.payment_status, relPag.nomeForma[p._forma] || p._forma, p.gateway || 'manual',
+    num(p._tabela), num(p._cobrado), num(p._tarifa), num(p._liquido),
+    p._forma === 'pix_parcelado' ? num(p._recebido) : '', p._forma === 'pix_parcelado' ? num(p._aReceber) : '',
+    p._forma === 'pix_parcelado' ? `${p._parcPagas.length}/${p._parcPagas.length + p._parcAbertas.length}` : '',
+    p.credited_at ? new Date(p.credited_at + 'T12:00:00').toLocaleDateString('pt-BR') : '',
+  ]);
+  const esc = c => `"${String(c).replace(/"/g, '""')}"`;
+  const csv = '﻿' + [cab, ...linhas].map(l => l.map(esc).join(';')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = `relatorio-financeiro-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 });
 
 // ---------------------------------------------------------------------------
@@ -13430,6 +13710,7 @@ td{padding:5px 4px;border-bottom:1px solid #f5f5f5}
   <div class="rr-card" style="border-top:3px solid #E3815A">Pedidos pendentes<b style="color:#E3815A">${fmtMoney(totalPendente)}</b><span style="font-size:11px;color:#999">${pendentes.length} pedidos</span></div>
   <div class="rr-card" style="border-top:3px solid #4B6BFB">Total de pedidos<b style="color:#4B6BFB">${todos.length}</b></div>
 </div>
+${relDados.pagHtml ? `<div class="rr-bloco">${relDados.pagHtml}</div>` : ''}
 ${dre ? `<div class="rr-bloco"><h2>Resultado do projeto</h2>${dreHtml}</div>` : ''}
 <div class="rr-bloco">
   <h2>Pedidos incluídos</h2>
