@@ -2778,7 +2778,10 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
         <div class="modal-title" id="drill-proj-title">Alunos & Pedidos</div>
         <div id="drill-proj-sub" style="font-size:12px;color:var(--gray-400);margin-top:2px"></div>
       </div>
-      <div id="drill-clock" style="font-family:monospace;font-size:26px;font-weight:700;color:var(--blue);letter-spacing:.5px"></div>
+      <div style="text-align:right">
+        <div id="drill-clock" style="font-family:monospace;font-size:26px;font-weight:700;color:var(--blue);letter-spacing:.5px"></div>
+        <div id="drill-upd" style="font-size:11px;color:var(--gray-400)"></div>
+      </div>
       <button class="modal-close" data-close="mod-drill-proj">&times;</button>
     </div>
     <!-- Stats bar -->
@@ -8692,13 +8695,53 @@ let drillAutoRefreshTimer = null;
 // nao resetar busca/turma/status que o Daniel ja tinha escolhido.
 function iniciarAutoRefreshDrill() {
   pararAutoRefreshDrill();
-  drillAutoRefreshTimer = setInterval(() => {
-    if (document.getElementById('mod-drill-proj')?.classList.contains('open') && drillProjetoId) {
-      abrirDrillProjeto(drillProjetoId, { silent: true });
-    } else {
-      pararAutoRefreshDrill();
-    }
-  }, 30000);
+  drillAutoRefreshTimer = setInterval(atualizarDrillAgora, 10000);
+}
+// Chrome atrasa/pausa timer de janela escondida ou atras de outra — por isso,
+// alem do relogio de 10s, atualiza NA HORA quando a janela volta a ficar visivel.
+function atualizarDrillAgora() {
+  if (document.getElementById('mod-drill-proj')?.classList.contains('open') && drillProjetoId) {
+    abrirDrillProjeto(drillProjetoId, { silent: true });
+  } else {
+    pararAutoRefreshDrill();
+  }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) atualizarDrillAgora(); });
+window.addEventListener('focus', atualizarDrillAgora);
+
+// Foto do que havia na tela antes da atualizacao automatica, pra avisar o que
+// mudou (pedido pago, pedido novo, cadastro novo) — o Daniel responde na hora.
+let drillSnap = null;       // { projeto, alunos: Set(id), pedidos: Map(id -> status) }
+let drillRefreshando = false;
+function bipeAviso() {
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.connect(g); g.connect(ac.destination);
+    o.frequency.value = 880; g.gain.value = 0.06;
+    o.start(); o.stop(ac.currentTime + 0.15);
+    setTimeout(() => ac.close(), 400);
+  } catch {}
+}
+function avisarMudancasDrill(alunosRaw, pedidosRaw, projectId) {
+  const novo = { projeto: projectId, alunos: new Set(alunosRaw.map(a => a.id)),
+    pedidos: new Map(pedidosRaw.map(p => [p.id, p.payment_status])) };
+  const antes = drillSnap;
+  drillSnap = novo;
+  if (!antes || antes.projeto !== projectId) return;
+  const nomeAluno = id => (alunosRaw.find(a => a.id === id) || {}).name || '—';
+  const msgs = [];
+  alunosRaw.filter(a => !antes.alunos.has(a.id)).forEach(a => msgs.push('🆕 Novo cadastro: ' + a.name));
+  pedidosRaw.forEach(p => {
+    const ant = antes.pedidos.get(p.id);
+    if (ant === undefined && p.payment_status === 'paid') msgs.push(`💰 Pago: ${p.order_number} · ${nomeAluno(p.student_id)}`);
+    else if (ant === undefined) msgs.push(`🛒 Novo pedido: ${p.order_number} · ${nomeAluno(p.student_id)}`);
+    else if (ant !== 'paid' && p.payment_status === 'paid') msgs.push(`💰 Pagamento confirmado: ${p.order_number} · ${nomeAluno(p.student_id)}`);
+  });
+  if (!msgs.length) return;
+  msgs.slice(0, 4).forEach(m => toast(m, 'success'));
+  if (msgs.length > 4) toast(`+ ${msgs.length - 4} novidades`, 'info');
+  bipeAviso();
 }
 function pararAutoRefreshDrill() {
   if (drillAutoRefreshTimer) { clearInterval(drillAutoRefreshTimer); drillAutoRefreshTimer = null; }
@@ -8777,9 +8820,11 @@ function popularSeletorDrill(projectId) {
 }
 
 async function abrirDrillProjeto(projectId, opts = {}) {
-  const silent = !!opts.silent;   // true = atualizacao automatica de 30 em 30s
+  const silent = !!opts.silent;   // true = atualizacao automatica
+  if (silent && drillRefreshando) return;   // ja ha uma atualizacao em andamento
+  drillRefreshando = true;
   drillProjetoId = projectId;
-  if (!silent) { drillAlunosData = []; drillPedidosData = []; }
+  if (!silent) { drillAlunosData = []; drillPedidosData = []; drillSnap = null; }
   try { localStorage.setItem('drillUltimoProjeto', projectId); } catch {}
 
   // Reset UI — pulado no modo silencioso pra nao apagar busca/turma/status
@@ -9075,13 +9120,20 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       turmas.map(t => `<option value="${t.id}">${escapeHtml(t.year ? t.year + ' — ' + t.name : t.name)}</option>`).join('');
     if (turmaAntes) selTur.value = turmaAntes;
 
+    avisarMudancasDrill(alunosRaw, pedidosRaw, projectId);
     renderDrillStats();
     filtrarDrillAlunos();
     filtrarDrillPedidos();
+    const upd = document.getElementById('drill-upd');
+    if (upd) upd.textContent = '↻ atualizado às ' + new Date().toLocaleTimeString('pt-BR');
     iniciarAutoRefreshDrill();
 
   } catch (err) {
     handleError(err, 'abrirDrillProjeto');
+    const upd = document.getElementById('drill-upd');
+    if (upd) upd.textContent = '⚠ falha ao atualizar — tentando de novo';
+  } finally {
+    drillRefreshando = false;
   }
 }
 
