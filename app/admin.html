@@ -2833,7 +2833,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           <span style="font-size:12px">Só não contatados</span>
         </label>
         <select class="form-select" style="width:240px" id="drill-al-sort" onchange="filtrarDrillAlunos()" title="Ordem da lista">
-          <option value="recente">🕐 Mais recentes</option>
+          <option value="recente">🕐 Última movimentação (cadastro, pedido ou pagamento)</option>
           <option value="nome">Nome A-Z</option>
           <option value="cadastro">🆕 Cadastro mais novo (nº da ficha)</option>
         </select>
@@ -8887,7 +8887,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       const { data } = await supabase
         .from('students')
         .select(`
-          id, name, photo_seq_number, user_id, duplicate_of_student_id, notes,
+          id, name, created_at, photo_seq_number, user_id, duplicate_of_student_id, notes,
           guardian2_name, guardian2_phone,
           authorization_date, authorize_individual, authorize_class,
           class:school_classes(id, name, year:school_years(id, name)),
@@ -8902,7 +8902,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       const { data } = await supabase
         .from('students')
         .select(`
-          id, name, photo_seq_number, user_id, duplicate_of_student_id, notes,
+          id, name, created_at, photo_seq_number, user_id, duplicate_of_student_id, notes,
           guardian2_name, guardian2_phone,
           authorization_date, authorize_individual, authorize_class,
           class:school_classes(id, name, year:school_years(id, name)),
@@ -9071,6 +9071,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       return {
       id: a.id,
       name: a.name,
+      created_at: a.created_at || null,
       fichaNum: a.photo_seq_number ?? null,   // numero da ficha = ordem de cadastro na escola
       notes: a.notes || null,
       irmaos,
@@ -9629,8 +9630,13 @@ function filtrarDrillAlunos() {
   lista = [...lista].sort((a, b) => {
     if (sortMode === 'nome') return a.name.localeCompare(b.name, 'pt-BR');
     if (sortMode === 'cadastro') return (b.fichaNum ?? -1) - (a.fichaNum ?? -1) || a.name.localeCompare(b.name, 'pt-BR');
-    const ta = a.order?.created_at ? new Date(a.order.created_at).getTime() : -Infinity;
-    const tb = b.order?.created_at ? new Date(b.order.created_at).getTime() : -Infinity;
+    // Ultima movimentacao = o que veio por ultimo entre CADASTRO do aluno,
+    // PEDIDO feito e PAGAMENTO: quem acabou de se cadastrar, pedir ou pagar sobe
+    // pro topo. (paid_at do Asaas as vezes vem so' com a data, a meia-noite — por
+    // isso o max() com a hora de criacao, que e' sempre real.)
+    const t = v => v ? new Date(v).getTime() : 0;
+    const mov = x => Math.max(t(x.created_at), x.order ? Math.max(t(x.order.created_at), t(x.order.paid_at)) : 0);
+    const ta = mov(a), tb = mov(b);
     if (ta !== tb) return tb - ta;
     return a.name.localeCompare(b.name, 'pt-BR');
   });
