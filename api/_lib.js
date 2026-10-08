@@ -203,7 +203,7 @@ function descricaoCobranca({ escola, projeto, numeros, alunos, extra }) {
     extra,
   ].filter(Boolean);
   const txt = partes.join(' - ');
-  return txt.length > 140 ? txt.slice(0, 139) + '…' : txt;
+  return txt.length > 140 ? txt.slice(0, 137).trimEnd() + '...' : txt;
 }
 
 // ---------------------------------------------------------------------------
