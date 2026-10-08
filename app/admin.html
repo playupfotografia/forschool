@@ -1326,6 +1326,27 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
     <!-- Painel financeiro por forma de pagamento (so' leitura — ver gerarRelPagamentos) -->
     <div id="rel-pagamentos" style="margin-bottom:18px"></div>
 
+    <!-- Lista de pagamentos recebidos: quem pagou, forma, valor e taxa (ver gerarRelListaPagos) -->
+    <div class="card" id="rel-lp-wrap" style="display:none;margin-bottom:18px">
+      <div class="card-header" style="flex-wrap:wrap;gap:8px">
+        <span style="font-size:13px;font-weight:600">💳 Pagamentos recebidos — quem pagou, forma, valor e taxa</span>
+        <span id="rel-lp-count" style="font-size:12px;color:var(--gray-400)"></span>
+        <span style="flex:1"></span>
+        <label style="font-size:12px;color:var(--gray-500)">De <input type="date" class="form-input" id="rel-lp-de" style="width:140px;display:inline-block;padding:3px 6px"></label>
+        <label style="font-size:12px;color:var(--gray-500)">Até <input type="date" class="form-input" id="rel-lp-ate" style="width:140px;display:inline-block;padding:3px 6px"></label>
+        <button class="btn btn-secondary btn-sm" id="btn-lp-imprimir">🖨 Imprimir lista</button>
+        <button class="btn btn-secondary btn-sm" id="btn-lp-csv">⬇ Excel (CSV)</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Aluno</th><th>Responsável</th><th>Titular da conta que pagou</th><th>Forma</th><th style="text-align:right">Valor pago</th><th style="text-align:right">Taxa</th><th style="text-align:right">Líquido</th><th>Pago em</th><th>Pedido</th></tr></thead>
+          <tbody id="rel-lp-tab"></tbody>
+          <tfoot id="rel-lp-foot"></tfoot>
+        </table>
+      </div>
+      <div style="font-size:11px;color:var(--gray-400);padding:8px 14px 12px">O titular da conta vem do banco do pagador (PIX pela Woovi). Cartão e pagamentos marcados à mão não informam titular. A taxa vem do próprio gateway — no cartão aparece quando o Asaas informa o líquido.</div>
+    </div>
+
     <!-- DRE simplificado -->
     <div id="rel-dre" class="card card-pad" style="margin-bottom:14px;display:none">
       <div style="font-size:14px;font-weight:600;margin-bottom:12px">Resultado do projeto</div>
@@ -13517,6 +13538,7 @@ document.getElementById('btn-gerar-rel').addEventListener('click', async () => {
   // Painel por forma de pagamento: independente do calculo acima. Se falhar,
   // so' ele mostra o erro — o relatorio de sempre ja' foi desenhado.
   gerarRelPagamentos(projetoId, statusFiltro);
+  gerarRelListaPagos(projetoId);
 });
 
 // ---------------------------------------------------------------------------
@@ -13789,6 +13811,164 @@ document.getElementById('btn-csv-rel').addEventListener('click', () => {
   a.download = `relatorio-financeiro-${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+});
+
+
+// ---------------------------------------------------------------------------
+// LISTA DE PAGAMENTOS RECEBIDOS
+//
+// Pedidos PAGOS (sem teste): aluno, responsavel, TITULAR DA CONTA que pagou
+// (so' o PIX da Woovi informa — vem do gateway_payload), forma, valor, taxa e
+// liquido. Carrega uma vez ao "Gerar relatorio"; o filtro de datas so' refaz
+// a lista na tela, e imprimir/CSV usam exatamente o que esta' na tela.
+// ---------------------------------------------------------------------------
+let relLP = null;   // { todos, projetoNome }
+let relLPVisiveis = [];
+
+// paid_at do Asaas as vezes vem so' com a data (meia-noite UTC): nesse caso usa
+// a data como ela e' — converter pro fuso local mostraria o dia anterior.
+function lpSoData(p) { return /T00:00:00(\.0+)?(\+00:00|Z)?$/.test(p.paid_at || ''); }
+function lpDataPago(p) {
+  const iso = p.paid_at || p.created_at;
+  if (!iso) return null;
+  const d = new Date(iso);
+  return lpSoData(p) ? new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12) : d;
+}
+function lpFmtData(p) {
+  const d = lpDataPago(p);
+  if (!d) return '—';
+  return lpSoData(p) ? d.toLocaleDateString('pt-BR')
+    : d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+async function gerarRelListaPagos(projetoId) {
+  const wrap = document.getElementById('rel-lp-wrap');
+  relLP = null;
+  try {
+    const cols = `id, order_number, total_amount, amount_charged, net_amount, gateway_fee, gateway, payment_method, paid_at, created_at,
+      titular:gateway_payload->pix->debitParty->holder->>name, pagador:gateway_payload->pix->payer->>name,
+      student:students(name), user:users(name), project:projects(name)`;
+    let pedidos = [];
+    for (let ini = 0; ; ini += 1000) {
+      let q = supabase.from('orders').select(cols).eq('payment_status', 'paid').neq('is_test', true)
+        .order('paid_at', { ascending: false }).range(ini, ini + 999);
+      if (projetoId) q = q.eq('project_id', projetoId);
+      const { data, error } = await q;
+      if (error) throw error;
+      pedidos = pedidos.concat(data || []);
+      if (!data || data.length < 1000) break;
+    }
+    pedidos.sort((a, b) => (lpDataPago(b)?.getTime() || 0) - (lpDataPago(a)?.getTime() || 0));
+    relLP = {
+      todos: pedidos,
+      projetoNome: projetoId ? (document.getElementById('rel-fprojeto').selectedOptions[0]?.text || '') : 'Todos os projetos',
+    };
+    wrap.style.display = 'block';
+    desenharRelListaPagos();
+  } catch (err) {
+    handleError(err, 'gerarRelListaPagos');
+    wrap.style.display = 'none';
+  }
+}
+
+function desenharRelListaPagos() {
+  if (!relLP) return;
+  const de = document.getElementById('rel-lp-de').value;
+  const ate = document.getElementById('rel-lp-ate').value;
+  const n = v => Number(v || 0);
+  const lista = relLP.todos.filter(p => {
+    const d = lpDataPago(p);
+    if (!d) return true;
+    const ymd = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    return (!de || ymd >= de) && (!ate || ymd <= ate);
+  }).map(p => {
+    const cobrado = p.amount_charged != null ? n(p.amount_charged) : n(p.total_amount);
+    const temTaxa = p.net_amount != null;
+    const manual = !GATEWAYS_AUTOMATICOS.has(p.gateway);
+    return {
+      aluno: p.student?.name || '—', resp: p.user?.name || '—',
+      titular: p.titular || p.pagador || '',
+      forma: METODO_LABEL[p.payment_method] || (p.payment_method ? p.payment_method : '—'),
+      manual,
+      valor: cobrado, taxa: temTaxa ? n(p.gateway_fee) : null,
+      liquido: temTaxa ? n(p.net_amount) : (manual ? cobrado : null),
+      data: lpFmtData(p), pedido: p.order_number || '', projeto: p.project?.name || '',
+    };
+  });
+  relLPVisiveis = lista;
+  document.getElementById('rel-lp-count').textContent = `${lista.length} pagamento${lista.length !== 1 ? 's' : ''}`;
+  const cinza = '<span style="color:var(--gray-400)">—</span>';
+  document.getElementById('rel-lp-tab').innerHTML = lista.map(r => `<tr>
+    <td>${escapeHtml(r.aluno)}</td>
+    <td style="font-size:12px;color:var(--gray-500)">${escapeHtml(r.resp)}</td>
+    <td style="font-size:12px">${r.titular ? escapeHtml(r.titular) : cinza}</td>
+    <td style="font-size:12px">${escapeHtml(r.forma)}${r.manual ? ' <span style="color:var(--gray-400);font-size:10px">manual</span>' : ''}</td>
+    <td style="text-align:right;font-weight:600">${fmtMoney(r.valor)}</td>
+    <td style="text-align:right;color:var(--red)">${r.taxa == null ? (r.manual ? cinza : '<span style="font-size:11px;color:var(--orange)" title="O Asaas ainda não informou">a informar</span>') : fmtMoney(r.taxa)}</td>
+    <td style="text-align:right">${r.liquido == null ? cinza : fmtMoney(r.liquido)}</td>
+    <td style="font-size:12px;white-space:nowrap">${r.data}</td>
+    <td style="font-family:monospace;font-size:12px">${escapeHtml(r.pedido)}</td>
+  </tr>`).join('') || '<tr><td colspan="9" style="text-align:center;color:var(--gray-400);padding:20px">Nenhum pagamento no período.</td></tr>';
+  const somaV = lista.reduce((s, r) => s + r.valor, 0);
+  const somaT = lista.reduce((s, r) => s + (r.taxa || 0), 0);
+  const somaL = lista.reduce((s, r) => s + (r.liquido || 0), 0);
+  document.getElementById('rel-lp-foot').innerHTML = lista.length ? `<tr style="font-weight:700;background:var(--gray-50)">
+    <td colspan="4" style="text-align:right">Total</td><td style="text-align:right">${fmtMoney(somaV)}</td>
+    <td style="text-align:right;color:var(--red)">${fmtMoney(somaT)}</td><td style="text-align:right">${fmtMoney(somaL)}</td><td colspan="2"></td></tr>` : '';
+}
+document.getElementById('rel-lp-de').addEventListener('change', desenharRelListaPagos);
+document.getElementById('rel-lp-ate').addEventListener('change', desenharRelListaPagos);
+
+document.getElementById('btn-lp-csv').addEventListener('click', () => {
+  if (!relLPVisiveis.length) { toast('Nada para exportar. Clique em "Gerar relatório".', 'warn'); return; }
+  const num = v => v == null ? '' : String(Number(v).toFixed(2)).replace('.', ',');
+  const cab = ['Aluno', 'Responsável', 'Titular da conta que pagou', 'Forma de pagamento', 'Valor pago', 'Taxa', 'Líquido', 'Pago em', 'Pedido', 'Projeto'];
+  const linhas = relLPVisiveis.map(r => [r.aluno, r.resp, r.titular, r.forma, num(r.valor), num(r.taxa), num(r.liquido), r.data, r.pedido, r.projeto]);
+  const esc = c => `"${String(c).replace(/"/g, '""')}"`;
+  const csv = '﻿' + [cab, ...linhas].map(l => l.map(esc).join(';')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = `pagamentos-recebidos-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+});
+
+document.getElementById('btn-lp-imprimir').addEventListener('click', () => {
+  if (!relLP || !relLPVisiveis.length) { toast('Nada para imprimir. Clique em "Gerar relatório".', 'warn'); return; }
+  const de = document.getElementById('rel-lp-de').value, ate = document.getElementById('rel-lp-ate').value;
+  const fd = v => v ? v.split('-').reverse().join('/') : '';
+  const periodo = de || ate ? `Período: ${fd(de) || 'início'} a ${fd(ate) || 'hoje'}` : 'Todo o período';
+  const somaV = relLPVisiveis.reduce((s, r) => s + r.valor, 0);
+  const somaT = relLPVisiveis.reduce((s, r) => s + (r.taxa || 0), 0);
+  const somaL = relLPVisiveis.reduce((s, r) => s + (r.liquido || 0), 0);
+  const linhas = relLPVisiveis.map(r => `<tr>
+    <td>${escapeHtml(r.aluno)}</td><td>${escapeHtml(r.resp)}</td><td>${r.titular ? escapeHtml(r.titular) : '—'}</td>
+    <td>${escapeHtml(r.forma)}${r.manual ? ' (manual)' : ''}</td>
+    <td class="d">${fmtMoney(r.valor)}</td><td class="d">${r.taxa == null ? '—' : fmtMoney(r.taxa)}</td>
+    <td class="d">${r.liquido == null ? '—' : fmtMoney(r.liquido)}</td><td>${r.data}</td><td>${escapeHtml(r.pedido)}</td></tr>`).join('');
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Pagamentos recebidos</title>
+<style>
+  @page { size: A4 landscape; margin: 10mm; }
+  body { font-family: Arial, sans-serif; color: #1a1a2e; font-size: 11px; margin: 0; padding: 14px; }
+  h1 { font-size: 16px; margin: 0 0 2px; } .sub { color: #666; margin-bottom: 10px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; background: #f1f3f9; font-size: 10px; text-transform: uppercase; letter-spacing: .4px; color: #555; }
+  th, td { padding: 5px 6px; border-bottom: 1px solid #e3e6ee; vertical-align: top; }
+  .d { text-align: right; white-space: nowrap; } th.d { text-align: right; }
+  tfoot td { font-weight: 700; border-top: 2px solid #999; background: #f7f8fc; }
+  tr { page-break-inside: avoid; }
+  .bar { margin-bottom: 10px; } @media print { .bar { display: none; } }
+</style></head><body>
+<div class="bar"><button onclick="window.print()" style="padding:7px 14px;font-size:13px;cursor:pointer">🖨 Imprimir / Salvar PDF</button></div>
+<h1>Pagamentos recebidos</h1>
+<div class="sub">${escapeHtml(relLP.projetoNome)} · ${periodo} · ${relLPVisiveis.length} pagamento(s) · emitido em ${new Date().toLocaleString('pt-BR')}</div>
+<table><thead><tr><th>Aluno</th><th>Responsável</th><th>Titular da conta que pagou</th><th>Forma</th><th class="d">Valor pago</th><th class="d">Taxa</th><th class="d">Líquido</th><th>Pago em</th><th>Pedido</th></tr></thead>
+<tbody>${linhas}</tbody>
+<tfoot><tr><td colspan="4" class="d">Total</td><td class="d">${fmtMoney(somaV)}</td><td class="d">${fmtMoney(somaT)}</td><td class="d">${fmtMoney(somaL)}</td><td colspan="2"></td></tr></tfoot></table>
+</body></html>`;
+  const win = window.open('', '_blank', 'width=1100,height=800');
+  win.document.write(html);
+  win.document.close();
 });
 
 // ---------------------------------------------------------------------------
