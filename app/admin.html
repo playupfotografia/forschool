@@ -13154,37 +13154,7 @@ body{font-family:'DM Sans',Arial,sans-serif;background:#f0f0f0;color:#111;paddin
 </div>
 </body></html>`);
   win.document.close();
-  // Cabe em UMA folha: se o bilhete for mais alto que a meia folha, encolhe
-  // o conteudo (sem cortar nada). Feito daqui, e nao com <script> dentro do
-  // document.write acima — um fechamento de script ali dentro quebra o admin.
-  win.document.fonts.ready.then(() => ajustarBilhetesNaFolha(win.document));
 });
-
-// A4 deitada (297 x 210) com margem de 8mm -> 194mm de altura util por bilhete.
-// Margem de seguranca de ~6px: o layout da tela e' um pouco mais estreito que o
-// da impressao, entao a medida aqui e' conservadora.
-function ajustarBilhetesNaFolha(doc) {
-  const limitePx = (194 * 96 / 25.4) - 6;
-  doc.querySelectorAll('.bilhete-prev').forEach(box => {
-    const inner = doc.createElement('div');
-    inner.style.cssText = 'transform-origin:0 0';
-    while (box.firstChild) inner.appendChild(box.firstChild);
-    box.appendChild(inner);
-    let f = 1;
-    inner.style.width = '100%';
-    // Reduz de 3 em 3% ate caber (piso de 55%, abaixo disso fica ilegivel).
-    // O width = 100%/f devolve a largura que o transform tira, entao o texto
-    // tambem reflui e ocupa menos altura — encolhe menos do que so' escalar.
-    while (inner.offsetHeight * f > limitePx && f > 0.55) {
-      f = Math.round((f - 0.03) * 100) / 100;
-      inner.style.width = (100 / f) + '%';
-      inner.style.transform = `scale(${f})`;
-    }
-    box.style.height = Math.ceil(inner.offsetHeight * f + 2) + 'px';
-    box.style.overflow = 'hidden';
-    box.dataset.escala = String(f);
-  });
-}
 
 document.getElementById('btn-baixar-pdf-bil').addEventListener('click', async () => {
   if (!bilheteProj) { toast('Selecione um projeto primeiro', 'warn'); return; }
@@ -13198,18 +13168,6 @@ document.getElementById('btn-baixar-pdf-bil').addEventListener('click', async ()
   const prevOverflow = el.style.overflow;
   el.style.maxHeight = 'none';
   el.style.overflow = 'visible';
-  // Cabe em UMA folha: o PDF escala a largura do elemento pra 190mm, entao a
-  // altura final e' altura/largura * 190. Alargar o elemento faz o texto
-  // refluir (fica mais baixo) e, depois de escalado, mais miudo — ate dar
-  // <= 270mm (A4 tem 277mm uteis com margem de 10mm; 7mm de folga pro arredondamento).
-  const larguraOriginal = el.style.width;
-  const baseW = el.offsetWidth;
-  let w = baseW;
-  while ((el.offsetHeight / w) * 190 > 270 && w < baseW * 1.7) {
-    w = Math.round(w * 1.05);
-    el.style.width = w + 'px';
-  }
-  const aindaLongo = (el.offsetHeight / w) * 190 > 270;
   try {
     await html2pdf().set({
       margin: [10, 10, 10, 10],
@@ -13218,15 +13176,12 @@ document.getElementById('btn-baixar-pdf-bil').addEventListener('click', async ()
       html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
     }).from(el).save();
-    toast(aindaLongo
-      ? 'PDF baixado, mas o informativo é longo demais pra caber em 1 folha legível — encurte o texto do informativo.'
-      : 'PDF baixado!', aindaLongo ? 'warn' : 'ok');
+    toast('PDF baixado!', 'ok');
   } catch (err) {
     handleError(err, 'baixarPDF');
   } finally {
     el.style.maxHeight = prevMaxHeight;
     el.style.overflow = prevOverflow;
-    el.style.width = larguraOriginal;
   }
 });
 
