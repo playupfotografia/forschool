@@ -1237,88 +1237,40 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
   <div id="page-analise-produtos" class="page">
     <div class="topbar"><div class="topbar-title">Análise de Produtos</div></div>
 
-    <!-- Filtros -->
+    <!-- Filtros (valem para todas as abas) -->
     <div class="card card-pad" style="margin-bottom:14px">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
         <div class="form-group" style="margin:0;flex:1;min-width:200px">
           <label class="form-label">Projeto</label>
           <select class="form-select" id="ap-fprojeto"><option value="">Todos os projetos</option></select>
         </div>
-        <div class="form-group" style="margin:0;min-width:160px">
-          <label class="form-label">Status pagamento</label>
-          <select class="form-select" id="ap-fstatus">
-            <option value="">Todos</option>
-            <option value="paid">Somente pagos</option>
-            <option value="pending">Somente pendentes</option>
-          </select>
+        <div class="form-group" style="margin:0">
+          <label class="form-label">De</label>
+          <input class="form-input" type="date" id="ap-fde" style="width:150px">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label class="form-label">Até</label>
+          <input class="form-input" type="date" id="ap-fate" style="width:150px">
         </div>
         <button class="btn btn-primary" id="btn-gerar-ap">Gerar análise</button>
       </div>
+      <div style="font-size:11px;color:var(--gray-400);margin-top:8px">Conta só pedidos <b>pagos</b>. Pedidos de teste ficam de fora. O período vale pela data do pedido.</div>
     </div>
 
-    <!-- Rankings (3 destaques) -->
-    <div id="ap-rankings" style="display:none;margin-bottom:14px">
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:11px">
-        <div class="stat-card" style="border-top:3px solid var(--teal)">
-          <div class="stat-label">Kit mais vendido</div>
-          <div id="ap-rank-kit-qtd" class="stat-value" style="font-size:16px;color:var(--teal)">—</div>
-          <div id="ap-rank-kit-qtd-sub" style="font-size:11px;color:var(--gray-400);margin-top:3px"></div>
-        </div>
-        <div class="stat-card" style="border-top:3px solid var(--blue)">
-          <div class="stat-label">Avulso mais vendido</div>
-          <div id="ap-rank-av-qtd" class="stat-value" style="font-size:16px;color:var(--blue)">—</div>
-          <div id="ap-rank-av-qtd-sub" style="font-size:11px;color:var(--gray-400);margin-top:3px"></div>
-        </div>
-        <div class="stat-card" style="border-top:3px solid var(--purple)">
-          <div class="stat-label">Série que mais comprou</div>
-          <div id="ap-rank-serie" class="stat-value" style="font-size:16px;color:var(--purple)">—</div>
-          <div id="ap-rank-serie-sub" style="font-size:11px;color:var(--gray-400);margin-top:3px"></div>
-        </div>
-        <div class="stat-card" style="border-top:3px solid var(--green)">
-          <div class="stat-label">Produto com maior receita</div>
-          <div id="ap-rank-receita" class="stat-value" style="font-size:16px;color:var(--green)">—</div>
-          <div id="ap-rank-receita-sub" style="font-size:11px;color:var(--gray-400);margin-top:3px"></div>
-        </div>
+    <div id="ap-conteudo" style="display:none">
+      <div class="tabs" id="ap-tabs">
+        <button class="tab-btn active" data-ap-tab="vendas">Vendas</button>
+        <button class="tab-btn" data-ap-tab="lucro">Lucro</button>
+        <button class="tab-btn" data-ap-tab="abc">Curva ABC</button>
+        <button class="tab-btn" data-ap-tab="projetos">Projetos e escolas</button>
+        <button class="tab-btn" data-ap-tab="conversao">Conversão</button>
+        <button class="tab-btn" data-ap-tab="variacoes">Variações e cópias</button>
       </div>
-    </div>
-
-    <!-- Tabela kits -->
-    <div id="ap-kits-wrap" class="card" style="display:none;margin-bottom:14px">
-      <div class="card-header"><span style="font-size:13px;font-weight:600">Kits vendidos</span></div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Kit</th><th style="text-align:right">Unidades</th><th style="text-align:right">Receita</th><th style="text-align:right">% da receita</th><th style="width:140px"></th></tr></thead>
-          <tbody id="ap-kits-tab"></tbody>
-          <tfoot id="ap-kits-foot"></tfoot>
-        </table>
-      </div>
-    </div>
-
-    <!-- Tabela avulsos -->
-    <div id="ap-av-wrap" class="card" style="display:none;margin-bottom:14px">
-      <div class="card-header"><span style="font-size:13px;font-weight:600">Avulsos vendidos</span></div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Produto</th><th style="text-align:right">Unidades</th><th style="text-align:right">Receita</th><th style="text-align:right">% da receita</th><th style="width:140px"></th></tr></thead>
-          <tbody id="ap-av-tab"></tbody>
-          <tfoot id="ap-av-foot"></tfoot>
-        </table>
-      </div>
-    </div>
-
-    <!-- Tabela por série/ano -->
-    <div id="ap-serie-wrap" class="card" style="display:none">
-      <div class="card-header"><span style="font-size:13px;font-weight:600">Por série / ano escolar</span></div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Série / Ano</th><th style="text-align:right">Pedidos</th><th style="text-align:right">Receita</th><th style="text-align:right">% da receita</th><th style="width:140px"></th></tr></thead>
-          <tbody id="ap-serie-tab"></tbody>
-        </table>
-      </div>
+      <div id="ap-pane"></div>
     </div>
 
     <div id="ap-empty" style="display:none;text-align:center;color:var(--gray-400);padding:48px;font-size:14px">
-      Nenhum pedido encontrado com esses filtros.
+      Nenhum pedido pago encontrado com esses filtros.
     </div>
   </div>
 
@@ -13889,190 +13841,436 @@ ${dre ? `<div class="rr-bloco"><h2>Resultado do projeto</h2>${dreHtml}</div>` : 
 // ANÁLISE DE PRODUTOS
 // ============================================================================
 
+let apProjetos = [];     // [{id, nome}] — também alimenta a aba Conversão
+let apDados = null;      // dados do filtro atual (carregados uma vez, as abas só redesenham)
+let apAba = 'vendas';
+let apAbcBase = 'receita';
+
 async function loadAnaliseProdutos() {
   const sel = document.getElementById('ap-fprojeto');
   if (sel.options.length <= 1) {
-    const { data: projs } = await supabase.from('projects')
+    const { data: projs, error } = await supabase.from('projects')
       .select('id, name, school:schools(name)').order('created_at', { ascending: false });
+    if (error) { handleError(error, 'loadAnaliseProdutos'); return; }
+    apProjetos = [];
     (projs || []).forEach(p => {
+      const nome = p.school?.name ? `${p.school.name} — ${p.name || 'Sem título'}` : (p.name || 'Sem título');
+      apProjetos.push({ id: p.id, nome });
       const o = document.createElement('option');
       o.value = p.id;
-      o.textContent = p.school?.name ? `${p.school.name} — ${p.name || 'Sem título'}` : (p.name || 'Sem título');
+      o.textContent = nome;
       sel.appendChild(o);
     });
   }
 }
 
-document.getElementById('btn-gerar-ap').addEventListener('click', async () => {
-  const projetoId  = document.getElementById('ap-fprojeto').value;
-  const statusFiltro = document.getElementById('ap-fstatus').value;
+// ---------------------------------------------------------------------------
+// Coleta: pedidos PAGOS (sem teste) + custo dos produtos + composição dos kits.
+// Cada item vendido vira uma "linha" já com custo e tarifa rateados, e todas as
+// abas leem essas linhas — assim os números nunca discordam entre abas.
+// ---------------------------------------------------------------------------
+async function apCarregar() {
+  const projetoId = document.getElementById('ap-fprojeto').value;
+  const de  = document.getElementById('ap-fde').value;
+  const ate = document.getElementById('ap-fate').value;
 
-  // Esconde tudo e mostra loading
-  ['ap-rankings','ap-kits-wrap','ap-av-wrap','ap-serie-wrap','ap-empty'].forEach(id => {
-    document.getElementById(id).style.display = 'none';
-  });
-  document.getElementById('ap-kits-tab').innerHTML = '<tr><td colspan="5" class="loading"><span class="spinner"></span>Calculando…</td></tr>';
-  document.getElementById('ap-kits-wrap').style.display = 'block';
-
-  try {
-    // Busca pedidos com kits + avulsos + aluno/turma/série
-    let q = supabase.from('orders').select(`
-      id, total_amount, payment_status, kit_type,
-      kits:order_kits(quantity, unit_price, kit:school_kits(id, name, kit_type)),
-      items:order_items(quantity, unit_price, product:products(id, name)),
-      student:students(id, class:school_classes(id, name, year:school_years(id, name)))
-    `).neq('is_test', true);
+  const cols = `id, project_id, student_id, total_amount, gateway_fee, created_at,
+    kits:order_kits(quantity, unit_price, kit_id),
+    items:order_items(quantity, unit_price, product_id, variant_name),
+    project:projects(id, name, school:schools(id, name)),
+    school:schools(id, name),
+    student:students(class:school_classes(year:school_years(id, name)))`;
+  let pedidos = [];
+  for (let ini = 0; ; ini += 1000) {   // PostgREST corta em 1000 linhas
+    let q = supabase.from('orders').select(cols)
+      .eq('payment_status', 'paid').neq('is_test', true)
+      .order('created_at', { ascending: false }).range(ini, ini + 999);
     if (projetoId) q = q.eq('project_id', projetoId);
-    if (statusFiltro) q = q.eq('payment_status', statusFiltro);
-    const { data: pedidos, error } = await q;
+    if (de)  q = q.gte('created_at', new Date(de + 'T00:00:00').toISOString());
+    if (ate) q = q.lte('created_at', new Date(ate + 'T23:59:59').toISOString());
+    const { data, error } = await q;
     if (error) throw error;
+    pedidos = pedidos.concat(data || []);
+    if (!data || data.length < 1000) break;
+  }
 
-    if (!pedidos || pedidos.length === 0) {
-      document.getElementById('ap-kits-wrap').style.display = 'none';
-      document.getElementById('ap-empty').style.display = 'block';
-      return;
-    }
+  const { data: prods, error: eP } = await supabase.from('products').select('id, name, production_cost');
+  if (eP) throw eP;
+  const prodMap = {};
+  (prods || []).forEach(p => { prodMap[p.id] = p; });
 
-    const kitLabel = { basico: 'Kit Básico', intermediario: 'Kit Intermediário', inter: 'Kit Intermediário', promo: 'Kit Promocional' };
+  const kitIds = [...new Set(pedidos.flatMap(p => (p.kits || []).map(k => k.kit_id)).filter(Boolean))];
+  const kitInfo = {}, kitItens = {};
+  for (let i = 0; i < kitIds.length; i += 80) {
+    const lote = kitIds.slice(i, i + 80);
+    const [r1, r2] = await Promise.all([
+      supabase.from('school_kits').select('id, name, kit_type').in('id', lote),
+      supabase.from('school_kit_items').select('kit_id, product_id, quantity').in('kit_id', lote),
+    ]);
+    if (r1.error) throw r1.error;
+    if (r2.error) throw r2.error;
+    (r1.data || []).forEach(k => { kitInfo[k.id] = k; });
+    (r2.data || []).forEach(it => { (kitItens[it.kit_id] = kitItens[it.kit_id] || []).push(it); });
+  }
+  // Custo do kit = soma do custo dos itens. Se QUALQUER item está sem custo, o
+  // custo do kit é desconhecido (null) — melhor "sem custo" do que margem falsa.
+  const custoKit = {};
+  kitIds.forEach(id => {
+    const itens = kitItens[id] || [];
+    const ok = itens.length > 0 && itens.every(it => Number(prodMap[it.product_id]?.production_cost) > 0);
+    custoKit[id] = ok ? itens.reduce((s, it) => s + Number(it.quantity) * Number(prodMap[it.product_id].production_cost), 0) : null;
+  });
 
-    // ---- Agregar kits ----
-    const kitsMap = {}; // key → { nome, unidades, receita }
-    pedidos.forEach(p => {
-      const kits = (p.kits || []).filter(k => k.kit);
-      if (kits.length > 0) {
-        kits.forEach(k => {
-          const nome = k.kit.name || kitLabel[k.kit.kit_type] || k.kit.kit_type || 'Kit';
-          const key = k.kit.id;
-          if (!kitsMap[key]) kitsMap[key] = { nome, unidades: 0, receita: 0, tipo: k.kit.kit_type };
-          kitsMap[key].unidades += Number(k.quantity || 1);
-          kitsMap[key].receita  += Number(k.unit_price || 0) * Number(k.quantity || 1);
-        });
-      } else if (p.kit_type) {
-        // Fallback: order_kits não populado ainda — usa kit_type da order
-        const nome = kitLabel[p.kit_type] || p.kit_type;
-        const key = 'legacy_' + p.kit_type;
-        if (!kitsMap[key]) kitsMap[key] = { nome, unidades: 0, receita: 0, tipo: p.kit_type };
-        kitsMap[key].unidades += 1;
-        // sem preço unitário disponível no fallback
-      }
-    });
-
-    // ---- Agregar avulsos ----
-    const avsMap = {}; // product_id → { nome, unidades, receita }
-    pedidos.forEach(p => {
-      (p.items || []).filter(i => i.product).forEach(i => {
-        const key = i.product.id;
-        if (!avsMap[key]) avsMap[key] = { nome: i.product.name, unidades: 0, receita: 0 };
-        avsMap[key].unidades += Number(i.quantity || 1);
-        avsMap[key].receita  += Number(i.unit_price || 0) * Number(i.quantity || 1);
-      });
-    });
-
-    // ---- Agregar por série ----
-    const serieMap = {}; // year_id → { nome, pedidos, receita }
-    pedidos.forEach(p => {
-      const year = p.student?.class?.year;
-      const key  = year ? year.id : '__sem_serie__';
-      const nome = year ? year.name : 'Série não informada';
-      if (!serieMap[key]) serieMap[key] = { nome, pedidos: 0, receita: 0 };
-      serieMap[key].pedidos += 1;
-      serieMap[key].receita += Number(p.total_amount || 0);
-    });
-
-    const totalKitsReceita = Object.values(kitsMap).reduce((s, k) => s + k.receita, 0);
-    const totalAvsReceita  = Object.values(avsMap).reduce((s, k) => s + k.receita, 0);
-    const totalReceita     = totalKitsReceita + totalAvsReceita;
-    const totalSerieReceita= Object.values(serieMap).reduce((s, k) => s + k.receita, 0);
-
-    // ---- Render helpers ----
-    const barHtml = (pct, cor) =>
-      `<div style="background:var(--gray-100);border-radius:4px;height:6px;overflow:hidden">
-         <div style="background:${cor};width:${Math.min(100,pct).toFixed(1)}%;height:100%;border-radius:4px"></div>
-       </div>`;
-
-    const prodRows = (map, totalR, cor) => {
-      const rows = Object.values(map).sort((a, b) => b.receita - a.receita);
-      return rows.map(r => {
-        const pct = totalR > 0 ? (r.receita / totalR * 100) : 0;
-        return `<tr>
-          <td>${escapeHtml(r.nome)}</td>
-          <td style="text-align:right;font-variant-numeric:tabular-nums">${r.unidades}</td>
-          <td style="text-align:right;font-variant-numeric:tabular-nums">${fmtMoney(r.receita)}</td>
-          <td style="text-align:right;font-variant-numeric:tabular-nums">${pct.toFixed(1)}%</td>
-          <td>${barHtml(pct, cor)}</td>
-        </tr>`;
-      }).join('');
+  const kitLabel = { basico: 'Kit Básico', intermediario: 'Kit Intermediário', inter: 'Kit Intermediário', promo: 'Kit Promocional' };
+  const linhas = [];
+  pedidos.forEach(p => {
+    const base = {
+      pedidoId: p.id, alunoId: p.student_id,
+      projId: p.project?.id || p.project_id || '__sem__', projNome: p.project?.name || 'Sem projeto',
+      escolaId: p.school?.id || p.project?.school?.id || '__sem__',
+      escolaNome: p.school?.name || p.project?.school?.name || 'Sem escola',
     };
+    const brutas = [];
+    (p.kits || []).forEach(k => {
+      const info = kitInfo[k.kit_id] || {};
+      const c = custoKit[k.kit_id];
+      const q = Number(k.quantity || 1);
+      brutas.push({ ...base, tipo: 'kit', key: 'k:' + k.kit_id, nome: info.name || kitLabel[info.kit_type] || 'Kit',
+        variante: null, qtd: q, receita: Number(k.unit_price || 0) * q, custo: c == null ? null : c * q });
+    });
+    (p.items || []).forEach(i => {
+      const q = Number(i.quantity || 1);
+      const c = Number(prodMap[i.product_id]?.production_cost) > 0 ? Number(prodMap[i.product_id].production_cost) * q : null;
+      brutas.push({ ...base, tipo: 'avulso', key: 'a:' + i.product_id, produtoId: i.product_id,
+        nome: prodMap[i.product_id]?.name || 'Produto', variante: i.variant_name || null,
+        qtd: q, receita: Number(i.unit_price || 0) * q, custo: c });
+    });
+    // Tarifa do gateway é do PEDIDO: reparte entre as linhas na proporção da receita.
+    const recPedido = brutas.reduce((s, l) => s + l.receita, 0);
+    const tarifa = Number(p.gateway_fee) || 0;
+    brutas.forEach(l => { l.tarifa = recPedido > 0 ? tarifa * l.receita / recPedido : 0; linhas.push(l); });
+  });
 
-    // ---- Kits ----
-    if (Object.keys(kitsMap).length > 0) {
-      document.getElementById('ap-kits-tab').innerHTML = prodRows(kitsMap, totalReceita, 'var(--teal)');
-      document.getElementById('ap-kits-foot').innerHTML = `<tr style="font-weight:600;background:var(--gray-50)">
-        <td>Total kits</td>
-        <td style="text-align:right">${Object.values(kitsMap).reduce((s,k)=>s+k.unidades,0)}</td>
-        <td style="text-align:right">${fmtMoney(totalKitsReceita)}</td>
-        <td colspan="2"></td></tr>`;
-      document.getElementById('ap-kits-wrap').style.display = 'block';
-    } else {
-      document.getElementById('ap-kits-wrap').style.display = 'none';
-    }
+  // Marcação de produto base / cópia (school_prices, migration_063)
+  const { data: marcas, error: eM } = await supabase.from('school_prices')
+    .select('project_id, product_id, is_produto_base, requer_produto_base')
+    .or('is_produto_base.eq.true,requer_produto_base.eq.true');
+  if (eM) throw eM;
 
-    // ---- Avulsos ----
-    if (Object.keys(avsMap).length > 0) {
-      document.getElementById('ap-av-tab').innerHTML = prodRows(avsMap, totalReceita, 'var(--blue)');
-      document.getElementById('ap-av-foot').innerHTML = `<tr style="font-weight:600;background:var(--gray-50)">
-        <td>Total avulsos</td>
-        <td style="text-align:right">${Object.values(avsMap).reduce((s,k)=>s+k.unidades,0)}</td>
-        <td style="text-align:right">${fmtMoney(totalAvsReceita)}</td>
-        <td colspan="2"></td></tr>`;
-      document.getElementById('ap-av-wrap').style.display = 'block';
-    } else {
-      document.getElementById('ap-av-wrap').style.display = 'none';
-    }
+  apDados = { projetoId, de, ate, pedidos, linhas, marcas: marcas || [], conv: null };
+}
 
-    // ---- Por série ----
-    const serieRows = Object.values(serieMap).sort((a, b) => b.receita - a.receita);
-    document.getElementById('ap-serie-tab').innerHTML = serieRows.map(r => {
-      const pct = totalSerieReceita > 0 ? (r.receita / totalSerieReceita * 100) : 0;
-      return `<tr>
-        <td>${escapeHtml(r.nome)}</td>
-        <td style="text-align:right">${r.pedidos}</td>
-        <td style="text-align:right">${fmtMoney(r.receita)}</td>
-        <td style="text-align:right">${pct.toFixed(1)}%</td>
-        <td>${barHtml(pct, 'var(--purple)')}</td>
-      </tr>`;
-    }).join('');
-    document.getElementById('ap-serie-wrap').style.display = 'block';
+// ---------------------------------------------------------------------------
+// Helpers de agregação e desenho
+// ---------------------------------------------------------------------------
+const apPct = (a, b) => b > 0 ? (a / b * 100) : 0;
+const apBar = (pct, cor) =>
+  `<div style="background:var(--gray-100);border-radius:4px;height:6px;overflow:hidden"><div style="background:${cor};width:${Math.min(100, pct).toFixed(1)}%;height:100%;border-radius:4px"></div></div>`;
+const apTd = (v, extra) => `<td style="text-align:right;font-variant-numeric:tabular-nums${extra || ''}">${v}</td>`;
+const apSemCusto = '<span style="font-size:11px;color:var(--orange);font-weight:600" title="Cadastre o custo de produção em Produtos pra ver o lucro">sem custo</span>';
+const apTabela = (cab, linhas, rodape) => `<div class="card" style="margin-bottom:14px"><div class="table-wrap"><table>
+  <thead><tr>${cab}</tr></thead><tbody>${linhas}</tbody>${rodape ? `<tfoot>${rodape}</tfoot>` : ''}</table></div></div>`;
+const apCard = (rotulo, valor, sub, cor) => `<div class="stat-card" style="border-top:3px solid ${cor}">
+  <div class="stat-label">${rotulo}</div>
+  <div class="stat-value" style="font-size:16px;color:${cor}">${valor}</div>
+  <div style="font-size:11px;color:var(--gray-400);margin-top:3px">${sub || ''}</div></div>`;
+const apGrade = html => `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:11px;margin-bottom:14px">${html}</div>`;
+const apTitulo = t => `<div style="font-size:13px;font-weight:600;margin:4px 0 8px">${t}</div>`;
 
-    // ---- Rankings ----
-    const topKitQtd = Object.values(kitsMap).sort((a,b) => b.unidades - a.unidades)[0];
-    const topAvQtd  = Object.values(avsMap).sort((a,b) => b.unidades - a.unidades)[0];
-    const topSerie  = serieRows[0];
-    // produto com maior receita (kit ou avulso)
-    const allProds  = [...Object.values(kitsMap), ...Object.values(avsMap)];
-    const topReceita= allProds.sort((a,b) => b.receita - a.receita)[0];
+// Produtos (kits e avulsos) agregados: unidades, receita, tarifa, custo, lucro.
+function apProdutos(linhas) {
+  const m = {};
+  linhas.forEach(l => {
+    const r = m[l.key] = m[l.key] || { key: l.key, tipo: l.tipo, nome: l.nome, unidades: 0, receita: 0, tarifa: 0, custo: 0, semCusto: false, pedidos: new Set() };
+    r.unidades += l.qtd; r.receita += l.receita; r.tarifa += l.tarifa;
+    if (l.custo == null) r.semCusto = true; else r.custo += l.custo;
+    r.pedidos.add(l.pedidoId);
+  });
+  return Object.values(m).map(r => {
+    r.lucro = r.semCusto ? null : r.receita - r.tarifa - r.custo;
+    r.margem = r.semCusto ? null : apPct(r.lucro, r.receita);
+    return r;
+  });
+}
 
-    if (topKitQtd) {
-      document.getElementById('ap-rank-kit-qtd').textContent = topKitQtd.nome;
-      document.getElementById('ap-rank-kit-qtd-sub').textContent = `${topKitQtd.unidades} unid · ${fmtMoney(topKitQtd.receita)}`;
-    }
-    if (topAvQtd) {
-      document.getElementById('ap-rank-av-qtd').textContent = topAvQtd.nome;
-      document.getElementById('ap-rank-av-qtd-sub').textContent = `${topAvQtd.unidades} unid · ${fmtMoney(topAvQtd.receita)}`;
-    }
-    if (topSerie) {
-      document.getElementById('ap-rank-serie').textContent = topSerie.nome;
-      document.getElementById('ap-rank-serie-sub').textContent = `${topSerie.pedidos} pedidos · ${fmtMoney(topSerie.receita)}`;
-    }
-    if (topReceita) {
-      document.getElementById('ap-rank-receita').textContent = topReceita.nome;
-      document.getElementById('ap-rank-receita-sub').textContent = fmtMoney(topReceita.receita);
-    }
-    document.getElementById('ap-rankings').style.display = 'block';
+// Resumo (pedidos, unidades, receita, tarifa, lucro nos produtos COM custo e quanto
+// da receita tem custo) agrupado por qualquer chave — usado em Projetos e escolas.
+function apResumoPor(linhas, chaveFn, nomeFn) {
+  const m = {};
+  linhas.forEach(l => {
+    const k = chaveFn(l);
+    const r = m[k] = m[k] || { nome: nomeFn(l), pedidos: new Set(), unidades: 0, receita: 0, tarifa: 0, receitaComCusto: 0, lucro: 0 };
+    r.pedidos.add(l.pedidoId); r.unidades += l.qtd; r.receita += l.receita; r.tarifa += l.tarifa;
+    if (l.custo != null) { r.receitaComCusto += l.receita; r.lucro += l.receita - l.tarifa - l.custo; }
+  });
+  return Object.values(m).sort((a, b) => b.receita - a.receita);
+}
 
+// ---------------------------------------------------------------------------
+// Abas
+// ---------------------------------------------------------------------------
+function apAbaVendas() {
+  const { linhas, pedidos } = apDados;
+  const prods = apProdutos(linhas);
+  const kits = prods.filter(p => p.tipo === 'kit').sort((a, b) => b.receita - a.receita);
+  const avs  = prods.filter(p => p.tipo === 'avulso').sort((a, b) => b.receita - a.receita);
+  const receita = linhas.reduce((s, l) => s + l.receita, 0);
+  const unidades = linhas.reduce((s, l) => s + l.qtd, 0);
+  const nPed = new Set(linhas.map(l => l.pedidoId)).size;
+
+  const series = {};
+  pedidos.forEach(p => {
+    const y = p.student?.class?.year;
+    const k = y ? y.id : '__sem__';
+    const r = series[k] = series[k] || { nome: y ? y.name : 'Série não informada', pedidos: 0, receita: 0 };
+    r.pedidos += 1; r.receita += Number(p.total_amount || 0);
+  });
+  const serieRows = Object.values(series).sort((a, b) => b.receita - a.receita);
+  const totSerie = serieRows.reduce((s, r) => s + r.receita, 0);
+
+  const topKit = [...kits].sort((a, b) => b.unidades - a.unidades)[0];
+  const topAv  = [...avs].sort((a, b) => b.unidades - a.unidades)[0];
+  const topRec = [...prods].sort((a, b) => b.receita - a.receita)[0];
+
+  const linhasProd = (arr, cor) => arr.map(r => {
+    const pct = apPct(r.receita, receita);
+    return `<tr><td>${escapeHtml(r.nome)}</td>${apTd(r.unidades)}${apTd(fmtMoney(r.receita))}${apTd(pct.toFixed(1) + '%')}<td>${apBar(pct, cor)}</td></tr>`;
+  }).join('');
+  const rodape = (rot, arr) => `<tr style="font-weight:600;background:var(--gray-50)"><td>${rot}</td>${apTd(arr.reduce((s, r) => s + r.unidades, 0))}${apTd(fmtMoney(arr.reduce((s, r) => s + r.receita, 0)))}<td colspan="2"></td></tr>`;
+  const cab = n => `<th>${n}</th><th style="text-align:right">Unidades</th><th style="text-align:right">Receita</th><th style="text-align:right">% da receita</th><th style="width:140px"></th>`;
+
+  return apGrade(
+      apCard('Pedidos pagos', nPed, '', 'var(--blue)') +
+      apCard('Receita (itens)', fmtMoney(receita), `${unidades} unidades`, 'var(--green)') +
+      apCard('Ticket médio', fmtMoney(nPed ? receita / nPed : 0), 'receita ÷ pedidos', 'var(--purple)')) +
+    apGrade(
+      apCard('Kit mais vendido', topKit ? escapeHtml(topKit.nome) : '—', topKit ? `${topKit.unidades} unid · ${fmtMoney(topKit.receita)}` : '', 'var(--teal)') +
+      apCard('Avulso mais vendido', topAv ? escapeHtml(topAv.nome) : '—', topAv ? `${topAv.unidades} unid · ${fmtMoney(topAv.receita)}` : '', 'var(--blue)') +
+      apCard('Produto com maior receita', topRec ? escapeHtml(topRec.nome) : '—', topRec ? fmtMoney(topRec.receita) : '', 'var(--green)') +
+      apCard('Série que mais comprou', serieRows[0] ? escapeHtml(serieRows[0].nome) : '—', serieRows[0] ? `${serieRows[0].pedidos} pedidos · ${fmtMoney(serieRows[0].receita)}` : '', 'var(--purple)')) +
+    (kits.length ? apTitulo('Kits vendidos') + apTabela(cab('Kit'), linhasProd(kits, 'var(--teal)'), rodape('Total kits', kits)) : '') +
+    (avs.length ? apTitulo('Avulsos vendidos') + apTabela(cab('Produto'), linhasProd(avs, 'var(--blue)'), rodape('Total avulsos', avs)) : '') +
+    apTitulo('Por série / ano escolar') +
+    apTabela('<th>Série / Ano</th><th style="text-align:right">Pedidos</th><th style="text-align:right">Receita</th><th style="text-align:right">% da receita</th><th style="width:140px"></th>',
+      serieRows.map(r => { const pct = apPct(r.receita, totSerie);
+        return `<tr><td>${escapeHtml(r.nome)}</td>${apTd(r.pedidos)}${apTd(fmtMoney(r.receita))}${apTd(pct.toFixed(1) + '%')}<td>${apBar(pct, 'var(--purple)')}</td></tr>`; }).join(''));
+}
+
+function apAbaLucro() {
+  const prods = apProdutos(apDados.linhas);
+  const comCusto = prods.filter(p => !p.semCusto);
+  const semCusto = prods.filter(p => p.semCusto);
+  const recTotal = prods.reduce((s, p) => s + p.receita, 0);
+  const recCusto = comCusto.reduce((s, p) => s + p.receita, 0);
+  const custo = comCusto.reduce((s, p) => s + p.custo, 0);
+  const tarifa = comCusto.reduce((s, p) => s + p.tarifa, 0);
+  const lucro = comCusto.reduce((s, p) => s + p.lucro, 0);
+
+  const topLucro = [...comCusto].sort((a, b) => b.lucro - a.lucro)[0];
+  const topMargem = [...comCusto].filter(p => p.receita > 0).sort((a, b) => b.margem - a.margem)[0];
+  const topQtd = [...prods].sort((a, b) => b.unidades - a.unidades)[0];
+  const topRec = [...prods].sort((a, b) => b.receita - a.receita)[0];
+
+  const aviso = semCusto.length
+    ? `<div class="alert alert-warning" style="font-size:12px;margin-bottom:14px">⚠️ <b>${semCusto.length} de ${prods.length}</b> produtos estão sem custo de produção cadastrado e ficam fora do lucro (${apPct(recTotal - recCusto, recTotal).toFixed(0)}% da receita): ${semCusto.slice(0, 8).map(p => escapeHtml(p.nome)).join(', ')}${semCusto.length > 8 ? '…' : ''}. Preencha em <b>Produtos → editar → Custo de produção</b>. O custo de um kit é a soma do custo dos itens dele — se um item estiver sem custo, o kit também fica "sem custo".</div>`
+    : '';
+  const ordenados = [...prods].sort((a, b) => (a.semCusto - b.semCusto) || ((b.lucro ?? 0) - (a.lucro ?? 0)) || (b.receita - a.receita));
+
+  return aviso + apGrade(
+      apCard('Receita (com custo)', fmtMoney(recCusto), `de ${fmtMoney(recTotal)} no total`, 'var(--blue)') +
+      apCard('Custo de produção', fmtMoney(custo), '', 'var(--orange)') +
+      apCard('Tarifas do gateway', fmtMoney(tarifa), 'só pedidos pagos por gateway', 'var(--gray-500)') +
+      apCard('Lucro', fmtMoney(lucro), recCusto ? `margem ${apPct(lucro, recCusto).toFixed(1)}%` : '', 'var(--green)')) +
+    apGrade(
+      apCard('Mais vendido', topQtd ? escapeHtml(topQtd.nome) : '—', topQtd ? `${topQtd.unidades} unidades` : '', 'var(--teal)') +
+      apCard('Maior receita', topRec ? escapeHtml(topRec.nome) : '—', topRec ? fmtMoney(topRec.receita) : '', 'var(--blue)') +
+      apCard('Gerou mais lucro', topLucro ? escapeHtml(topLucro.nome) : '—', topLucro ? fmtMoney(topLucro.lucro) : 'sem custos cadastrados', 'var(--green)') +
+      apCard('Maior margem', topMargem ? escapeHtml(topMargem.nome) : '—', topMargem ? `${topMargem.margem.toFixed(1)}%` : '', 'var(--purple)')) +
+    apTabela(
+      '<th>Produto</th><th>Tipo</th><th style="text-align:right">Unid.</th><th style="text-align:right">Receita</th><th style="text-align:right">Custo</th><th style="text-align:right">Tarifa</th><th style="text-align:right">Lucro</th><th style="text-align:right">Margem</th><th style="text-align:right">Lucro/unid.</th>',
+      ordenados.map(p => `<tr><td>${escapeHtml(p.nome)}</td><td style="font-size:12px;color:var(--gray-500)">${p.tipo === 'kit' ? 'Kit' : 'Avulso'}</td>
+        ${apTd(p.unidades)}${apTd(fmtMoney(p.receita))}
+        ${p.semCusto ? `<td colspan="5" style="text-align:right">${apSemCusto}</td>` :
+          apTd(fmtMoney(p.custo)) + apTd(fmtMoney(p.tarifa)) +
+          apTd(fmtMoney(p.lucro), `;font-weight:600;color:${p.lucro < 0 ? 'var(--red)' : 'var(--green)'}`) +
+          apTd(p.margem.toFixed(1) + '%') + apTd(fmtMoney(p.unidades ? p.lucro / p.unidades : 0))}</tr>`).join(''),
+      '') +
+    `<div style="font-size:11px;color:var(--gray-400)">Lucro = receita − custo de produção − tarifa do gateway. Não entram custos fixos (entrega, material por aluno, repasse à escola) — o lucro do projeto inteiro está em Relatórios. O custo usado é o <b>cadastrado hoje</b> no produto, também para vendas antigas.</div>`;
+}
+
+function apAbaAbc() {
+  const prods = apProdutos(apDados.linhas);
+  const valor = p => apAbcBase === 'unidades' ? p.unidades : apAbcBase === 'lucro' ? p.lucro : p.receita;
+  const lista = prods.filter(p => valor(p) != null && valor(p) > 0).sort((a, b) => valor(b) - valor(a));
+  const total = lista.reduce((s, p) => s + valor(p), 0);
+  const fmt = v => apAbcBase === 'unidades' ? v : fmtMoney(v);
+  let acum = 0;
+  const linhas = lista.map((p, i) => {
+    const pct = apPct(valor(p), total);
+    const antes = acum;
+    acum += pct;
+    // A = até 80% acumulado; B = até 95%; C = o resto. O produto que CRUZA o 80% ainda é A.
+    const classe = antes < 80 ? 'A' : antes < 95 ? 'B' : 'C';
+    const cor = { A: 'var(--green)', B: 'var(--orange)', C: 'var(--gray-400)' }[classe];
+    return { p, pct, acum, classe, cor, i };
+  });
+  const cont = c => linhas.filter(l => l.classe === c).length;
+  const semCusto = apAbcBase === 'lucro' ? prods.filter(p => p.semCusto).length : 0;
+
+  return `<div class="card card-pad" style="margin-bottom:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <label class="form-label" style="margin:0">Classificar por</label>
+      <select class="form-select" id="ap-abc-base" style="width:160px">
+        <option value="receita" ${apAbcBase === 'receita' ? 'selected' : ''}>Receita</option>
+        <option value="unidades" ${apAbcBase === 'unidades' ? 'selected' : ''}>Unidades</option>
+        <option value="lucro" ${apAbcBase === 'lucro' ? 'selected' : ''}>Lucro</option>
+      </select>
+      <span style="font-size:12px;color:var(--gray-500)">${linhas.length ? `<b>${cont('A')}</b> produto(s) A fazem ~80% · <b>${cont('B')}</b> B os 15% seguintes · <b>${cont('C')}</b> C os 5% finais` : 'Nada pra classificar.'}</span>
+    </div>` +
+    (semCusto ? `<div class="alert alert-warning" style="font-size:12px;margin-bottom:14px">${semCusto} produto(s) sem custo cadastrado ficam fora desta classificação por lucro.</div>` : '') +
+    apTabela(
+      `<th style="width:36px">#</th><th>Produto</th><th style="text-align:right">${apAbcBase === 'unidades' ? 'Unidades' : apAbcBase === 'lucro' ? 'Lucro' : 'Receita'}</th><th style="text-align:right">% do total</th><th style="text-align:right">% acumulado</th><th style="text-align:center">Classe</th><th style="width:140px"></th>`,
+      linhas.map(l => `<tr><td style="color:var(--gray-400)">${l.i + 1}</td><td>${escapeHtml(l.p.nome)}</td>${apTd(fmt(valor(l.p)))}${apTd(l.pct.toFixed(1) + '%')}${apTd(l.acum.toFixed(1) + '%')}
+        <td style="text-align:center"><span style="display:inline-block;min-width:22px;padding:1px 8px;border-radius:10px;background:${l.cor};color:#fff;font-weight:700;font-size:12px">${l.classe}</span></td><td>${apBar(l.acum, l.cor)}</td></tr>`).join(''), '') +
+    `<div style="font-size:11px;color:var(--gray-400)">Princípio de Pareto: poucos produtos puxam a maior parte do resultado. A = priorize e nunca deixe faltar · B = mantenha · C = candidatos a revisar preço, destaque ou sair do catálogo.</div>`;
+}
+
+function apAbaProjetos() {
+  const { linhas } = apDados;
+  const tabela = (rot, arr) => apTabela(
+    `<th>${rot}</th><th style="text-align:right">Pedidos</th><th style="text-align:right">Unid.</th><th style="text-align:right">Receita</th><th style="text-align:right">Ticket médio</th><th style="text-align:right">Tarifas</th><th style="text-align:right" title="Só dos produtos com custo cadastrado">Lucro*</th><th style="text-align:right" title="Parte da receita que tem custo cadastrado">Cobertura de custo</th>`,
+    arr.map(r => { const cob = apPct(r.receitaComCusto, r.receita);
+      return `<tr><td>${escapeHtml(r.nome)}</td>${apTd(r.pedidos.size)}${apTd(r.unidades)}${apTd(fmtMoney(r.receita))}${apTd(fmtMoney(r.pedidos.size ? r.receita / r.pedidos.size : 0))}${apTd(fmtMoney(r.tarifa))}
+        ${r.receitaComCusto > 0 ? apTd(fmtMoney(r.lucro), `;font-weight:600;color:${r.lucro < 0 ? 'var(--red)' : 'var(--green)'}`) : `<td style="text-align:right">${apSemCusto}</td>`}
+        ${apTd(cob.toFixed(0) + '%', cob < 100 ? ';color:var(--orange)' : '')}</tr>`; }).join(''),
+    '');
+  return apTitulo('Por projeto') + tabela('Projeto', apResumoPor(linhas, l => l.projId, l => l.projNome)) +
+    apTitulo('Por escola') + tabela('Escola', apResumoPor(linhas, l => l.escolaId, l => l.escolaNome)) +
+    `<div style="font-size:11px;color:var(--gray-400)">*Lucro considera só os produtos com custo cadastrado — a coluna "Cobertura de custo" mostra quanto da receita isso representa. Com cobertura abaixo de 100%, o lucro real é diferente do mostrado.</div>`;
+}
+
+async function apAbaConversao() {
+  if (!apDados.conv) {
+    const ids = apDados.projetoId ? [apDados.projetoId] : apProjetos.map(p => p.id);
+    const projClasses = {};
+    for (let i = 0; i < ids.length; i += 60) {
+      const { data, error } = await supabase.from('project_sessions')
+        .select('project_id, project_session_classes(school_class_id)').in('project_id', ids.slice(i, i + 60));
+      if (error) throw error;
+      (data || []).forEach(s => {
+        const set = projClasses[s.project_id] = projClasses[s.project_id] || new Set();
+        (s.project_session_classes || []).forEach(c => set.add(c.school_class_id));
+      });
+    }
+    const todasClasses = [...new Set(Object.values(projClasses).flatMap(s => [...s]))];
+    const porClasse = {};
+    for (let i = 0; i < todasClasses.length; i += 60) {
+      for (let ini = 0; ; ini += 1000) {
+        const { data, error } = await supabase.from('students')
+          .select('id, class_id, authorization_date, authorize_individual, authorize_class')
+          .neq('is_test', true).in('class_id', todasClasses.slice(i, i + 60)).range(ini, ini + 999);
+        if (error) throw error;
+        (data || []).forEach(a => { (porClasse[a.class_id] = porClasse[a.class_id] || []).push(a); });
+        if (!data || data.length < 1000) break;
+      }
+    }
+    apDados.conv = ids.map(id => {
+      const alunos = new Map();
+      [...(projClasses[id] || [])].forEach(c => (porClasse[c] || []).forEach(a => alunos.set(a.id, a)));
+      const arr = [...alunos.values()];
+      const autorizou = arr.filter(a => a.authorization_date && (a.authorize_individual || a.authorize_class));
+      const recusou = arr.filter(a => a.authorization_date && !(a.authorize_individual || a.authorize_class));
+      const compradores = new Set(apDados.linhas.filter(l => l.projId === id && alunos.has(l.alunoId)).map(l => l.alunoId));
+      const receita = apDados.linhas.filter(l => l.projId === id).reduce((s, l) => s + l.receita, 0);
+      return { id, nome: (apProjetos.find(p => p.id === id) || {}).nome || '—', total: arr.length, autorizou: autorizou.length,
+        recusou: recusou.length, semResposta: arr.length - autorizou.length - recusou.length, compraram: compradores.size, receita,
+        semTurmas: !(projClasses[id] && projClasses[id].size) };
+    }).filter(r => r.total > 0 || r.receita > 0 || apDados.projetoId);
+  }
+  const rows = [...apDados.conv].sort((a, b) => b.receita - a.receita);
+  return apTabela(
+    '<th>Projeto</th><th style="text-align:right">Alunos</th><th style="text-align:right">Autorizaram</th><th style="text-align:right">Recusaram</th><th style="text-align:right">Sem resposta</th><th style="text-align:right">Compraram</th><th style="text-align:right">Compra ÷ autorizados</th><th style="text-align:right">Receita</th><th style="text-align:right">Receita / autorizado</th>',
+    rows.map(r => r.semTurmas
+      ? `<tr><td>${escapeHtml(r.nome)}</td><td colspan="8" style="color:var(--gray-400);font-size:12px;text-align:right">Sem turmas nas sessões do projeto — vincule as turmas pra medir a conversão</td></tr>`
+      : `<tr><td>${escapeHtml(r.nome)}</td>${apTd(r.total)}${apTd(`${r.autorizou} <span style="color:var(--gray-400)">(${apPct(r.autorizou, r.total).toFixed(0)}%)</span>`)}${apTd(r.recusou)}${apTd(r.semResposta)}${apTd(r.compraram)}
+        ${apTd(apPct(r.compraram, r.autorizou).toFixed(1) + '%', ';font-weight:600')}${apTd(fmtMoney(r.receita))}${apTd(fmtMoney(r.autorizou ? r.receita / r.autorizou : 0))}</tr>`).join(''), '') +
+    `<div style="font-size:11px;color:var(--gray-400)">Alunos = os das turmas ligadas às sessões do projeto (mesmo critério de Alunos &amp; Pedidos). "Compraram" conta alunos com pedido <b>pago</b> no período filtrado. Cadastros de conferência ficam de fora.</div>`;
+}
+
+function apAbaVariacoes() {
+  const { linhas, marcas } = apDados;
+  // --- variações (cor/tema) ---
+  const vm = {};
+  linhas.filter(l => l.tipo === 'avulso' && l.variante).forEach(l => {
+    const r = vm[l.key] = vm[l.key] || { nome: l.nome, vars: {}, total: 0 };
+    const v = r.vars[l.variante] = r.vars[l.variante] || { nome: l.variante, unidades: 0, receita: 0 };
+    v.unidades += l.qtd; v.receita += l.receita; r.total += l.receita;
+  });
+  const varHtml = Object.values(vm).sort((a, b) => b.total - a.total).map(p =>
+    apTitulo(escapeHtml(p.nome)) + apTabela('<th>Variação</th><th style="text-align:right">Unidades</th><th style="text-align:right">Receita</th><th style="text-align:right">% do produto</th><th style="width:140px"></th>',
+      Object.values(p.vars).sort((a, b) => b.receita - a.receita).map(v => { const pct = apPct(v.receita, p.total);
+        return `<tr><td>${escapeHtml(v.nome)}</td>${apTd(v.unidades)}${apTd(fmtMoney(v.receita))}${apTd(pct.toFixed(1) + '%')}<td>${apBar(pct, 'var(--purple)')}</td></tr>`; }).join(''), '')).join('');
+
+  // --- cópias sobre produto base (migration_063), por projeto ---
+  const projs = [...new Set(marcas.map(m => m.project_id))];
+  const copHtml = projs.map(pid => {
+    const bases = new Set(marcas.filter(m => m.project_id === pid && m.is_produto_base).map(m => m.product_id));
+    const copias = new Set(marcas.filter(m => m.project_id === pid && m.requer_produto_base).map(m => m.product_id));
+    const ls = linhas.filter(l => l.projId === pid && l.tipo === 'avulso');
+    if (!ls.length || !bases.size || !copias.size) return '';
+    const pedBase = new Set(ls.filter(l => bases.has(l.produtoId)).map(l => l.pedidoId));
+    const pedCopia = new Set(ls.filter(l => copias.has(l.produtoId)).map(l => l.pedidoId));
+    const uBase = ls.filter(l => bases.has(l.produtoId)).reduce((s, l) => s + l.qtd, 0);
+    const uCopia = ls.filter(l => copias.has(l.produtoId)).reduce((s, l) => s + l.qtd, 0);
+    const rCopia = ls.filter(l => copias.has(l.produtoId)).reduce((s, l) => s + l.receita, 0);
+    const nome = (apProjetos.find(p => p.id === pid) || {}).nome || '—';
+    return `<tr><td>${escapeHtml(nome)}</td>${apTd(pedBase.size)}${apTd(pedCopia.size)}${apTd(apPct(pedCopia.size, pedBase.size).toFixed(1) + '%', ';font-weight:600')}${apTd(uBase)}${apTd(uCopia)}${apTd(uBase ? (uCopia / uBase).toFixed(2) : '—')}${apTd(fmtMoney(rCopia))}</tr>`;
+  }).join('');
+
+  return apTitulo('Vendas por variação (cor / tema)') +
+    (varHtml || '<div style="font-size:12px;color:var(--gray-400);margin-bottom:14px">Nenhuma venda de produto com variação no período.</div>') +
+    apTitulo('Cópias sobre o produto base') +
+    (copHtml ? apTabela('<th>Projeto</th><th style="text-align:right">Pedidos com base</th><th style="text-align:right">Pedidos com cópia</th><th style="text-align:right">Taxa de cópia</th><th style="text-align:right">Unid. base</th><th style="text-align:right">Unid. cópias</th><th style="text-align:right">Cópias por base</th><th style="text-align:right">Receita das cópias</th>', copHtml, '')
+      : '<div style="font-size:12px;color:var(--gray-400)">Nenhum projeto com produto base e cópias marcados (Kits &amp; Avulsos → Personalizar pra este projeto) tem vendas no período.</div>') +
+    `<div style="font-size:11px;color:var(--gray-400);margin-top:8px">Taxa de cópia = pedidos que levaram cópia ÷ pedidos que levaram o produto base.</div>`;
+}
+
+async function apDesenhar() {
+  const pane = document.getElementById('ap-pane');
+  document.querySelectorAll('#ap-tabs .tab-btn').forEach(b => b.classList.toggle('active', b.dataset.apTab === apAba));
+  if (!apDados) return;
+  if (apAba === 'conversao' && !apDados.conv) pane.innerHTML = '<div class="loading"><span class="spinner"></span>Calculando…</div>';
+  try {
+    const html = apAba === 'vendas' ? apAbaVendas()
+      : apAba === 'lucro' ? apAbaLucro()
+      : apAba === 'abc' ? apAbaAbc()
+      : apAba === 'projetos' ? apAbaProjetos()
+      : apAba === 'conversao' ? await apAbaConversao()
+      : apAbaVariacoes();
+    pane.innerHTML = html;
+    const sb = document.getElementById('ap-abc-base');
+    if (sb) sb.addEventListener('change', () => { apAbcBase = sb.value; apDesenhar(); });
+  } catch (err) {
+    handleError(err, 'analiseProdutos/' + apAba);
+    pane.innerHTML = '<div style="color:var(--red);font-size:13px;padding:16px">Erro ao calcular esta aba.</div>';
+  }
+}
+
+document.querySelectorAll('#ap-tabs .tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => { apAba = btn.dataset.apTab; apDesenhar(); });
+});
+
+document.getElementById('btn-gerar-ap').addEventListener('click', async () => {
+  const conteudo = document.getElementById('ap-conteudo');
+  const vazio = document.getElementById('ap-empty');
+  conteudo.style.display = 'block'; vazio.style.display = 'none';
+  document.getElementById('ap-pane').innerHTML = '<div class="loading"><span class="spinner"></span>Calculando…</div>';
+  try {
+    await apCarregar();
+    if (!apDados.pedidos.length) { conteudo.style.display = 'none'; vazio.style.display = 'block'; return; }
+    await apDesenhar();
   } catch (err) {
     handleError(err, 'gerarAnaliseProdutos');
-    document.getElementById('ap-kits-tab').innerHTML = '<tr><td colspan="5" style="color:var(--red);font-size:13px">Erro ao carregar dados.</td></tr>';
+    document.getElementById('ap-pane').innerHTML = '<div style="color:var(--red);font-size:13px;padding:16px">Erro ao carregar dados.</div>';
   }
 });
 
