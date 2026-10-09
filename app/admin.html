@@ -8787,7 +8787,7 @@ function somCaixaRegistradoraV1() {
     setTimeout(() => ac.close(), 2200);
   } catch {}
 }
-// Caixa registradora "de verdade" (versao 2), sintetizada: catraca mecanica que
+// Caixa registradora "de verdade" (versao 2), sintetizada: catraca de MOEDAS que
 // acelera -> gaveta abrindo (pancada grave + trilho) -> sino de latao -> moedas.
 function somCaixaRegistradora() {
   try {
@@ -8822,13 +8822,20 @@ function somCaixaRegistradora() {
       o.start(inicio); o.stop(inicio + dur + 0.02);
     };
 
-    // 1) catraca das teclas: 6 cliques secos, cada vez mais rapidos
+    // 1) "catraca" de moedas: moedas caindo em sequencia, cada vez mais rapido
+    //    (cada moeda = plink metalico curto + brilho agudo + leve estalo no choque)
+    const moeda = (inicio, freq, vol) => {
+      tom(inicio, freq, 0.11, vol, 'triangle');
+      tom(inicio, freq * 1.5, 0.08, vol * 0.6, 'sine');
+      tom(inicio, freq * 2.4, 0.05, vol * 0.35, 'sine');
+      ruido(inicio, 0.012, 7000, 1.5, vol * 0.8, 'highpass');
+    };
     let t = t0;
-    for (let i = 0; i < 6; i++) {
-      ruido(t, 0.025, 3200 + i * 250, 2.5, 0.55, 'bandpass');
-      tom(t, 1800 + i * 120, 0.02, 0.12, 'square');
-      t += 0.075 - i * 0.008;
-    }
+    const alturas = [3100, 3700, 3300, 4000, 3500, 4200, 3400, 3900, 3600, 4300];
+    alturas.forEach((f, i) => {
+      moeda(t, f, 0.16 + (i % 3) * 0.03);
+      t += 0.07 - i * 0.004;
+    });
 
     // 2) gaveta abrindo: pancada grave + deslizar do trilho
     const tG = t + 0.04;
