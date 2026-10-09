@@ -8744,6 +8744,50 @@ function bipeAviso() {
     setTimeout(() => ac.close(), 400);
   } catch {}
 }
+// "Cha-ching" de caixa registradora, sintetizado (sem arquivo de audio): um
+// clique mecanico curto + sino metalico com parciais inarmonicas que decaem.
+// Toca quando ENTRA PAGAMENTO; cadastro/pedido novo seguem com o bipe simples.
+function somCaixaRegistradora() {
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    const t0 = ac.currentTime;
+    const mestre = ac.createGain();
+    mestre.gain.value = 0.5;
+    mestre.connect(ac.destination);
+
+    // "ka": estalo curto de ruido filtrado
+    const buf = ac.createBuffer(1, Math.floor(ac.sampleRate * 0.06), ac.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+    const ruido = ac.createBufferSource();
+    ruido.buffer = buf;
+    const filtro = ac.createBiquadFilter();
+    filtro.type = 'bandpass'; filtro.frequency.value = 2500; filtro.Q.value = 0.8;
+    const gR = ac.createGain();
+    gR.gain.setValueAtTime(0.6, t0);
+    gR.gain.exponentialRampToValueAtTime(0.001, t0 + 0.06);
+    ruido.connect(filtro); filtro.connect(gR); gR.connect(mestre);
+    ruido.start(t0);
+
+    // "ching": duas batidas de sino (a 2a mais aguda), cada uma com parciais metalicas
+    const sino = (inicio, base, dur) => {
+      [1, 2.76, 5.4, 8.9].forEach((mult, i) => {
+        const o = ac.createOscillator(), g = ac.createGain();
+        o.type = 'sine'; o.frequency.value = base * mult;
+        const vol = 0.28 / (i + 1);
+        g.gain.setValueAtTime(0.0001, inicio);
+        g.gain.exponentialRampToValueAtTime(vol, inicio + 0.005);
+        g.gain.exponentialRampToValueAtTime(0.0001, inicio + dur / (1 + i * 0.6));
+        o.connect(g); g.connect(mestre);
+        o.start(inicio); o.stop(inicio + dur);
+      });
+    };
+    sino(t0 + 0.07, 1318, 1.1);
+    sino(t0 + 0.2, 1760, 1.4);
+    setTimeout(() => ac.close(), 2200);
+  } catch {}
+}
+window.somCaixaRegistradora = somCaixaRegistradora;   // pra testar o som pelo console (F12)
 function avisarMudancasDrill(alunosRaw, pedidosRaw, projectId) {
   const novo = { projeto: projectId, alunos: new Set(alunosRaw.map(a => a.id)),
     pedidos: new Map(pedidosRaw.map(p => [p.id, p.payment_status])) };
@@ -8762,7 +8806,7 @@ function avisarMudancasDrill(alunosRaw, pedidosRaw, projectId) {
   if (!msgs.length) return;
   msgs.slice(0, 4).forEach(m => toast(m, 'success'));
   if (msgs.length > 4) toast(`+ ${msgs.length - 4} novidades`, 'info');
-  bipeAviso();
+  if (msgs.some(m => m.startsWith('💰'))) somCaixaRegistradora(); else bipeAviso();
 }
 function pararAutoRefreshDrill() {
   if (drillAutoRefreshTimer) { clearInterval(drillAutoRefreshTimer); drillAutoRefreshTimer = null; }
