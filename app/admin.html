@@ -2821,7 +2821,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
     <div style="flex:1;overflow-y:auto;padding:16px 20px">
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
         <select class="form-select" style="width:210px;font-weight:600" id="drill-proj-sel" onchange="abrirDrillProjeto(this.value)" title="Trocar de projeto sem sair desta tela"></select>
-        <input class="form-input" style="width:210px" placeholder="Buscar por aluno, responsável ou nº do pedido…" id="drill-al-busca" oninput="filtrarDrillAlunos()">
+        <input class="form-input" style="width:210px" placeholder="Buscar por aluno, responsável, nº do pedido ou código da ficha avulsa…" id="drill-al-busca" oninput="filtrarDrillAlunos()">
         <select class="form-select" style="width:150px" id="drill-al-ftur" onchange="filtrarDrillAlunos()"><option value="">Todas as turmas</option></select>
         <select class="form-select" style="width:140px" id="drill-al-fst" onchange="filtrarDrillAlunos()">
           <option value="">Todos os status</option>
@@ -2849,6 +2849,10 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           <option value="falta">Falta imprimir</option>
           <option value="ok">Já impressas</option>
         </select>
+        <label class="chk-inline" style="align-self:center;white-space:nowrap" title="Mostra só os alunos que foram fotografados com ficha avulsa (QR sem cadastro no dia)">
+          <input type="checkbox" id="drill-al-favul" onchange="filtrarDrillAlunos()">
+          <span style="font-size:12px">🎫 Só fichas avulsas</span>
+        </label>
         <label class="chk-inline" style="align-self:center;white-space:nowrap" title="Esconde quem você já chamou no WhatsApp neste projeto">
           <input type="checkbox" id="drill-al-fcont" onchange="filtrarDrillAlunos()">
           <span style="font-size:12px">Só não contatados</span>
@@ -2865,6 +2869,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
         <button class="btn btn-sm btn-secondary" onclick="exportarDrillExcel()" title="Baixa a lista que está na tela (com os filtros aplicados) para abrir no Excel">⬇ Exportar Excel</button>
         <button class="btn btn-sm btn-secondary" onclick="imprimirRelatorioSituacao()" title="Relatório agrupado por situação (sem autorização, pendente, pendente com parcela paga, sem pedido, pago...), pra imprimir ou salvar em PDF">📋 Relatório da situação</button>
       </div>
+      <div id="drill-avulsas-box" style="display:none;background:#EEF2FF;border:1px solid #C7D2FE;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px"></div>
       <div class="table-wrap">
         <table class="drill-tbl">
           <thead><tr><th style="width:26px"><input type="checkbox" id="drill-ficha-sel-all" onclick="toggleSelecionarTodosFichasDrill(this)" title="Marcar/desmarcar todos os visíveis"></th><th>Aluno</th><th title="Marque depois de fotografar o aluno">📷 Foto</th><th>Turma</th><th>Responsável</th><th>Irmão</th><th>Nº</th><th>Quando</th><th>Pedido</th><th>Total</th><th>Forma</th><th>Status</th><th title="Marque depois de bater este pedido no extrato">✔ Conf.</th><th>Contato</th></tr></thead>
@@ -2949,7 +2954,9 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
       <div id="fa-tab-vincular" class="tab-pane">
         <p style="font-size:12.5px;color:var(--gray-500);margin-bottom:12px;line-height:1.5">
           Depois que a ficha avulsa foi usada no dia da sessão, vincule o
-          código dela a um aluno de verdade — isso cria o cadastro do aluno.
+          código dela a um aluno de verdade: ou <b>cadastrando o aluno agora</b>,
+          ou ligando a um aluno que <b>o responsável já cadastrou</b> no portal
+          (sem criar um segundo cadastro).
         </p>
         <div class="form-group">
           <label class="form-label">Escola</label>
@@ -2961,6 +2968,22 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
         </div>
         <div id="fa-vinc-form" style="display:none">
           <hr style="border:none;border-top:1px solid var(--gray-100);margin:12px 0">
+          <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:13px">
+            <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="radio" name="fa-vinc-modo" value="existente" checked onchange="faModoVinc()"> Aluno <b>já cadastrado</b> pelo responsável</label>
+            <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="radio" name="fa-vinc-modo" value="novo" onchange="faModoVinc()"> <b>Cadastrar</b> aluno novo</label>
+          </div>
+          <div id="fa-vinc-existente">
+            <div class="form-group">
+              <label class="form-label">Buscar o aluno pelo nome (da escola escolhida acima)</label>
+              <input class="form-input" id="fa-vinc-busca" placeholder="Digite 3 letras ou mais…" oninput="faBuscarAluno()">
+            </div>
+            <div class="form-group">
+              <select class="form-select" id="fa-vinc-aluno" size="6" style="height:auto"></select>
+              <div id="fa-vinc-aviso" style="font-size:12px;color:var(--gray-500);margin-top:6px"></div>
+            </div>
+            <button class="btn btn-primary" id="btn-fa-vincular-ex" onclick="vincularFichaExistente()">Vincular ficha a este aluno</button>
+          </div>
+          <div id="fa-vinc-novo" style="display:none">
           <div class="form-group">
             <label class="form-label">Nome do aluno *</label>
             <input class="form-input" id="fa-vinc-nome">
@@ -2998,6 +3021,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
             <input class="form-input" id="fa-vinc-obs" placeholder='Ex: "Coordenação confirmou com a mãe por telefone"'>
           </div>
           <button class="btn btn-primary" id="btn-fa-vincular" onclick="vincularFichaAvulsa()">Cadastrar e vincular</button>
+          </div>
         </div>
       </div>
     </div>
@@ -8704,6 +8728,8 @@ function nomesQuaseIguais(n1, n2) {
   return distanciaEdicao(a, b) <= 2;
 }
 
+let drillTicketsEscola = [];   // fichas avulsas da escola do projeto aberto (com e sem aluno)
+let drillSchoolId = null;
 let drillProjetoId = null;
 let drillProjeto = null;    // projeto aberto — nome, slug e escola pras mensagens
 let sessaoPorTurma = {};    // class_id -> { photo_date, period } da 1a sessao
@@ -8981,6 +9007,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
     document.getElementById('drill-al-faut').value  = '';
     document.getElementById('drill-al-ffoto').value = '';
     document.getElementById('drill-al-fcont').checked = false;
+    document.getElementById('drill-al-favul').checked = false;
     document.getElementById('drill-al-sort').value = 'recente';
     // Selecao de fichas nao sobrevive a reabrir a tela — evita imprimir por
     // engano uma marcacao esquecida de dias atras.
@@ -9120,6 +9147,22 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       });
     }
 
+    // 4b-ter. Fichas avulsas ja' vinculadas a um aluno desta escola (migration_046):
+    // mostra o codigo na linha e permite filtrar/buscar. Tabela pequena (so' o
+    // que foi vinculado), entao traz por escola e casa por student_id aqui.
+    const fichaAvulsaPorAluno = {};
+    if (schoolId) {
+      const { data: tks, error: tkErr } = await supabase.from('avulso_tickets')
+        .select('id, code, student_id, status').eq('school_id', schoolId).order('created_at');
+      if (tkErr) console.error('avulso_tickets:', tkErr.message);
+      drillTicketsEscola = tks || [];
+      drillSchoolId = schoolId;
+      (tks || []).filter(t => t.student_id).forEach(t => {
+        fichaAvulsaPorAluno[t.student_id] = fichaAvulsaPorAluno[t.student_id]
+          ? fichaAvulsaPorAluno[t.student_id] + ', ' + t.code : t.code;
+      });
+    }
+
     // 4b-bis. Conferencia de caixa (migration_044). A tabela e' pequena, entao
     // traz tudo — e' o mesmo mapa que a tela de Pedidos usa, o que mantem as
     // duas telas dizendo a mesma coisa sobre o mesmo pedido.
@@ -9213,6 +9256,9 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       created_at: a.created_at || null,
       fichaNum: a.photo_seq_number ?? null,   // numero da ficha = ordem de cadastro na escola
       notes: a.notes || null,
+      // codigo da ficha avulsa; cadastro antigo feito pela tela de ficha avulsa sem vinculo
+      // na tabela ainda e' reconhecido pela observacao automatica
+      fichaAvulsa: fichaAvulsaPorAluno[a.id] || (/ficha avulsa/i.test(a.notes || '') ? 'avulsa' : ''),
       irmaos,
       duplicataSuspeita: irmaos.some(n => nomesQuaseIguais(n, a.name)),
       class_id: a.class?.id || null,
@@ -9734,7 +9780,8 @@ function filtrarDrillAlunos() {
   // pra caber na barra, e o Daniel raramente confunde uma coisa com a outra
   // na hora de digitar.
   if (busca) lista = lista.filter(a =>
-    casaTexto(busca, a.name, a.responsible_name, a.order?.order_number));
+    casaTexto(busca, a.name, a.responsible_name, a.order?.order_number, a.fichaAvulsa));
+  if (document.getElementById('drill-al-favul')?.checked) lista = lista.filter(a => a.fichaAvulsa);
   if (ftur)  lista = lista.filter(a => a.class_id === ftur);
   if (fst === 'sem_pedido') lista = lista.filter(a => !a.order);
   else if (fst) lista = lista.filter(a => a.order?.payment_status === fst);
@@ -9782,6 +9829,7 @@ function filtrarDrillAlunos() {
 
   drillListaFiltrada = lista;   // o que esta' na tela agora — usado pelo exportar Excel
   document.getElementById('drill-al-count').textContent = lista.length + ' aluno(s)';
+  renderDrillAvulsasBox(busca);
 
   const kitMap   = { basico: 'Básico', inter: 'Intermediário', promo: 'Promocional' };
   const kitClass = { basico: 'kit-bas', inter: 'kit-int', promo: 'kit-pro' };
@@ -9951,6 +9999,51 @@ function avisoFicha(a) {
   return '';
 }
 
+// Fichas avulsas AINDA SEM ALUNO: nao existem na lista de alunos (nao tem cadastro),
+// entao aparecem nesta caixa — com o filtro "So' fichas avulsas" ligado, ou
+// quando o codigo e' digitado na busca. Cada uma abre direto o vinculo.
+function renderDrillAvulsasBox(busca) {
+  const box = document.getElementById('drill-avulsas-box');
+  if (!box) return;
+  const filtro = !!document.getElementById('drill-al-favul')?.checked;
+  const livres = drillTicketsEscola.filter(t => !t.student_id && t.status === 'livre');
+  const achadas = busca ? livres.filter(t => casaTexto(busca, t.code)) : livres;
+  if (!(filtro || (busca && achadas.length))) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  if (!achadas.length) {
+    box.innerHTML = '🎫 Nenhuma ficha avulsa sem aluno nesta escola.';
+    return;
+  }
+  const max = 60;
+  box.innerHTML = `<div style="font-weight:600;margin-bottom:6px">🎫 ${achadas.length} ficha(s) avulsa(s) ainda sem aluno — clique em uma para vincular a um cadastro novo ou ao que o pai fez depois</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">${achadas.slice(0, max).map(t =>
+      `<button class="btn btn-sm btn-secondary" style="font-family:monospace" onclick="abrirVincularFicha('${t.id}')" title="Abrir e vincular esta ficha">🎫 ${escapeHtml(t.code)} ▸ vincular</button>`).join('')}</div>
+    ${achadas.length > max ? `<div style="font-size:11px;color:var(--gray-500);margin-top:6px">Mostrando ${max} de ${achadas.length} — digite o código na busca pra achar uma específica.</div>` : ''}
+    <div style="font-size:11px;color:var(--gray-500);margin-top:6px">Esta lista mostra todas as fichas do lote que ainda não foram vinculadas, usadas ou não — o código está impresso embaixo do QR e aparece na pasta "FICHA AVULSA &lt;código&gt;" das fotos.</div>`;
+}
+
+// Abre a janela de fichas avulsas ja' na aba "Vincular", com a escola e o codigo escolhidos.
+window.abrirVincularFicha = async function (ticketId) {
+  await abrirModalFichasAvulsas();
+  document.getElementById('fa-vinc-escola').value = drillSchoolId || '';
+  document.querySelectorAll('#mod-fichas-avulsas .tab-btn').forEach((b, i) => b.classList.toggle('active', i === 1));
+  document.querySelectorAll('#mod-fichas-avulsas .tab-pane').forEach((p, i) => p.classList.toggle('active', i === 1));
+  await faCarregarLivres();
+  const sel = document.getElementById('fa-vinc-codigo');
+  sel.value = ticketId;
+  sel.dispatchEvent(new Event('change'));
+  faAlunosEscola = { escolaId: null, lista: [] };   // recarrega: o pai pode ter se cadastrado depois
+  document.getElementById('fa-vinc-busca').value = '';
+  document.getElementById('fa-vinc-aluno').innerHTML = '';
+  document.getElementById('fa-vinc-aviso').innerHTML = '';
+};
+// depois de vincular, a tela Alunos & Pedidos (se aberta) se atualiza
+function atualizarDrillAposVinculo() {
+  if (document.getElementById('mod-drill-proj')?.classList.contains('open') && drillProjetoId) {
+    abrirDrillProjeto(drillProjetoId, { silent: true });
+  }
+}
+
 function celulaNomeAluno(a) {
   const icone = a.notes ? '📝' : '🖊️';
   const titulo = a.notes ? `Editar observação: ${a.notes}` : 'Adicionar observação sobre este aluno';
@@ -9959,7 +10052,10 @@ function celulaNomeAluno(a) {
     ? `<div style="font-size:11px;color:#92400e;background:#FEF3C7;border-radius:4px;padding:1px 6px;margin-top:2px;display:inline-block;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(a.notes)}">📝 ${escapeHtml(a.notes)}</div>`
     : '';
   const ficha = a.fichaNum ? `<span style="font-size:10px;color:var(--gray-400);margin-left:6px" title="Número da ficha — quanto maior, mais novo o cadastro">#${a.fichaNum}</span>` : '';
-  return `${escapeHtml(a.name)}${ficha}${gatilho}${preview}`;
+  const avulsa = a.fichaAvulsa
+    ? `<span class="badge badge-blue" style="font-size:10px;margin-left:6px" title="Fotografado com ficha avulsa (QR sem cadastro no dia)">🎫 ${a.fichaAvulsa === 'avulsa' ? 'ficha avulsa' : 'avulsa ' + escapeHtml(a.fichaAvulsa)}</span>`
+    : '';
+  return `${escapeHtml(a.name)}${ficha}${avulsa}${gatilho}${preview}`;
 }
 
 function atualizarCelulaNome(studentId) {
@@ -11665,6 +11761,7 @@ async function abrirModalFichasAvulsas() {
     toast('Erro ao carregar escolas: ' + err.message, 'error');
     return;
   }
+  faAlunosEscola = { escolaId: null, lista: [] };   // cada abertura busca a lista fresca (pai pode ter se cadastrado depois)
   document.getElementById('fa-gerar-livres').textContent = '';
   document.getElementById('fa-vinc-form').style.display = 'none';
   document.getElementById('fa-vinc-codigo').innerHTML = '';
@@ -11794,6 +11891,108 @@ document.getElementById('fa-vinc-codigo').addEventListener('change', (e) => {
   document.getElementById('fa-vinc-form').style.display = e.target.value ? 'block' : 'none';
 });
 
+// --- Vincular a um aluno que o responsavel JA cadastrou no portal ------------
+// So' liga o codigo da ficha ao aluno (avulso_tickets.student_id): nao cria
+// cadastro, nao mexe em autorizacao nem em pedido do aluno.
+window.faModoVinc = function () {
+  const novo = document.querySelector('input[name="fa-vinc-modo"]:checked')?.value === 'novo';
+  document.getElementById('fa-vinc-novo').style.display = novo ? 'block' : 'none';
+  document.getElementById('fa-vinc-existente').style.display = novo ? 'none' : 'block';
+};
+
+let faBuscaTimer = null;
+let faAlunosAchados = [];
+let faAlunosEscola = { escolaId: null, lista: [] };   // alunos da escola, carregados 1x e filtrados aqui (sem acento/maiuscula)
+
+async function faCarregarAlunosEscola(escolaId) {
+  if (faAlunosEscola.escolaId === escolaId) return faAlunosEscola.lista;
+  let todos = [];
+  for (let ini = 0; ; ini += 1000) {
+    const { data, error } = await supabase.from('students')
+      .select('id, name, class:school_classes(name, year:school_years(name)), responsible:users(name)')
+      .eq('school_id', escolaId).neq('is_test', true).order('name').range(ini, ini + 999);
+    if (error) throw error;
+    todos = todos.concat(data || []);
+    if (!data || data.length < 1000) break;
+  }
+  faAlunosEscola = { escolaId, lista: todos };
+  return todos;
+}
+
+// Nada achado -> oferece cadastrar como aluno novo, ja' com o nome digitado.
+window.faCadastrarNovoDaBusca = function () {
+  const termo = document.getElementById('fa-vinc-busca').value.trim();
+  document.querySelector('input[name="fa-vinc-modo"][value="novo"]').checked = true;
+  faModoVinc();
+  const nome = document.getElementById('fa-vinc-nome');
+  if (!nome.value.trim()) nome.value = termo;
+  nome.focus();
+};
+
+window.faBuscarAluno = function () {
+  clearTimeout(faBuscaTimer);
+  faBuscaTimer = setTimeout(async () => {
+    const escolaId = document.getElementById('fa-vinc-escola').value;
+    const termo = document.getElementById('fa-vinc-busca').value.trim();
+    const sel = document.getElementById('fa-vinc-aluno');
+    const aviso = document.getElementById('fa-vinc-aviso');
+    if (!escolaId || termo.length < 3) { sel.innerHTML = ''; aviso.innerHTML = ''; faAlunosAchados = []; return; }
+    try {
+      const todos = await faCarregarAlunosEscola(escolaId);
+      faAlunosAchados = todos.filter(a => casaTexto(termo, a.name, a.responsible?.name)).slice(0, 40);
+      sel.innerHTML = faAlunosAchados.map(a => {
+        const turma = a.class ? `${a.class.year?.name || ''} ${a.class.name}`.trim() : 'sem turma';
+        return `<option value="${a.id}">${escapeHtml(a.name)} — ${escapeHtml(turma)}${a.responsible?.name ? ' — resp.: ' + escapeHtml(a.responsible.name) : ''}</option>`;
+      }).join('');
+      if (faAlunosAchados.length) {
+        sel.selectedIndex = 0;
+        aviso.textContent = `${faAlunosAchados.length} cadastro(s) encontrado(s). Selecione o certo. Se nenhum for o aluno, você pode cadastrar como novo.`;
+        aviso.style.color = '';
+      } else {
+        aviso.innerHTML = `<div style="background:#FEF3C7;border:1px solid #FCD34D;border-radius:6px;padding:8px 10px;color:#92400e">
+          Nenhum cadastro encontrado para “${escapeHtml(termo)}” nessa escola. O responsável ainda pode não ter se cadastrado.
+          <div style="margin-top:6px"><button class="btn btn-sm btn-primary" type="button" onclick="faCadastrarNovoDaBusca()">➕ Cadastrar como aluno novo</button></div></div>`;
+      }
+    } catch (err) {
+      aviso.textContent = 'Erro na busca: ' + err.message;
+    }
+  }, 300);
+};
+
+async function vincularFichaExistente() {
+  const ticketId = document.getElementById('fa-vinc-codigo').value;
+  const alunoId = document.getElementById('fa-vinc-aluno').value;
+  if (!ticketId) { toast('Escolha o código da ficha.', 'warn'); return; }
+  if (!alunoId) { toast('Busque e selecione o aluno.', 'warn'); return; }
+  const aluno = faAlunosAchados.find(a => a.id === alunoId);
+  const codigo = document.getElementById('fa-vinc-codigo').selectedOptions[0]?.textContent || '';
+
+  const btn = document.getElementById('btn-fa-vincular-ex');
+  const orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Vinculando…';
+  try {
+    // Aluno ja com outra ficha avulsa? Avisa antes de duplicar o vinculo.
+    const { data: outras, error: oErr } = await supabase.from('avulso_tickets')
+      .select('code').eq('student_id', alunoId);
+    if (oErr) throw oErr;
+    if (outras && outras.length && !confirm(`${aluno?.name || 'Este aluno'} já está vinculado à ficha ${outras.map(o => o.code).join(', ')}. Vincular também a ${codigo}?`)) return;
+
+    const { error } = await supabase.from('avulso_tickets')
+      .update({ status: 'vinculado', student_id: alunoId, vinculado_at: new Date().toISOString() })
+      .eq('id', ticketId);
+    if (error) throw error;
+
+    toast(`Ficha ${codigo} vinculada a ${aluno?.name || 'aluno'}.`, 'ok');
+    document.getElementById('mod-fichas-avulsas').classList.remove('open');
+    atualizarDrillAposVinculo();
+  } catch (err) {
+    toast('Erro ao vincular: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = orig;
+  }
+}
+window.vincularFichaExistente = vincularFichaExistente;
+
 async function vincularFichaAvulsa() {
   const ticketId = document.getElementById('fa-vinc-codigo').value;
   const escolaId = document.getElementById('fa-vinc-escola').value;
@@ -11865,6 +12064,7 @@ async function vincularFichaAvulsa() {
 
     toast('Ficha vinculada — aluno cadastrado!', 'ok');
     document.getElementById('mod-fichas-avulsas').classList.remove('open');
+    atualizarDrillAposVinculo();
     if (typeof loadAlunos === 'function') loadAlunos();
   } catch (err) {
     toast('Erro ao vincular: ' + err.message, 'error');
