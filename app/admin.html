@@ -8760,14 +8760,33 @@ window.addEventListener('focus', atualizarDrillAgora);
 // mudou (pedido pago, pedido novo, cadastro novo) — o Daniel responde na hora.
 let drillSnap = null;       // { projeto, alunos: Set(id), pedidos: Map(id -> status) }
 let drillRefreshando = false;
+// Um AudioContext so', criado/destravado no 1o clique ou tecla na pagina. Antes cada
+// som criava um novo, e o Chrome deixa contexto novo MUDO ("suspended") quando a
+// pagina ainda nao recebeu interacao — o som falhava sem nenhum aviso.
+let audioCtx = null;
+function audioCtxPronto() {
+  if (!audioCtx || audioCtx.state === 'closed') audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+  return audioCtx;
+}
+['pointerdown', 'keydown', 'touchstart'].forEach(ev =>
+  document.addEventListener(ev, () => { try { audioCtxPronto(); } catch {} }, { passive: true }));
+let avisouSomMudo = false;
+function conferirSomLiberado() {
+  setTimeout(() => {
+    if (audioCtx && audioCtx.state !== 'running' && !avisouSomMudo) {
+      avisouSomMudo = true;
+      toast('🔇 O navegador bloqueou o som. Clique em qualquer lugar da página para ativar.', 'warn');
+    }
+  }, 400);
+}
 function bipeAviso() {
   try {
-    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    const ac = audioCtxPronto();
     const o = ac.createOscillator(), g = ac.createGain();
     o.connect(g); g.connect(ac.destination);
     o.frequency.value = 880; g.gain.value = 0.06;
     o.start(); o.stop(ac.currentTime + 0.15);
-    setTimeout(() => ac.close(), 400);
   } catch {}
 }
 // "Cha-ching" de caixa registradora, sintetizado (sem arquivo de audio): um
@@ -8775,7 +8794,7 @@ function bipeAviso() {
 // Toca quando ENTRA PAGAMENTO; cadastro/pedido novo seguem com o bipe simples.
 function somCaixaRegistradoraV1() {
   try {
-    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    const ac = audioCtxPronto();
     const t0 = ac.currentTime;
     const mestre = ac.createGain();
     mestre.gain.value = 0.5;
@@ -8810,14 +8829,13 @@ function somCaixaRegistradoraV1() {
     };
     sino(t0 + 0.07, 1318, 1.1);
     sino(t0 + 0.2, 1760, 1.4);
-    setTimeout(() => ac.close(), 2200);
   } catch {}
 }
 // Caixa registradora "de verdade" (versao 2), sintetizada: catraca de MOEDAS que
 // acelera -> gaveta abrindo (pancada grave + trilho) -> sino de latao -> moedas.
 function somCaixaRegistradora() {
   try {
-    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    const ac = audioCtxPronto();
     const t0 = ac.currentTime;
     const mestre = ac.createGain();
     mestre.gain.value = 0.55;
@@ -8882,8 +8900,6 @@ function somCaixaRegistradora() {
       tom(tS + dt, f, 0.09, 0.07, 'triangle');
       tom(tS + dt, f * 1.51, 0.07, 0.04, 'sine');
     });
-
-    setTimeout(() => ac.close(), 2800);
   } catch {}
 }
 window.somCaixaRegistradora = somCaixaRegistradora;       // versao atual (v2) — testar pelo console (F12)
@@ -8907,6 +8923,7 @@ function avisarMudancasDrill(alunosRaw, pedidosRaw, projectId) {
   msgs.slice(0, 4).forEach(m => toast(m, 'success'));
   if (msgs.length > 4) toast(`+ ${msgs.length - 4} novidades`, 'info');
   if (msgs.some(m => m.startsWith('💰'))) somCaixaRegistradora(); else bipeAviso();
+  conferirSomLiberado();
 }
 function pararAutoRefreshDrill() {
   if (drillAutoRefreshTimer) { clearInterval(drillAutoRefreshTimer); drillAutoRefreshTimer = null; }
