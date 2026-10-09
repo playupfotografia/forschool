@@ -3503,6 +3503,81 @@ document.getElementById('reset-pw-form').addEventListener('submit', async (e) =>
   }
 });
 
+// ---------------------------------------------------------------------------
+// VIGIA GLOBAL DE PEDIDOS: avisa (toast + som) pedido novo e pagamento confirmado em
+// QUALQUER tela do admin e de QUALQUER projeto — nao so' com Alunos & Pedidos aberto.
+// Na entrada le' o status de todos os pedidos (sem avisar nada); depois, a cada 15s,
+// busca so' o que mudou (updated_at) e compara. Se a janela Alunos & Pedidos do mesmo
+// projeto estiver aberta, ela mesma ja' avisa, entao o vigia pula esse projeto (sem
+// som em dobro). Pedido de teste (is_test) nunca avisa.
+// `var` de proposito: showApp() pode rodar antes do `let` equivalente ser avaliado.
+// ---------------------------------------------------------------------------
+var vigiaGlobal = { timer: null, vistos: null, desde: null, rodando: false };
+
+async function iniciarVigiaGlobal() {
+  if (vigiaGlobal.timer) return;
+  try {
+    const vistos = new Map();
+    let maxUpd = '';
+    for (let ini = 0; ; ini += 1000) {
+      const { data, error } = await supabase.from('orders')
+        .select('id, payment_status, updated_at').neq('is_test', true)
+        .order('created_at', { ascending: true }).range(ini, ini + 999);
+      if (error) throw error;
+      (data || []).forEach(o => {
+        vistos.set(o.id, o.payment_status);
+        if (o.updated_at && o.updated_at > maxUpd) maxUpd = o.updated_at;
+      });
+      if (!data || data.length < 1000) break;
+    }
+    vigiaGlobal.vistos = vistos;
+    // sempre a partir da data de um pedido real (nao do relogio deste computador)
+    vigiaGlobal.desde = maxUpd ? new Date(Date.parse(maxUpd) - 5000).toISOString() : new Date(Date.now() - 60000).toISOString();
+    vigiaGlobal.timer = setInterval(vigiarPedidosAgora, 15000);
+  } catch (err) {
+    console.error('vigiaGlobal (inicio):', err.message);
+  }
+}
+
+async function vigiarPedidosAgora() {
+  if (!vigiaGlobal.vistos || vigiaGlobal.rodando) return;
+  if (appScreen.style.display !== 'block') return;   // deslogado: nao consulta
+  vigiaGlobal.rodando = true;
+  try {
+    const { data, error } = await supabase.from('orders')
+      .select('id, order_number, payment_status, project_id, updated_at, student:students(name), project:projects(name)')
+      .neq('is_test', true).gte('updated_at', vigiaGlobal.desde)
+      .order('updated_at', { ascending: true }).limit(200);
+    if (error) throw error;
+    const msgs = [];
+    (data || []).forEach(o => {
+      const prev = vigiaGlobal.vistos.get(o.id);
+      vigiaGlobal.vistos.set(o.id, o.payment_status);
+      if (o.updated_at) {
+        const d = new Date(Date.parse(o.updated_at) - 5000).toISOString();
+        if (d > vigiaGlobal.desde) vigiaGlobal.desde = d;
+      }
+      const drillCobre = document.getElementById('mod-drill-proj')?.classList.contains('open') && drillProjetoId === o.project_id;
+      if (drillCobre) return;
+      const quem = `${o.order_number || ''} · ${o.student?.name || '—'}${o.project?.name ? ' · ' + o.project.name : ''}`;
+      if (o.payment_status === 'paid' && prev !== 'paid') msgs.push((prev === undefined ? '💰 Pago: ' : '💰 Pagamento confirmado: ') + quem);
+      else if (prev === undefined && o.payment_status !== 'cancelled') msgs.push('🛒 Novo pedido: ' + quem);
+    });
+    if (msgs.length) {
+      msgs.slice(0, 4).forEach(m => toast(m, 'success'));
+      if (msgs.length > 4) toast(`+ ${msgs.length - 4} novidades`, 'info');
+      if (msgs.some(m => m.startsWith('💰'))) somCaixaRegistradora(); else bipeAviso();
+      conferirSomLiberado();
+    }
+  } catch (err) {
+    console.error('vigiaGlobal:', err.message);
+  } finally {
+    vigiaGlobal.rodando = false;
+  }
+}
+// Chrome atrasa timer de janela escondida: ao voltar, confere na hora
+document.addEventListener('visibilitychange', () => { if (!document.hidden) vigiarPedidosAgora(); });
+
 function showApp(user) {
   loginScreen.style.display = 'none';
   appScreen.style.display = 'block';
@@ -3510,6 +3585,7 @@ function showApp(user) {
   loadDashboard();
   loadCounts();
   abrirPaginaPorHash();
+  iniciarVigiaGlobal();
 }
 
 // Link direto tipo admin#pedidos pra abrir ja' numa pagina especifica (usado
