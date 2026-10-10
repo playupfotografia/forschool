@@ -8779,10 +8779,39 @@ function normalizarNome(n) {
 // "Luísa". Reusa normalizarNome() — a mesma funcao da deteccao de nomes
 // repetidos, pra existir UMA definicao do que e' "mesmo texto" no admin.
 // Digitar COM acento tambem funciona: os dois lados passam pela mesma regra.
+// Tambem perdoa erro de digitacao: cada palavra digitada tem que aparecer em
+// algum campo OU ficar a 1 letra de distancia do comeco de uma palavra dele
+// (palavras de 3 letras so' se a 1a letra bate). Palavras de
+// ligacao (da/de/do/das/dos/e) sao ignoradas, e a ordem das palavras nao importa.
+const PALAVRAS_LIGACAO = ['da', 'de', 'do', 'das', 'dos', 'e'];
 function casaTexto(busca, ...campos) {
   const alvo = normalizarNome(busca);
   if (!alvo) return true;
-  return campos.some(c => normalizarNome(c).includes(alvo));
+  let palavras = alvo.split(' ').filter(w => !PALAVRAS_LIGACAO.includes(w));
+  if (!palavras.length) palavras = [alvo];
+  const texto = normalizarNome(campos.filter(c => c != null).join(' '));
+  const tokens = texto.split(' ');
+  return palavras.every(w => {
+    if (texto.includes(w)) return true;
+    if (w.length < 3) return false;
+    // 3 letras: so' perdoa se a 1a letra bate (senao "ana" casaria com "ene")
+    return tokens.some(t => (w.length > 3 || t[0] === w[0]) &&
+      [w.length - 1, w.length, w.length + 1].some(n => n > 0 && distanciaBusca(w, t.slice(0, n)) <= 1));
+  });
+}
+
+// Distancia de edicao em que letras trocadas de lugar ("vieira"/"vieria") contam 1.
+function distanciaBusca(a, b) {
+  if (a === b) return 0;
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 0; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    }
+  }
+  return d[a.length][b.length];
 }
 
 function distanciaEdicao(a, b) {
@@ -10982,7 +11011,7 @@ function renderAlunos() {
   const ftur  = document.getElementById('al-ftur').value;
 
   const lista = alunosCache.filter(a => {
-    if (busca && !a.name.toLowerCase().includes(busca)) return false;
+    if (busca && !casaTexto(busca, a.name)) return false;
     if (fesc  && a.school?.id !== fesc) return false;
     if (fano  && a.school_class?.year?.id !== fano) return false;
     if (ftur  && a.school_class?.id !== ftur) return false;
@@ -12822,12 +12851,22 @@ function buscarDuplicataCandidatos() {
   const resEl = document.getElementById('al-dup-resultados');
   if (termo.length < 2) { resEl.innerHTML = ''; return; }
   dupBuscaTimer = setTimeout(async () => {
-    const { data, error } = await supabase.from('students')
-      .select('id,name,school:schools(name),school_class:school_classes(name)')
-      .ilike('name', `%${termo}%`)
-      .neq('id', editAlunoId)
-      .limit(8);
-    if (error) { console.error('buscarDuplicataCandidatos:', error.message); return; }
+    // Busca no navegador (sem acento e tolerando 1 letra errada): o ilike do
+    // banco exigia o texto exato. Lista baixada uma vez e reaproveitada.
+    if (!window._dupAlunosCache) {
+      const todos = [];
+      for (let ini = 0; ; ini += 1000) {
+        const { data: lote, error: e1 } = await supabase.from('students')
+          .select('id,name,school:schools(name),school_class:school_classes(name)')
+          .order('name').range(ini, ini + 999);
+        if (e1) { console.error('buscarDuplicataCandidatos:', e1.message); return; }
+        todos.push(...(lote || []));
+        if (!lote || lote.length < 1000) break;
+      }
+      window._dupAlunosCache = todos;
+    }
+    const data = window._dupAlunosCache.filter(a => a.id !== editAlunoId && casaTexto(termo, a.name)).slice(0, 8);
+    const error = null;
     if (!data || !data.length) {
       resEl.innerHTML = '<div style="font-size:12px;color:var(--gray-400);padding:6px">Nenhum aluno encontrado.</div>';
       return;

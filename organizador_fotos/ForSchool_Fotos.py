@@ -121,6 +121,45 @@ def _chave_ordem(nome):
     return ''.join(c for c in n if unicodedata.category(c) != 'Mn').casefold()
 
 
+def _dist_edicao(a, b):
+    """Distancia de edicao; letras trocadas de lugar (vieira/vieria) contam 1."""
+    if a == b:
+        return 0
+    d = [[0] * (len(b) + 1) for _ in range(len(a) + 1)]
+    for i in range(len(a) + 1):
+        d[i][0] = i
+    for j in range(len(b) + 1):
+        d[0][j] = j
+    for i in range(1, len(a) + 1):
+        for j in range(1, len(b) + 1):
+            d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1,
+                          d[i - 1][j - 1] + (a[i - 1] != b[j - 1]))
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)
+    return d[len(a)][len(b)]
+
+
+def _casa_texto(busca, *campos):
+    """Busca sem acento/maiuscula, sem importar a ordem das palavras, ignorando
+    da/de/do/das/dos/e e perdoando 1 letra errada (palavras de 4+ letras)."""
+    alvo = ' '.join(_chave_ordem(busca).split())
+    if not alvo:
+        return True
+    palavras = [w for w in alvo.split() if w not in ('da', 'de', 'do', 'das', 'dos', 'e')] or [alvo]
+    texto = ' '.join(_chave_ordem(str(c)) for c in campos if c)
+    tokens = texto.split()
+    for w in palavras:
+        if w in texto:
+            continue
+        if len(w) < 3:
+            return False
+        # 3 letras: so' perdoa se a 1a letra bate (senao "ana" casaria com "ene")
+        if not any(_dist_edicao(w, t[:n]) <= 1 and (len(w) > 3 or t[:1] == w[:1])
+                   for t in tokens for n in (len(w) - 1, len(w), len(w) + 1) if n > 0):
+            return False
+    return True
+
+
 # Ordem de CAPTURA: a lista da Aba 2 segue a sequencia em que os alunos foram
 # fotografados, nao a ordem alfabetica. Assim, quando um QR nao e' lido e as fotos de
 # uma crianca caem na pasta do amiguinho anterior, elas aparecem logo no fim da pasta
@@ -761,6 +800,27 @@ class App(tk.Tk):
             novos.append(sub.name)
         return novos
 
+    def _buscar_aluno_cadastro(self, termo, limite=30):
+        """Busca aluno no cadastro SEM diferenciar acento/maiuscula e sem exigir o
+        nome completo: cada palavra digitada (menos da/de/do/e) tem que aparecer no
+        nome. Caso real (10/10/2026): cadastro "José Théo silva Vieira" nao era
+        achado digitando "José Theo das Silva Vieira" (acento + palavra a mais).
+        A lista inteira e' baixada uma vez e fica em memoria."""
+        cache = getattr(self, '_cache_alunos_cad', None)
+        if cache is None:
+            cache, ini = [], 0
+            while True:
+                lote = supabase_get('students', {
+                    'select': 'id,name,is_test,class:school_classes(name,year:school_years(name))',
+                    'order': 'name', 'limit': '1000', 'offset': str(ini)})
+                cache.extend(lote)
+                if len(lote) < 1000:
+                    break
+                ini += 1000
+            self._cache_alunos_cad = cache
+        achou = [r for r in cache if _casa_texto(termo, r['name'])]
+        return achou[:limite]
+
     def _achar_id_aluno(self, nome, ano, turma):
         """Procura o aluno no cadastro pelo nome. So' devolve id se achar um
         unico candidato (desempata por ano/turma); na duvida, vazio."""
@@ -797,10 +857,18 @@ class App(tk.Tk):
             except Exception:
                 self._escolhas_salvas = {}
 
-        if not alunos_info:
+        # Fotos de turma (_TURMAS/) entram na lista como entradas especiais
+        # (tipo 'turma'): da' pra escolher a foto da turma e mandar foto de aluno
+        # que caiu ali pra pasta certa. Nunca vao pro indice em disco.
+        for k in [k for k, v in alunos_info.items() if v.get('tipo') == 'turma']:
+            del alunos_info[k]
+        turmas = self._carregar_turmas(Path(pasta_saida), alunos_info)
+
+        if not [k for k in alunos_info if k not in turmas]:
             tk.Label(self.frame_alunos, text='Nenhum aluno encontrado.',
                      bg=COR_BG, fg=COR_CINZA, font=('Segoe UI', 10)).pack(pady=20)
-            return
+            if not turmas:
+                return
 
         # Cada tema e' uma troca de roupa: o aluno posa de uniforme, depois de
         # Natal, depois de Pequeno Artista. Uma foto escolhida so' nao serve —
@@ -819,9 +887,75 @@ class App(tk.Tk):
                      bg=COR_BG, fg=COR_CINZA, font=('Segoe UI', 9)).pack(
                      anchor='w', padx=10, pady=(0,6))
 
+        if turmas:
+            tk.Label(self.frame_alunos,
+                     text='🏫 Fotos de turma — escolha a foto que vale pra TODOS da turma '
+                          '(produto "Foto Turma"). Foto de aluno que caiu aqui: abra e use '
+                          '"Mover p/ outro aluno".',
+                     bg=COR_BG, fg=COR_TEXTO, font=('Segoe UI', 10, 'bold'),
+                     wraplength=900, justify='left').pack(anchor='w', padx=10, pady=(6, 2))
+            for k in sorted(turmas, key=lambda k: _chave_ordem(alunos_info[k]['nome'])):
+                self._linha_aluno(k, alunos_info[k], alunos_info[k].get('fotos', []))
+            tk.Label(self.frame_alunos, text='Alunos:', bg=COR_BG, fg=COR_TEXTO,
+                     font=('Segoe UI', 10, 'bold')).pack(anchor='w', padx=10, pady=(10, 2))
+
         for nome_pasta, info in sorted(alunos_info.items(), key=lambda kv: _ordem_captura(alunos_info, kv[0])):
+            if info.get('tipo') == 'turma':
+                continue
             fotos = info.get('fotos', [])
             self._linha_aluno(nome_pasta, info, fotos)
+
+    def _carregar_turmas(self, pasta, alunos_info):
+        """Le _TURMAS/<pasta da turma>/ e acrescenta em alunos_info (in place) uma
+        entrada por turma com foto. Devolve as chaves ('TURMA::<pasta>')."""
+        raiz = pasta / '_TURMAS'
+        chaves = []
+        if not raiz.exists():
+            return chaves
+        for sub in sorted(raiz.iterdir(), key=lambda p: p.name.lower()):
+            if not sub.is_dir():
+                continue
+            fotos = sorted((f for f in sub.iterdir()
+                            if f.is_file() and f.suffix.lower() in ('.jpg', '.jpeg', '.png')),
+                           key=lambda f: (_mtime_foto(str(f)), f.name))
+            if not fotos:
+                continue
+            k = 'TURMA::' + sub.name
+            alunos_info[k] = {
+                'tipo': 'turma', 'id': '', 'nome': sub.name, 'turma': '', 'ano': '',
+                'escola': '', 'pasta': str(sub), 'fotos': [str(f) for f in fotos],
+                'blocos': [1] * len(fotos), 'bloco_atual': 1,
+            }
+            chaves.append(k)
+        return chaves
+
+    def _gravar_indice(self):
+        """Grava _indice_alunos.json sem as entradas de turma (essas vem da pasta)."""
+        pasta_org = getattr(self, '_pasta_organizada', None)
+        if not pasta_org:
+            return
+        dados = {k: v for k, v in self.alunos_info.items() if v.get('tipo') != 'turma'}
+        with open(Path(pasta_org) / '_indice_alunos.json', 'w', encoding='utf-8') as fh:
+            json.dump(dados, fh, ensure_ascii=False, indent=2)
+
+    def _turma_do_aluno(self, info):
+        """Chave da entrada de turma que corresponde ao aluno (mesmo 'Ano - Turma X'),
+        tolerando nome de professor colado de um lado so'. None se nao achar."""
+        ano = (info.get('ano') or '').strip()
+        t = (info.get('turma') or '').strip()
+        partes = [p for p in (ano, f'Turma {t}' if t else '') if p]
+        if not partes:
+            return None
+        alvo = sanitizar(' - '.join(partes)).casefold()
+        cand = [(k, v['nome'].casefold()) for k, v in self.alunos_info.items()
+                if v.get('tipo') == 'turma']
+        for k, n in cand:
+            if n == alvo:
+                return k
+        for k, n in cand:
+            if n.startswith(alvo) or alvo.startswith(n):
+                return k
+        return None
 
     def _linha_aluno(self, nome_pasta, info, fotos):
         frm = tk.Frame(self.frame_alunos, bg='white', relief='flat', bd=0)
@@ -847,17 +981,19 @@ class App(tk.Tk):
 
         # '' = foto padrao (uniforme); depois um seletor por tema cadastrado
         self.foto_vars[nome_pasta] = {}
-        for tema in [''] + list(getattr(self, 'temas', [])):
+        temas_linha = [''] if info.get('tipo') == 'turma' else [''] + list(getattr(self, 'temas', []))
+        for tema in temas_linha:
             self._linha_tema(frm, nome_pasta, fotos, tema, blocos)
 
         tk.Frame(frm, bg='white', height=6).pack()
 
     def _linha_tema(self, frm, nome_pasta, fotos, tema, blocos=None):
         rot = 'Uniforme' if tema == '' else tema
+        rot_exib = 'Foto da turma' if nome_pasta.startswith('TURMA::') else rot
         linha = tk.Frame(frm, bg='white')
         linha.pack(fill='x', padx=12, pady=1)
 
-        tk.Label(linha, text=rot, bg='white', fg=COR_TEXTO,
+        tk.Label(linha, text=rot_exib, bg='white', fg=COR_TEXTO,
                  font=('Segoe UI', 9), width=20, anchor='w').pack(side='left')
 
         nomes_fotos = [Path(f).name for f in fotos]
@@ -940,11 +1076,14 @@ class App(tk.Tk):
         """
         from PIL import Image, ImageTk, ImageOps
 
-        temas_ordem = [''] + list(getattr(self, 'temas', []))[:8]
+        modo_turma = nome_pasta.startswith('TURMA::')
+        temas_ordem = [''] if modo_turma else [''] + list(getattr(self, 'temas', []))[:8]
         tema_real = '' if tema == 'Uniforme' else tema
 
         def ordem():
-            return sorted((k for k, v in self.alunos_info.items() if v.get('fotos')),
+            # Visor de turma percorre so' as turmas; o de aluno, so' os alunos.
+            return sorted((k for k, v in self.alunos_info.items()
+                           if v.get('fotos') and (v.get('tipo') == 'turma') == modo_turma),
                           key=lambda k: _ordem_captura(self.alunos_info, k))
 
         estado = {'key': nome_pasta, 'i': 0}
@@ -991,7 +1130,8 @@ class App(tk.Tk):
         painel = tk.Frame(meio, bg=BG, width=300)
         painel.pack(side='right', fill='y', padx=(12, 0))
         painel.pack_propagate(False)
-        tk.Label(painel, text='Esta foto é de qual tema?', bg=BG, fg='white',
+        tk.Label(painel, text='Foto que vale pra turma toda:' if modo_turma else 'Esta foto é de qual tema?',
+                 bg=BG, fg='white',
                  font=('Segoe UI', 11, 'bold')).pack(anchor='w', pady=(0, 8))
 
         canvas = tk.Canvas(meio, bg=BG, highlightthickness=0)
@@ -1005,7 +1145,7 @@ class App(tk.Tk):
                 lbl_aviso.config(text='Este aluno ainda não tem linha na lista — feche e reabra.')
                 return
             nome_arq = Path(fotos_()[estado['i']]).name
-            rot = 'Uniforme' if t == '' else t
+            rot = ('Foto da turma' if modo_turma else 'Uniforme') if t == '' else t
             if escolhida(t) == nome_arq:
                 self._limpar_escolha[(key, t)]()
                 lbl_aviso.config(text=f'❌ Escolha de {rot} cancelada.', fg='#ffb4b4')
@@ -1044,7 +1184,7 @@ class App(tk.Tk):
             nomes = [Path(f).name for f in fotos_()]
             atual = nomes[estado['i']]
             for n, t in enumerate(temas_ordem, 1):
-                rot = 'Uniforme' if t == '' else t
+                rot = ('Foto da turma' if modo_turma else 'Uniforme') if t == '' else t
                 esc = escolhida(t)
                 b, x = btns[t]
                 if esc == atual:
@@ -1098,7 +1238,7 @@ class App(tk.Tk):
             lbl_nome.config(text=inf.get('nome', estado['key']))
             partes = [p for p in [inf.get('ano', ''),
                                   f"Turma {inf['turma']}" if inf.get('turma') else ''] if p]
-            lbl_sub.config(text=f"Aluno {ks.index(estado['key'])+1} de {len(ks)}"
+            lbl_sub.config(text=f"{'Turma' if modo_turma else 'Aluno'} {ks.index(estado['key'])+1} de {len(ks)}"
                                 + ('   •   ' + ' · '.join(partes) if partes else ''))
             path = Path(fl[i])
             txt = f'Foto {i+1} de {len(fl)}   —   {path.name}'
@@ -1293,10 +1433,7 @@ class App(tk.Tk):
                 self._linhas_pendentes.discard(destino_key)
                 self._linha_aluno(destino_key, destino_info, destino_info['fotos'])
             try:
-                pasta_org = getattr(self, '_pasta_organizada', None)
-                if pasta_org:
-                    with open(Path(pasta_org) / '_indice_alunos.json', 'w', encoding='utf-8') as f:
-                        json.dump(self.alunos_info, f, ensure_ascii=False, indent=2)
+                self._gravar_indice()
             except Exception as e:
                 messagebox.showwarning('Aviso',
                     f'As fotos foram movidas, mas não consegui atualizar o índice:\n{e}', parent=win)
@@ -1410,7 +1547,7 @@ class App(tk.Tk):
 
         opcoes = sorted(
             [(k, v.get('nome', k), v.get('turma', '')) for k, v in self.alunos_info.items()
-             if k != excluir],
+             if k != excluir and v.get('tipo') != 'turma'],
             key=lambda t: t[1]
         )
 
@@ -1419,7 +1556,7 @@ class App(tk.Tk):
             lista.delete(0, 'end')
             chaves = []
             for k, nome, turma in opcoes:
-                if termo and termo not in nome.lower():
+                if termo and not _casa_texto(termo, nome):
                     continue
                 texto = f'{nome}  ({turma})' if turma else nome
                 lista.insert('end', texto)
@@ -1524,9 +1661,7 @@ class App(tk.Tk):
                 messagebox.showinfo('Busca', 'Digite pelo menos 3 letras do nome.', parent=dlg)
                 return
             try:
-                rows = supabase_get('students', {
-                    'select': 'id,name,class:school_classes(name,year:school_years(name))',
-                    'name': f'ilike.*{termo}*', 'order': 'name', 'limit': '30'})
+                rows = self._buscar_aluno_cadastro(termo)
             except Exception as e:
                 messagebox.showerror('Busca', f'Não consegui buscar no cadastro (internet?):\n{e}', parent=dlg)
                 return
@@ -1744,7 +1879,10 @@ class App(tk.Tk):
             sem_tratada.add(p.name)
             return p
 
+        turma_avisadas = set()
         for nome_pasta, info in sorted(self.alunos_info.items(), key=lambda kv: _chave_ordem(kv[0])):
+            if info.get('tipo') == 'turma':
+                continue
             nome    = info.get('nome', nome_pasta)
             aluno_id = info.get('id', '')
             fotos   = info.get('fotos', [])
@@ -1800,6 +1938,19 @@ class App(tk.Tk):
                 # cai na padrao — melhor entregar com a foto errada avisando do
                 # que travar a montagem inteira.
                 foto_item = foto_do_tema(tema) or foto_path
+                # Produto de FOTO DE TURMA leva a foto escolhida da turma (a mesma
+                # pra todos os alunos dela), nao a foto do aluno.
+                if 'turma' in nome_prod.lower():
+                    kt = self._turma_do_aluno(info)
+                    rt = self._foto_escolhida_de(kt, '') if kt else None
+                    if rt and rt[0] and rt[0].exists():
+                        foto_item = _tr(rt[0]) or rt[0]
+                        if not rt[1] and kt not in turma_avisadas:
+                            turma_avisadas.add(kt)
+                            self._log2(f'   ⚠ Turma "{self.alunos_info[kt]["nome"]}": nenhuma foto escolhida — usei a 1ª')
+                    elif (kt or 'sem') not in turma_avisadas:
+                        turma_avisadas.add(kt or 'sem')
+                        self._log2(f'   ⚠ {nome_prod}: não achei a pasta da turma de {nome} em _TURMAS — usei a foto do aluno')
                 if tema and tema not in escolhas:
                     self._log2(f'   ⚠ {nome_prod}: sem foto escolhida de "{tema}" — usando a de uniforme')
 
