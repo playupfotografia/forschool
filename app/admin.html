@@ -2849,6 +2849,19 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           <option value="falta">Falta imprimir</option>
           <option value="ok">Já impressas</option>
         </select>
+        <select class="form-select" style="width:175px" id="drill-al-fpag" onchange="filtrarDrillAlunos()" title="Forma de pagamento do pedido">
+          <option value="">💳 Pagamento: todos</option>
+          <option value="pix">PIX</option>
+          <option value="pix_parcelado">PIX parcelado</option>
+          <option value="cartao_1x">Cartão 1×</option>
+          <option value="cartao_2x">Cartão 2×</option>
+          <option value="cartao_debito">Débito</option>
+          <option value="dinheiro">Dinheiro</option>
+          <option value="outro">Outro</option>
+          <option value="__auto">Automático (Asaas/Woovi)</option>
+          <option value="__manual">Manual (conferir no extrato)</option>
+          <option value="__sem">Sem forma definida</option>
+        </select>
         <label class="chk-inline" style="align-self:center;white-space:nowrap" title="Mostra só os alunos que foram fotografados com ficha avulsa (QR sem cadastro no dia)">
           <input type="checkbox" id="drill-al-favul" onchange="filtrarDrillAlunos()">
           <span style="font-size:12px">🎫 Só fichas avulsas</span>
@@ -9099,6 +9112,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
     document.getElementById('drill-al-fst').value   = '';
     document.getElementById('drill-al-faut').value  = '';
     document.getElementById('drill-al-ffoto').value = '';
+    document.getElementById('drill-al-fpag').value = '';
     document.getElementById('drill-al-fcont').checked = false;
     document.getElementById('drill-al-favul').checked = false;
     document.getElementById('drill-al-sort').value = 'recente';
@@ -9878,6 +9892,14 @@ function filtrarDrillAlunos() {
   if (ftur)  lista = lista.filter(a => a.class_id === ftur);
   if (fst === 'sem_pedido') lista = lista.filter(a => !a.order);
   else if (fst) lista = lista.filter(a => a.order?.payment_status === fst);
+
+  // Forma de pagamento: so' olha quem tem pedido; "manual"/"automatico" so'
+  // fazem sentido para pedido pago.
+  const fpag = document.getElementById('drill-al-fpag')?.value;
+  if (fpag === '__auto') lista = lista.filter(a => a.order?.payment_status === 'paid' && GATEWAYS_AUTOMATICOS.has(a.order.gateway));
+  else if (fpag === '__manual') lista = lista.filter(a => a.order?.payment_status === 'paid' && !GATEWAYS_AUTOMATICOS.has(a.order.gateway));
+  else if (fpag === '__sem') lista = lista.filter(a => a.order && !a.order.payment_method);
+  else if (fpag) lista = lista.filter(a => a.order?.payment_method === fpag);
 
   const faut = document.getElementById('drill-al-faut')?.value;
   if (faut === 'sem') lista = lista.filter(a => a.autorizacao !== 'ok');
