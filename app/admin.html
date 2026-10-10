@@ -9883,21 +9883,20 @@ function renderDrillSomaPagamentos(lista) {
   if (!box) return;
   const grupo = m => (m === 'cartao_1x' || m === 'cartao_2x') ? 'Cartão' : (METODO_LABEL[m] || (m ? m.toUpperCase() : 'Sem forma'));
   const porForma = {};
-  let qtd = 0, total = 0, taxa = 0;
+  let qtd = 0, total = 0;
   lista.forEach(a => {
     const o = a.order;
     if (!o || o.payment_status !== 'paid') return;
-    const v = Number(o.amount_charged ?? o.total_amount) || 0;
+    const v = Number(o.total_amount) || 0;   // valor de venda (sem acrescimo de taxa do cartao)
     const g = grupo(o.payment_method);
     (porForma[g] = porForma[g] || { q: 0, v: 0 });
     porForma[g].q++; porForma[g].v += v;
-    qtd++; total += v; taxa += Number(o.gateway_fee) || 0;
+    qtd++; total += v;
   });
   if (!qtd) { box.style.display = 'none'; return; }
   const partes = Object.entries(porForma).sort((x, y) => y[1].v - x[1].v)
     .map(([g, d]) => `<span style="white-space:nowrap">${escapeHtml(g)}: <b>${fmtMoney(d.v)}</b> <span style="color:var(--gray-500)">(${d.q})</span></span>`).join(' &nbsp;·&nbsp; ');
-  box.innerHTML = `💰 <b>Entrou nesta lista:</b> ${fmtMoney(total)} <span style="color:var(--gray-500)">em ${qtd} pedido(s) pago(s)</span>`
-    + (taxa > 0 ? ` &nbsp;·&nbsp; taxas ${fmtMoney(taxa)} &nbsp;·&nbsp; líquido ${fmtMoney(total - taxa)}` : '')
+  box.innerHTML = `💰 <b>Vendas pagas nesta lista (valor de venda):</b> ${fmtMoney(total)} <span style="color:var(--gray-500)">em ${qtd} pedido(s) pago(s)</span>`
     + `<div style="margin-top:4px;font-size:12px">${partes}</div>`;
   box.style.display = '';
 }
