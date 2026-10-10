@@ -1063,10 +1063,13 @@ class App(tk.Tk):
         mk('⏮ Bloco', lambda: pular(-1), '#3a3a5e', padx=(12, 4))
         mk('Bloco ⏭', lambda: pular(1), '#3a3a5e')
         mk('Fechar [Esc]', win.destroy, '#555577', side='right', padx=(8, 0))
-        mk('➡ Mover p/ outro aluno', lambda: mover_para_outro(), '#7C3AED', side='right')
+        btn_mover = mk('➡ Mover p/ outro aluno', lambda: mover_para_outro(), '#7C3AED', side='right')
+        mk('☑ Marcar [Espaço]', lambda: alternar_marca(), '#0D9488', padx=(12, 4))
+        mk('☑ Desta até a última [End]', lambda: marcar_ate_o_fim(), '#0D9488', padx=(0, 4))
+        mk('Limpar marcas [Del]', lambda: limpar_marcas(), '#3a3a5e')
         tk.Label(rodape,
-                 text='← → fotos (passa pro próximo aluno sozinho)  •  1 2 3… escolhe o tema  •  '
-                      'mesmo número de novo cancela  •  PgUp/PgDn aluno  •  ↑ ↓ bloco',
+                 text='← → fotos  •  1 2 3… tema  •  PgUp/PgDn aluno  •  ↑ ↓ bloco  •  '
+                      'Espaço marca foto  •  End marca até a última  •  Mover leva as marcadas',
                  bg=BG, fg='#666688', font=('Segoe UI', 9)).pack(side='left', padx=14)
 
         # ── Logica ───────────────────────────────────────────────────────────
@@ -1093,6 +1096,15 @@ class App(tk.Tk):
             bl = blocos_()
             if bl:
                 txt += f'   •   Bloco {bl[i]} de {max(bl)}'
+            nomes_f = [Path(x).name for x in fl]
+            marc = marcadas_do_aluno()
+            marc.intersection_update(nomes_f)          # foto que saiu da pasta perde a marca
+            if marc:
+                nums = [Path(n).stem.rsplit(' - ', 1)[-1] for n in nomes_f if n in marc]
+                txt += f'   •   ☑ {len(marc)} marcada(s): ' + ', '.join(nums)
+                btn_mover.config(text=f'➡ Mover {len(marc)} marcada(s) p/ outro aluno')
+            else:
+                btn_mover.config(text='➡ Mover p/ outro aluno')
             lbl_contador.config(text=txt)
             refresh_painel()
 
@@ -1110,6 +1122,10 @@ class App(tk.Tk):
                 img_tk_ref[0] = photo
                 canvas.delete('all')
                 canvas.create_image(cw // 2, ch // 2, anchor='center', image=photo)
+                if path.name in marc:
+                    canvas.create_rectangle(10, 10, 210, 52, fill='#0D9488', outline='')
+                    canvas.create_text(110, 31, text='☑ MARCADA', fill='white',
+                                       font=('Segoe UI', 14, 'bold'))
             except Exception as e:
                 # Arquivo recem-copiado pela Fase 1 pode estar preso por
                 # instantes (Windows/antivirus): tenta de novo antes de desistir.
@@ -1164,50 +1180,104 @@ class App(tk.Tk):
             estado['i'] = inicios[ordem_b[(pos + passo) % len(ordem_b)]]
             mostrar()
 
+        # ── Marcar varias fotos pra mover de uma vez ─────────────────────────
+        marcadas = {}   # chave do aluno -> conjunto de nomes de arquivo marcados
+
+        def marcadas_do_aluno():
+            return marcadas.setdefault(estado['key'], set())
+
+        def alternar_marca():
+            nome = Path(fotos_()[estado['i']]).name
+            m = marcadas_do_aluno()
+            if nome in m:
+                m.discard(nome)
+                lbl_aviso.config(text='Marca removida.', fg='#ffd98a')
+            else:
+                m.add(nome)
+                lbl_aviso.config(text=f'☑ Marcada. Total: {len(m)}', fg='#9be39b')
+            mostrar()
+
+        def marcar_ate_o_fim():
+            # Caso comum: o QR do proximo aluno nao foi lido, entao as fotos dele
+            # vem em sequencia no fim da pasta do anterior.
+            m = marcadas_do_aluno()
+            for x in fotos_()[estado['i']:]:
+                m.add(Path(x).name)
+            lbl_aviso.config(text=f'☑ {len(m)} foto(s) marcada(s), da atual até a última.', fg='#9be39b')
+            mostrar()
+
+        def limpar_marcas():
+            marcadas_do_aluno().clear()
+            lbl_aviso.config(text='Marcas limpas.', fg='#ffd98a')
+            mostrar()
+
         def mover_para_outro():
             key = estado['key']
+            fl_atual = fotos_()
+            marc = marcadas_do_aluno()
+            # Com marcadas: move todas (na ordem em que foram tiradas). Sem marcas:
+            # so' a foto que esta' na tela, como sempre.
+            if marc:
+                posicoes = [k for k, x in enumerate(fl_atual) if Path(x).name in marc]
+            else:
+                posicoes = [estado['i']]
+            if not posicoes:
+                return
             destino_key = self._escolher_aluno_destino(excluir=key)
             if not destino_key:
                 return
 
-            pos = estado['i']
             origem_info = self.alunos_info[key]
             destino_info = self.alunos_info[destino_key]
-            origem_path = Path(origem_info['fotos'][pos])
             destino_pasta = Path(destino_info['pasta'])
             destino_pasta.mkdir(exist_ok=True)
 
-            # Proximo numero livre lendo a pasta — nunca confia so' em len(fotos).
-            numeros = []
-            for f in destino_pasta.glob(f'{destino_key} - *'):
+            movidas = []        # posicoes ja' movidas (na origem)
+            erro = None
+            for pos in posicoes:
+                origem_path = Path(origem_info['fotos'][pos])
+                # Proximo numero livre lendo a pasta — nunca confia so' em len(fotos).
+                numeros = []
+                for f in destino_pasta.glob(f'{destino_key} - *'):
+                    try:
+                        numeros.append(int(f.stem.rsplit(' - ', 1)[-1]))
+                    except ValueError:
+                        pass
+                novo_num = (max(numeros) + 1) if numeros else 1
+                novo_caminho = destino_pasta / f'{destino_key} - {novo_num:02d}{origem_path.suffix.lower()}'
                 try:
-                    numeros.append(int(f.stem.rsplit(' - ', 1)[-1]))
-                except ValueError:
-                    pass
-            novo_num = (max(numeros) + 1) if numeros else 1
-            novo_caminho = destino_pasta / f'{destino_key} - {novo_num:02d}{origem_path.suffix.lower()}'
+                    shutil.move(str(origem_path), str(novo_caminho))
+                except Exception as e:
+                    erro = e
+                    break
 
-            try:
-                shutil.move(str(origem_path), str(novo_caminho))
-            except Exception as e:
-                messagebox.showerror('Erro ao mover', str(e), parent=win)
+                # Se essa foto era a escolhida de algum tema do aluno errado, a
+                # escolha cai junto (senao apontaria pra arquivo que nao esta' mais la').
+                for t in temas_ordem:
+                    if escolhida(t) == origem_path.name and (key, t) in self._limpar_escolha:
+                        self._limpar_escolha[(key, t)]()
+
+                # Mantem o bloco (volta do QR) de onde a foto veio.
+                bloco_origem = (origem_info['blocos'][pos]
+                                if pos < len(origem_info.get('blocos', [])) else 1)
+                destino_info['fotos'].append(str(novo_caminho))
+                destino_info.setdefault('blocos', []).append(bloco_origem)
+                movidas.append(pos)
+
+            # Tira da origem de tras pra frente (as posicoes nao se deslocam)
+            for pos in sorted(movidas, reverse=True):
+                origem_info['fotos'].pop(pos)
+                if pos < len(origem_info.get('blocos', [])):
+                    origem_info['blocos'].pop(pos)
+            marc.clear()
+
+            if erro:
+                messagebox.showerror('Erro ao mover',
+                    f'Movi {len(movidas)} de {len(posicoes)} foto(s). Parou em:\n{erro}', parent=win)
+
+            if not movidas:
+                mostrar()
                 return
-
-            # Se essa foto era a escolhida de algum tema do aluno errado, a
-            # escolha cai junto (senao apontaria pra arquivo que nao esta' mais la').
-            for t in temas_ordem:
-                if escolhida(t) == origem_path.name and (key, t) in self._limpar_escolha:
-                    self._limpar_escolha[(key, t)]()
-
-            # Mantem o bloco (volta do QR) de onde a foto veio.
-            bloco_origem = (origem_info['blocos'][pos]
-                            if pos < len(origem_info.get('blocos', [])) else 1)
-            origem_info['fotos'].pop(pos)
-            if pos < len(origem_info.get('blocos', [])):
-                origem_info['blocos'].pop(pos)
-
-            destino_info['fotos'].append(str(novo_caminho))
-            destino_info.setdefault('blocos', []).append(bloco_origem)
 
             # Aluno criado agora (QR nao lido) ganha linha na Aba 2 na 1a foto.
             if destino_key in self._linhas_pendentes:
@@ -1220,11 +1290,14 @@ class App(tk.Tk):
                         json.dump(self.alunos_info, f, ensure_ascii=False, indent=2)
             except Exception as e:
                 messagebox.showwarning('Aviso',
-                    f'A foto foi movida, mas não consegui atualizar o índice:\n{e}', parent=win)
+                    f'As fotos foram movidas, mas não consegui atualizar o índice:\n{e}', parent=win)
 
-            lbl_aviso.config(text=f'✓ Movida pra {destino_info.get("nome", destino_key)}', fg='#9be39b')
+            n = len(movidas)
+            lbl_aviso.config(
+                text=f'✓ {n} foto(s) movida(s) pra {destino_info.get("nome", destino_key)}' if n > 1
+                else f'✓ Movida pra {destino_info.get("nome", destino_key)}', fg='#9be39b')
             if origem_info['fotos']:
-                estado['i'] = min(pos, len(origem_info['fotos']) - 1)
+                estado['i'] = min(min(movidas), len(origem_info['fotos']) - 1)
             else:
                 ks = ordem()
                 if not ks:
@@ -1243,6 +1316,9 @@ class App(tk.Tk):
             elif ks == 'Down':  pular(1)
             elif ks == 'Prior': mudar_aluno(-1)   # PgUp
             elif ks == 'Next':  mudar_aluno(1)    # PgDn
+            elif ks == 'space': alternar_marca()
+            elif ks == 'End':   marcar_ate_o_fim()
+            elif ks == 'Delete': limpar_marcas()
             elif ks == 'Escape': win.destroy()
             else:
                 d = e.char if e.char and e.char in '123456789' else \
