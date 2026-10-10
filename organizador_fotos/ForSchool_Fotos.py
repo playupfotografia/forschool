@@ -121,6 +121,43 @@ def _chave_ordem(nome):
     return ''.join(c for c in n if unicodedata.category(c) != 'Mn').casefold()
 
 
+# Ordem de CAPTURA: a lista da Aba 2 segue a sequencia em que os alunos foram
+# fotografados, nao a ordem alfabetica. Assim, quando um QR nao e' lido e as fotos de
+# uma crianca caem na pasta do amiguinho anterior, elas aparecem logo no fim da pasta
+# do anterior — na ordem real do dia. O horario vem da data das proprias fotos
+# (copy2 preserva a data da camera); sem data, vale a ordem em que apareceram no
+# indice; empate final por nome.
+_MTIME_FOTO = {}
+
+
+def _mtime_foto(caminho):
+    t = _MTIME_FOTO.get(caminho)
+    if t is None:
+        try:
+            t = os.path.getmtime(caminho)
+        except OSError:
+            t = float('inf')
+        _MTIME_FOTO[caminho] = t
+    return t
+
+
+def _t_captura(info):
+    """Horario da 1a foto do aluno. Guarda em info['t0'] pra o aluno que ficou sem
+    foto (ex: todas movidas pra outro) manter o lugar dele na fila."""
+    ts = [t for t in (_mtime_foto(p) for p in info.get('fotos', [])) if t != float('inf')]
+    if ts:
+        info['t0'] = min(ts)
+    return info.get('t0', float('inf'))
+
+
+def _ordem_captura(alunos_info, nome):
+    info = alunos_info.get(nome)
+    if info is None:
+        return (float('inf'), 0, _chave_ordem(nome))
+    idx = list(alunos_info).index(nome)
+    return (_t_captura(info), idx, _chave_ordem(nome))
+
+
 def buscar_temas_ativos():
     """Temas de foto cadastrados no admin (ex: Natal, Pequenos Artistas).
 
@@ -621,6 +658,11 @@ class App(tk.Tk):
         rodape.pack(fill='x', padx=8, pady=8)
         self._btn(rodape, '✅  Montar e salvar tudo', self._montar_tudo,
                   cor=COR_VERDE).pack(side='right')
+        # Fluxo Lightroom: exporta so' as escolhidas -> trata -> devolve em _TRATADAS -> Montar
+        self._btn(rodape, '📤  Exportar escolhidas p/ Lightroom', self._exportar_lightroom,
+                  cor=COR_LARANJA).pack(side='left')
+        self._btn(rodape, '📂  Abrir pasta das tratadas', self._abrir_tratadas,
+                  cor=COR_CINZA).pack(side='left', padx=(8, 0))
 
         self.log2 = scrolledtext.ScrolledText(p, height=6, font=('Consolas', 9),
                                               bg='#1E1E2E', fg='#A8D8A8',
@@ -768,7 +810,7 @@ class App(tk.Tk):
                      bg=COR_BG, fg=COR_CINZA, font=('Segoe UI', 9)).pack(
                      anchor='w', padx=10, pady=(0,6))
 
-        for nome_pasta, info in sorted(alunos_info.items(), key=lambda kv: _chave_ordem(kv[0])):
+        for nome_pasta, info in sorted(alunos_info.items(), key=lambda kv: _ordem_captura(alunos_info, kv[0])):
             fotos = info.get('fotos', [])
             self._linha_aluno(nome_pasta, info, fotos)
 
@@ -894,7 +936,7 @@ class App(tk.Tk):
 
         def ordem():
             return sorted((k for k, v in self.alunos_info.items() if v.get('fotos')),
-                          key=_chave_ordem)
+                          key=lambda k: _ordem_captura(self.alunos_info, k))
 
         estado = {'key': nome_pasta, 'i': 0}
         ja = self._escolhas_salvas.get(nome_pasta, {}).get(tema_real)
@@ -1188,7 +1230,8 @@ class App(tk.Tk):
                 if not ks:
                     win.destroy()
                     return
-                depois = [k for k in ks if _chave_ordem(k) >= _chave_ordem(key)]
+                ref = _ordem_captura(self.alunos_info, key)
+                depois = [k for k in ks if _ordem_captura(self.alunos_info, k) >= ref]
                 estado['key'], estado['i'] = (depois[0] if depois else ks[-1]), 0
             mostrar()
 
@@ -1446,6 +1489,97 @@ class App(tk.Tk):
         self.wait_window(dlg)
         return resultado[0]
 
+    # ── Fluxo Lightroom ───────────────────────────────────────────────────────
+    # 1) "Exportar escolhidas": copia SO' as fotos escolhidas de cada aluno pra
+    #    <pasta organizada>/_PARA_LIGHTROOM/<pasta do aluno>/ (mesmos nomes de arquivo).
+    # 2) Trata tudo no Lightroom e exporta pra <pasta organizada>/_TRATADAS (com o
+    #    nome original do arquivo, em subpastas ou tudo solto — tanto faz).
+    # 3) "Montar e salvar tudo" usa a versao tratada quando existe; sem ela, a original.
+    #    O casamento e' pelo NOME do arquivo (sem extensao), entao .JPG/.jpg/.tif servem.
+    EXT_IMAGEM = ('.jpg', '.jpeg', '.png', '.tif', '.tiff')
+
+    def _foto_escolhida_de(self, nome_pasta, tema):
+        """(Path, explicita) da foto escolhida pro tema; None se nao ha' linha/foto."""
+        par = self.foto_vars.get(nome_pasta, {}).get(tema)
+        if not par:
+            return None
+        var, fotos_list = par
+        nome = var.get()
+        p = next((Path(f) for f in fotos_list if Path(f).name == nome), None)
+        explicita = self._escolhas_salvas.get(nome_pasta, {}).get(tema) == nome
+        return (p, explicita) if p else None
+
+    def _exportar_lightroom(self):
+        pasta = getattr(self, '_pasta_organizada', None)
+        if not self.alunos_info or not pasta:
+            messagebox.showwarning('Atenção', 'Abra uma pasta organizada (ou rode o Passo 1) primeiro.')
+            return
+        destino_raiz = Path(pasta) / '_PARA_LIGHTROOM'
+        novas = ja_existiam = alunos = 0
+        sem_escolha = []
+        for nome_pasta, info in self.alunos_info.items():
+            fotos = info.get('fotos', [])
+            if not fotos:
+                continue
+            linhas = self.foto_vars.get(nome_pasta, {})
+            escolhidas = {}
+            for tema in linhas:
+                r = self._foto_escolhida_de(nome_pasta, tema)
+                if r and r[0]:
+                    escolhidas[r[0]] = escolhidas.get(r[0], False) or r[1]
+                    if not r[1]:
+                        rot = 'Uniforme' if tema == '' else tema
+                        sem_escolha.append(f'{info.get("nome", nome_pasta)} — {rot}')
+            if not escolhidas:                      # sem linhas montadas: a 1a foto
+                escolhidas[Path(fotos[0])] = False
+            alunos += 1
+            for p in escolhidas:
+                if not p.exists():
+                    continue
+                dest_dir = destino_raiz / p.parent.name
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                alvo = dest_dir / p.name
+                if alvo.exists():
+                    ja_existiam += 1
+                else:
+                    shutil.copy2(p, alvo)
+                    novas += 1
+        self._log2(f'📤 Exportadas p/ Lightroom: {novas} foto(s) nova(s), {ja_existiam} já estavam lá — {alunos} aluno(s).')
+        self._log2(f'   Pasta: {destino_raiz}')
+        if sem_escolha:
+            self._log2(f'   ⚠ {len(sem_escolha)} tema(s) sem escolha explícita (foi a 1ª foto): '
+                       + '; '.join(sem_escolha[:8]) + (' …' if len(sem_escolha) > 8 else ''))
+        try:
+            os.startfile(str(destino_raiz))
+        except Exception:
+            pass
+        messagebox.showinfo('Exportado',
+            f'{novas} foto(s) nova(s) em:\n{destino_raiz}\n\n'
+            'Trate no Lightroom e exporte pra pasta _TRATADAS (dentro da pasta organizada), '
+            'mantendo o nome original do arquivo. Depois clique em "Montar e salvar tudo".')
+
+    def _abrir_tratadas(self):
+        pasta = getattr(self, '_pasta_organizada', None)
+        if not pasta:
+            messagebox.showwarning('Atenção', 'Abra uma pasta organizada primeiro.')
+            return
+        alvo = Path(pasta) / '_TRATADAS'
+        alvo.mkdir(exist_ok=True)
+        try:
+            os.startfile(str(alvo))
+        except Exception as e:
+            messagebox.showinfo('Pasta das tratadas', f'{alvo}\n\n(não consegui abrir: {e})')
+
+    def _indice_tratadas(self):
+        """nome-sem-extensao (minusculo) -> caminho da versao tratada, em _TRATADAS (recursivo)."""
+        idx = {}
+        raiz = Path(self._pasta_organizada) / '_TRATADAS'
+        if raiz.exists():
+            for f in raiz.rglob('*'):
+                if f.is_file() and f.suffix.lower() in self.EXT_IMAGEM:
+                    idx[f.stem.casefold()] = f
+        return idx
+
     def _montar_tudo(self):
         if not self.alunos_info:
             messagebox.showwarning('Atenção', 'Execute o Passo 1 primeiro ou abra uma pasta organizada.')
@@ -1464,6 +1598,24 @@ class App(tk.Tk):
         relatorio  = {}
         sem_pedido = []
 
+        # Fotos tratadas no Lightroom (_TRATADAS): quando existe a versao tratada de
+        # uma foto escolhida, ela e' usada no lugar da original.
+        tratadas = self._indice_tratadas()
+        usou_tratada = set()
+        sem_tratada = set()
+        if tratadas:
+            self._log2(f'✨ {len(tratadas)} foto(s) em _TRATADAS — vou usar a versão tratada quando houver.')
+
+        def _tr(p):
+            if p is None or not tratadas:
+                return p
+            t = tratadas.get(p.stem.casefold())
+            if t:
+                usou_tratada.add(p.stem.casefold())
+                return t
+            sem_tratada.add(p.name)
+            return p
+
         for nome_pasta, info in sorted(self.alunos_info.items(), key=lambda kv: _chave_ordem(kv[0])):
             nome    = info.get('nome', nome_pasta)
             aluno_id = info.get('id', '')
@@ -1478,11 +1630,11 @@ class App(tk.Tk):
             def foto_do_tema(tema=''):
                 par = escolhas.get(tema) or escolhas.get('')
                 if not par:
-                    return Path(fotos[0]) if fotos else None
+                    return _tr(Path(fotos[0])) if fotos else None
                 var, fotos_list = par
                 nome_escolhido = var.get()
-                return next((Path(f) for f in fotos_list
-                             if Path(f).name == nome_escolhido), None)
+                return _tr(next((Path(f) for f in fotos_list
+                                 if Path(f).name == nome_escolhido), None))
 
             foto_path = foto_do_tema('')   # padrao, usada tambem no _SO_AUTORIZOU
 
@@ -1537,6 +1689,13 @@ class App(tk.Tk):
                     relatorio[nome_prod] = {'total': 0, 'alunos': {}}
                 relatorio[nome_prod]['total'] += qty
                 relatorio[nome_prod]['alunos'][nome] = qty
+
+        if tratadas:
+            self._log2(f'✨ Fotos tratadas usadas: {len(usou_tratada)}.')
+            if sem_tratada:
+                lista = sorted(sem_tratada)
+                self._log2(f'⚠ {len(lista)} foto(s) escolhida(s) SEM versão tratada (usei a original): '
+                           + ', '.join(lista[:10]) + (' …' if len(lista) > 10 else ''))
 
         # Gera relatório
         rel_path = pasta_saida / '_RELATORIO_IMPRESSAO.txt'
