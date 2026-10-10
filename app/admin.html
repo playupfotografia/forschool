@@ -2853,8 +2853,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           <option value="">💳 Pagamento: todos</option>
           <option value="pix">PIX</option>
           <option value="pix_parcelado">PIX parcelado</option>
-          <option value="cartao_1x">Cartão 1×</option>
-          <option value="cartao_2x">Cartão 2×</option>
+          <option value="__cartao">Cartão (1× e 2×)</option>
           <option value="cartao_debito">Débito</option>
           <option value="dinheiro">Dinheiro</option>
           <option value="outro">Outro</option>
@@ -2882,6 +2881,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
         <button class="btn btn-sm btn-secondary" onclick="exportarDrillExcel()" title="Baixa a lista que está na tela (com os filtros aplicados) para abrir no Excel">⬇ Exportar Excel</button>
         <button class="btn btn-sm btn-secondary" onclick="imprimirRelatorioSituacao()" title="Relatório agrupado por situação (sem autorização, pendente, pendente com parcela paga, sem pedido, pago...), pra imprimir ou salvar em PDF">📋 Relatório da situação</button>
       </div>
+      <div id="drill-al-soma" style="display:none;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:13px"></div>
       <div id="drill-avulsas-box" style="display:none;background:#EEF2FF;border:1px solid #C7D2FE;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px"></div>
       <div class="table-wrap">
         <table class="drill-tbl">
@@ -9209,7 +9209,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
         .select(`
           id, order_number, kit_type, total_amount, payment_status, payment_proof_url, paid_at, created_at,
           gateway, gateway_status, credit_expected_date, credited_at, updated_at,
-          payment_method, installments, amount_charged, cancelled_at, cancelled_by,
+          payment_method, installments, amount_charged, gateway_fee, net_amount, cancelled_at, cancelled_by,
           student_id,
           items:order_items(id, quantity, unit_price, variant_name, product:products(id, name))
         `)
@@ -9876,6 +9876,32 @@ function fichaStatusDe(a) {
   return mexido && mexido > a.fichaEm ? 'desatualizada' : 'ok';
 }
 
+// Soma do que ENTROU (so' pedidos pagos) na lista que esta' na tela — acompanha
+// qualquer combinacao de filtros. Cartao 1x e 2x aparecem juntos.
+function renderDrillSomaPagamentos(lista) {
+  const box = document.getElementById('drill-al-soma');
+  if (!box) return;
+  const grupo = m => (m === 'cartao_1x' || m === 'cartao_2x') ? 'Cartão' : (METODO_LABEL[m] || (m ? m.toUpperCase() : 'Sem forma'));
+  const porForma = {};
+  let qtd = 0, total = 0, taxa = 0;
+  lista.forEach(a => {
+    const o = a.order;
+    if (!o || o.payment_status !== 'paid') return;
+    const v = Number(o.amount_charged ?? o.total_amount) || 0;
+    const g = grupo(o.payment_method);
+    (porForma[g] = porForma[g] || { q: 0, v: 0 });
+    porForma[g].q++; porForma[g].v += v;
+    qtd++; total += v; taxa += Number(o.gateway_fee) || 0;
+  });
+  if (!qtd) { box.style.display = 'none'; return; }
+  const partes = Object.entries(porForma).sort((x, y) => y[1].v - x[1].v)
+    .map(([g, d]) => `<span style="white-space:nowrap">${escapeHtml(g)}: <b>${fmtMoney(d.v)}</b> <span style="color:var(--gray-500)">(${d.q})</span></span>`).join(' &nbsp;·&nbsp; ');
+  box.innerHTML = `💰 <b>Entrou nesta lista:</b> ${fmtMoney(total)} <span style="color:var(--gray-500)">em ${qtd} pedido(s) pago(s)</span>`
+    + (taxa > 0 ? ` &nbsp;·&nbsp; taxas ${fmtMoney(taxa)} &nbsp;·&nbsp; líquido ${fmtMoney(total - taxa)}` : '')
+    + `<div style="margin-top:4px;font-size:12px">${partes}</div>`;
+  box.style.display = '';
+}
+
 function filtrarDrillAlunos() {
   const busca = (document.getElementById('drill-al-busca').value || '').toLowerCase().trim();
   const ftur  = document.getElementById('drill-al-ftur').value;
@@ -9898,6 +9924,7 @@ function filtrarDrillAlunos() {
   const fpag = document.getElementById('drill-al-fpag')?.value;
   if (fpag === '__auto') lista = lista.filter(a => a.order?.payment_status === 'paid' && GATEWAYS_AUTOMATICOS.has(a.order.gateway));
   else if (fpag === '__manual') lista = lista.filter(a => a.order?.payment_status === 'paid' && !GATEWAYS_AUTOMATICOS.has(a.order.gateway));
+  else if (fpag === '__cartao') lista = lista.filter(a => ['cartao_1x', 'cartao_2x'].includes(a.order?.payment_method));
   else if (fpag === '__sem') lista = lista.filter(a => a.order && !a.order.payment_method);
   else if (fpag) lista = lista.filter(a => a.order?.payment_method === fpag);
 
@@ -9945,6 +9972,7 @@ function filtrarDrillAlunos() {
   drillListaFiltrada = lista;   // o que esta' na tela agora — usado pelo exportar Excel
   document.getElementById('drill-al-count').textContent = lista.length + ' aluno(s)';
   renderDrillAvulsasBox(busca);
+  renderDrillSomaPagamentos(lista);
 
   const kitMap   = { basico: 'Básico', inter: 'Intermediário', promo: 'Promocional' };
   const kitClass = { basico: 'kit-bas', inter: 'kit-int', promo: 'kit-pro' };
