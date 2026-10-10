@@ -148,6 +148,15 @@ def organizar(pasta_origem: Path, pasta_saida: Path):
                 if turma: partes.append(f'Turma {turma}')
                 nome_pasta = sanitizar_nome(' - '.join(partes))
 
+                # Mesmo aluno (mesmo id) com texto diferente no QR — ficha impressa
+                # antes/depois de corrigirem ano/turma no admin — cai na pasta que
+                # ja' existe, em vez de abrir uma segunda pasta do mesmo aluno.
+                if aluno_id:
+                    existente = next((k for k, v in alunos_info.items()
+                                      if v.get('id') == aluno_id), None)
+                    if existente:
+                        nome_pasta = existente
+
                 aluno_atual = nome_pasta
                 pasta_aluno = pasta_saida / nome_pasta
                 pasta_aluno.mkdir(exist_ok=True)
