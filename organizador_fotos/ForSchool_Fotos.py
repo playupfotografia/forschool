@@ -1212,6 +1212,42 @@ class App(tk.Tk):
         mk('⏮ Bloco', lambda: pular(-1), '#3a3a5e', padx=(12, 4))
         mk('Bloco ⏭', lambda: pular(1), '#3a3a5e')
         mk('Fechar [Esc]', win.destroy, '#555577', side='right', padx=(8, 0))
+
+        def ir_para_alunos():
+            # Fecha o visor de turmas e abre o dos alunos, no primeiro da lista.
+            alunos = sorted((k for k, v in self.alunos_info.items()
+                             if v.get('fotos') and v.get('tipo') != 'turma'),
+                            key=lambda k: _ordem_captura(self.alunos_info, k))
+            if not alunos:
+                lbl_aviso.config(text='Nenhum aluno com foto.', fg='#ffd98a')
+                return
+            k0 = alunos[0]
+            par = self.foto_vars.get(k0, {}).get('')
+            if not par:
+                lbl_aviso.config(text='Feche e escolha o aluno na lista.', fg='#ffd98a')
+                return
+            win.destroy()
+            self.after(100, lambda: self._abrir_visor(
+                k0, par[0], par[1], 'Uniforme', self.alunos_info[k0].get('blocos')))
+
+        def ir_para_turmas():
+            turmas_ = sorted((k for k, v in self.alunos_info.items()
+                              if v.get('fotos') and v.get('tipo') == 'turma'),
+                             key=lambda k: _ordem_captura(self.alunos_info, k))
+            if not turmas_:
+                lbl_aviso.config(text='Nenhuma turma com foto.', fg='#ffd98a')
+                return
+            par = self.foto_vars.get(turmas_[0], {}).get('')
+            if not par:
+                return
+            win.destroy()
+            self.after(100, lambda: self._abrir_visor(
+                turmas_[0], par[0], par[1], 'Uniforme', self.alunos_info[turmas_[0]].get('blocos')))
+
+        if modo_turma:
+            mk('Ir para os ALUNOS ⏭', ir_para_alunos, '#2563EB', side='right')
+        else:
+            mk('🏫 Ir para as turmas', ir_para_turmas, '#2563EB', side='right')
         btn_mover = mk('➡ Mover p/ outro aluno', lambda: mover_para_outro(), '#7C3AED', side='right')
         mk('☑ Marcar [Espaço]', lambda: alternar_marca(), '#0D9488', padx=(12, 4))
         mk('☑ Desta até a última [End]', lambda: marcar_ate_o_fim(), '#0D9488', padx=(0, 4))
