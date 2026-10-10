@@ -1328,7 +1328,50 @@ class App(tk.Tk):
 
         win.bind('<Key>', tecla)
         win.focus_set()
-        canvas.bind('<Configure>', lambda e: mostrar())
+
+        # Redesenhar a foto a cada <Configure> decodificava o JPEG inteiro dezenas de
+        # vezes enquanto a janela era redimensionada/restaurada (com foto grande, a
+        # janela travava e parecia nao minimizar). Agora espera o tamanho assentar
+        # (150ms sem novo evento) e nao redesenha minimizada.
+        reenv = [None]
+
+        def redesenhar():
+            reenv[0] = None
+            try:
+                if win.state() == 'iconic' or canvas.winfo_width() < 50:
+                    return
+            except tk.TclError:
+                return
+            mostrar()
+
+        def redesenhar_depois(e=None):
+            if reenv[0] is not None:
+                try:
+                    win.after_cancel(reenv[0])
+                except Exception:
+                    pass
+            reenv[0] = win.after(150, redesenhar)
+
+        canvas.bind('<Configure>', redesenhar_depois)
+
+        # O visor e' modal (grab). Minimizado, o bloqueio e' solto pra nao prender
+        # o foco/teclado; ao voltar, retoma.
+        def ao_minimizar(e):
+            if e.widget is win:
+                try:
+                    win.grab_release()
+                except Exception:
+                    pass
+
+        def ao_restaurar(e):
+            if e.widget is win:
+                try:
+                    win.grab_set()
+                except Exception:
+                    pass
+
+        win.bind('<Unmap>', ao_minimizar)
+        win.bind('<Map>', ao_restaurar)
         win.after(150, mostrar)
 
     def _escolher_aluno_destino(self, excluir):
