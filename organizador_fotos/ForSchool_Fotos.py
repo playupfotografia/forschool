@@ -676,6 +676,16 @@ class App(tk.Tk):
         tk.Label(topo, text='(se já rodou o Passo 1 antes)',
                  bg=COR_BG, fg=COR_CINZA, font=('Segoe UI', 9)).pack(side='left', padx=10)
 
+        # Busca por nome: sem acento, sem maiuscula e perdoa 1 letra errada.
+        self._busca_var = tk.StringVar()
+        self._busca_info = tk.Label(topo, text='', bg=COR_BG, fg=COR_CINZA, font=('Segoe UI', 9))
+        self._busca_info.pack(side='right', padx=(6, 0))
+        ent = tk.Entry(topo, textvariable=self._busca_var, font=('Segoe UI', 10), width=26)
+        ent.pack(side='right')
+        tk.Label(topo, text='🔎 Buscar aluno:', bg=COR_BG, fg=COR_TEXTO,
+                 font=('Segoe UI', 9, 'bold')).pack(side='right', padx=(0, 4))
+        self._busca_var.trace_add('write', lambda *_: self._filtrar_aba2())
+
         # Frame rolável de alunos
         self.frame_alunos_outer = tk.Frame(p, bg=COR_BG)
         self.frame_alunos_outer.pack(fill='both', expand=True, padx=8)
@@ -845,6 +855,13 @@ class App(tk.Tk):
         self.foto_vars = {}
         self._limpar_escolha = {}
         self._linhas_pendentes = set()
+        self._linhas_frm = {}
+        self._pack_infos = None
+        try:
+            self._busca_var.set('')
+            self._busca_info.config(text='')
+        except Exception:
+            pass
 
         # Escolhas ficam gravadas na propria pasta: fechar o programa (ou ele
         # travar) antes de "Montar e salvar tudo" nao perde horas de escolha.
@@ -905,6 +922,36 @@ class App(tk.Tk):
             fotos = info.get('fotos', [])
             self._linha_aluno(nome_pasta, info, fotos)
 
+    def _filtrar_aba2(self):
+        """Mostra so' as linhas (alunos e turmas) que casam com a busca; os titulos
+        das secoes ficam onde estao."""
+        frames = getattr(self, '_linhas_frm', {})
+        if not frames:
+            return
+        filhos = list(self.frame_alunos.winfo_children())
+        if getattr(self, '_pack_infos', None) is None:
+            self._pack_infos = {w: {k: v for k, v in w.pack_info().items() if k != 'in'}
+                                for w in filhos if w.winfo_manager() == 'pack'}
+        termo = self._busca_var.get().strip()
+        por_frame = {frm: k for k, frm in frames.items()}
+        for w in filhos:
+            if w in self._pack_infos:
+                w.pack_forget()
+        mostrados = 0
+        for w in filhos:
+            info = self._pack_infos.get(w)
+            if info is None:
+                continue
+            k = por_frame.get(w)
+            if k is not None:
+                nome = self.alunos_info.get(k, {}).get('nome', k)
+                if termo and not _casa_texto(termo, nome):
+                    continue
+                mostrados += 1
+            w.pack(**info)
+        self._busca_info.config(text=(f'{mostrados} de {len(frames)}' if termo else ''))
+        self.canvas_alunos.yview_moveto(0)
+
     def _carregar_turmas(self, pasta, alunos_info):
         """Le _TURMAS/<pasta da turma>/ e acrescenta em alunos_info (in place) uma
         entrada por turma com foto. Devolve as chaves ('TURMA::<pasta>')."""
@@ -961,6 +1008,8 @@ class App(tk.Tk):
         frm = tk.Frame(self.frame_alunos, bg='white', relief='flat', bd=0)
         frm.pack(fill='x', padx=10, pady=3)
         frm.configure(highlightbackground='#E2E8F0', highlightthickness=1)
+        self._linhas_frm = getattr(self, '_linhas_frm', {})
+        self._linhas_frm[nome_pasta] = frm
 
         nome = info.get('nome', nome_pasta)
         cab = tk.Frame(frm, bg='white')
@@ -1814,6 +1863,7 @@ class App(tk.Tk):
             messagebox.showwarning('Atenção', 'Abra uma pasta organizada (ou rode o Passo 1) primeiro.')
             return
         destino_raiz = Path(pasta) / '_PARA_LIGHTROOM'
+        (Path(pasta) / '_TRATADAS').mkdir(exist_ok=True)   # ja' fica pronta pra exportar do Lightroom
         novas = ja_existiam = alunos = 0
         sem_escolha = []
         for nome_pasta, info in self.alunos_info.items():
