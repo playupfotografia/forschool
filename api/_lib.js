@@ -202,7 +202,12 @@ function descricaoCobranca({ escola, projeto, numeros, alunos, extra }) {
     alunos,
     extra,
   ].filter(Boolean);
-  const txt = partes.join(' - ');
+  // Woovi recusa emoji e simbolos Unicode no comentario (aspas curvas “ ” tambem
+  // contam): fica so' letra, numero, espaco e pontuacao simples.
+  const txt = partes.join(' - ')
+    .replace(/[^\p{L}\p{N} .,;:!?()\-_\/&%+#@]/gu, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
   return txt.length > 140 ? txt.slice(0, 137).trimEnd() + '...' : txt;
 }
 

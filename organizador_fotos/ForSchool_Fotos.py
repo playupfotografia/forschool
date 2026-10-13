@@ -993,8 +993,12 @@ class App(tk.Tk):
         partes = [p for p in (ano, f'Turma {t}' if t else '') if p]
         if not partes:
             return None
-        alvo = sanitizar(' - '.join(partes)).casefold()
-        cand = [(k, v['nome'].casefold()) for k, v in self.alunos_info.items()
+        # "3° Ano Fund I - Turma A" (cadastro novo) e "3° Fund I - Turma A Professora X"
+        # (QR de turma antigo) tem que casar: a palavra "ano" e' ignorada.
+        def _ct(txt):
+            return ' '.join(w for w in _chave_ordem(txt).split() if w != 'ano')
+        alvo = _ct(sanitizar(' - '.join(partes)))
+        cand = [(k, _ct(v['nome'])) for k, v in self.alunos_info.items()
                 if v.get('tipo') == 'turma']
         for k, n in cand:
             if n == alvo:
@@ -1158,7 +1162,7 @@ class App(tk.Tk):
             win.state('zoomed')   # abre maximizado
         except Exception:
             pass
-        win.grab_set()  # modal
+        # Sem grab (modal): o grab impedia minimizar/trocar de janela.
 
         # ── Topo: nome GRANDE do aluno (muda a cada aluno) ───────────────────
         lbl_nome = tk.Label(win, text='', bg=BG, fg='white', font=('Segoe UI', 28, 'bold'))
@@ -1585,24 +1589,6 @@ class App(tk.Tk):
 
         canvas.bind('<Configure>', redesenhar_depois)
 
-        # O visor e' modal (grab). Minimizado, o bloqueio e' solto pra nao prender
-        # o foco/teclado; ao voltar, retoma.
-        def ao_minimizar(e):
-            if e.widget is win:
-                try:
-                    win.grab_release()
-                except Exception:
-                    pass
-
-        def ao_restaurar(e):
-            if e.widget is win:
-                try:
-                    win.grab_set()
-                except Exception:
-                    pass
-
-        win.bind('<Unmap>', ao_minimizar)
-        win.bind('<Map>', ao_restaurar)
         win.after(150, mostrar)
 
     def _escolher_aluno_destino(self, excluir):
