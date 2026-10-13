@@ -53,7 +53,7 @@ module.exports = async (req, res) => {
     let projeto = null;
     if (projectId) {
       const projs = await sb(
-        `/projects?id=eq.${q(projectId)}&select=id,school_id,delivery_date,delivery_fee,delivery_cutoff_days,pickup_enabled,payment_pix_manual,woovi_conta`
+        `/projects?id=eq.${q(projectId)}&select=id,school_id,delivery_date,delivery_fee,delivery_cutoff_days,delivery_cutoff_hour,pickup_enabled,payment_pix_manual,woovi_conta`
       );
       projeto = projs?.[0];
       if (!projeto || projeto.school_id !== aluno.school_id) {
@@ -271,12 +271,24 @@ module.exports = async (req, res) => {
     let endereco = null;
 
     if (projeto?.delivery_date) {
-      const corte = new Date(projeto.delivery_date + 'T00:00:00');
-      corte.setDate(corte.getDate() - (parseInt(projeto.delivery_cutoff_days, 10) || 0));
-      const hoje = new Date();
-      hoje.setHours(0, 0, 0, 0);
+      const dias = parseInt(projeto.delivery_cutoff_days, 10) || 0;
+      let passouCorte;
+      if (projeto.delivery_cutoff_hour != null && projeto.delivery_cutoff_hour !== '') {
+        // Projeto com HORA de corte: vale a partir de HH:00 de Brasilia (UTC-3) do dia
+        // [entrega - N dias].
+        const [Y, M, D] = String(projeto.delivery_date).slice(0, 10).split('-').map(Number);
+        const corteHora = new Date(Date.UTC(Y, M - 1, D - dias, Number(projeto.delivery_cutoff_hour) + 3, 0, 0));
+        passouCorte = Date.now() >= corteHora.getTime();
+      } else {
+        // Sem hora: comportamento de sempre (so' a data, no relogio do servidor).
+        const corte = new Date(projeto.delivery_date + 'T00:00:00');
+        corte.setDate(corte.getDate() - dias);
+        const hoje = new Date();
+        hoje.setHours(0, 0, 0, 0);
+        passouCorte = hoje >= corte;
+      }
 
-      if (hoje >= corte) {
+      if (passouCorte) {
         const permiteRetirada = projeto.pickup_enabled !== false;
         if (entregaPedida === 'retirada' && permiteRetirada) {
           metodoEntrega = 'retirada';

@@ -2476,6 +2476,11 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
               <input class="form-input" id="pj-entrega-corte" type="number" min="0" max="60" placeholder="5">
               <div class="slug-hint">Quantos dias antes o pedido deixa de alcançar o lote da escola.</div>
             </div>
+            <div class="form-group">
+              <label class="form-label">Hora do corte (opcional)</label>
+              <input class="form-input" id="pj-entrega-corte-hora" type="number" min="0" max="23" placeholder="vazio = virada do dia">
+              <div class="slug-hint">Hora (Brasília) em que o corte começa naquele dia. Ex.: 9 = a partir das 9h. Vazio = como sempre.</div>
+            </div>
           </div>
           <label class="chk-inline" style="margin-bottom:4px">
             <input type="checkbox" id="pj-entrega-retirada" checked>
@@ -2879,6 +2884,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
         <button class="btn btn-sm btn-primary" id="btn-drill-imprimir-fichas" onclick="imprimirFichasSelecionadasDrill()" disabled style="opacity:.45;cursor:not-allowed" title="Marque alunos na tabela pra imprimir as fichas deles">🖨 Imprimir fichas marcadas</button>
         <button class="btn btn-sm btn-secondary" onclick="marcarFichasImpressasDrill()" title="Marca como impressa a ficha de todos que ainda aparecem como 'falta ficha' — EXCETO os alunos que você deixou marcados (✓) na tabela">✅ Marcar fichas como impressas</button>
         <button class="btn btn-sm btn-secondary" onclick="exportarDrillExcel()" title="Baixa a lista que está na tela (com os filtros aplicados) para abrir no Excel">⬇ Exportar Excel</button>
+        <button class="btn btn-sm btn-secondary" onclick="imprimirRelatorioProdutos()" title="Lista para imprimir: produto por produto, com o nome de quem comprou (só pedidos pagos por padrão; dá pra incluir os pendentes na própria folha)">🛒 Produtos e compradores</button>
         <button class="btn btn-sm btn-secondary" onclick="imprimirRelatorioSituacao()" title="Relatório agrupado por situação (sem autorização, pendente, pendente com parcela paga, sem pedido, pago...), pra imprimir ou salvar em PDF">📋 Relatório da situação</button>
       </div>
       <div id="drill-al-soma" style="display:none;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:13px"></div>
@@ -8347,6 +8353,7 @@ async function editarProjeto(id) {
     document.getElementById('pj-prazo-pedido').value = p.order_deadline || '';
     document.getElementById('pj-entrega-taxa').value     = p.delivery_fee ?? 35;
     document.getElementById('pj-entrega-corte').value    = p.delivery_cutoff_days ?? 5;
+    document.getElementById('pj-entrega-corte-hora').value = p.delivery_cutoff_hour ?? '';
     document.getElementById('pj-entrega-retirada').checked = p.pickup_enabled !== false;
     document.getElementById('pj-pix-mode').value = p.pix_mode || '';
     document.getElementById('pj-pix-parcelas').value = p.pix_parcelas ?? '';
@@ -8582,6 +8589,7 @@ document.getElementById('btn-salvar-projeto').addEventListener('click', async ()
     closed_message: document.getElementById('pj-encerrado-msg').value.trim() || null,
     delivery_fee:         parseFloat(document.getElementById('pj-entrega-taxa').value) || 0,
     delivery_cutoff_days: parseInt(document.getElementById('pj-entrega-corte').value, 10) || 0,
+    delivery_cutoff_hour: (() => { const v = parseInt(document.getElementById('pj-entrega-corte-hora').value, 10); return Number.isFinite(v) && v >= 0 && v <= 23 ? v : null; })(),
     pickup_enabled:       document.getElementById('pj-entrega-retirada').checked,
     bilhete_template_id: document.getElementById('pj-bilhete').value || null,
     authorization_term_id: document.getElementById('pj-termo').value || null,
@@ -11171,6 +11179,131 @@ function montarFichaCard(a, ped, todosTemas = []) {
 // Checkbox "Ocultar valores" fica na PROPRIA janela (nao aqui), pra poder
 // ligar/desligar sem reabrir o relatorio.
 // ---------------------------------------------------------------------------
+// Relatorio PRODUTO POR PRODUTO com o nome de quem comprou (projeto aberto em
+// Alunos & Pedidos). Kits sao abertos nos produtos que levam (school_kit_items x
+// quantidade do kit). Por padrao so' pedidos PAGOS; a folha tem uma caixinha pra
+// incluir os pendentes (e os totais se recalculam). Cancelado/estornado nunca entra.
+async function imprimirRelatorioProdutos() {
+  const comPedido = drillAlunosData.filter(a => a.order && !['cancelled', 'refunded'].includes(a.order.payment_status));
+  if (!comPedido.length) { toast('Nenhum pedido neste projeto ainda.', 'warn'); return; }
+
+  const porId = {};
+  comPedido.forEach(a => { porId[a.order.id] = a; });
+  const ids = Object.keys(porId);
+  const pedidos = [];
+  try {
+    for (let i = 0; i < ids.length; i += 80) {
+      const { data, error } = await supabase.from('orders')
+        .select(`id, order_number, payment_status,
+          items:order_items(quantity, variant_name, from_kit_id, product:products(name)),
+          kits:order_kits(quantity, kit:school_kits(name, items:school_kit_items(quantity, product:products(name))))`)
+        .in('id', ids.slice(i, i + 80));
+      if (error) throw error;
+      pedidos.push(...(data || []));
+    }
+  } catch (err) { toast('Erro ao montar o relatório: ' + err.message, 'error'); return; }
+
+  // produto (+ variação) -> linhas de comprador
+  const prods = {};
+  const add = (nome, qtd, a, p) => {
+    if (!nome) return;
+    (prods[nome] = prods[nome] || []).push({ qtd, aluno: a.name, turma: ((a.year_name || '') + (a.class_name && a.class_name !== '—' ? ' — ' + a.class_name : '')).trim(),
+      pedido: p.order_number || '', pago: p.payment_status === 'paid' });
+  };
+  pedidos.forEach(p => {
+    const a = porId[p.id];
+    if (!a) return;
+    const temKit = (p.kits || []).length > 0;
+    (p.items || []).forEach(it => {
+      if (it.from_kit_id && temKit) return;          // o kit ja' abre nos produtos dele
+      const nome = (it.product?.name || '').trim();
+      add(nome ? nome + (it.variant_name ? ' — ' + it.variant_name : '') : '', Number(it.quantity) || 1, a, p);
+    });
+    (p.kits || []).forEach(k => {
+      const kq = Number(k.quantity) || 1;
+      (k.kit?.items || []).forEach(ki => add((ki.product?.name || '').trim(), (Number(ki.quantity) || 1) * kq, a, p));
+    });
+  });
+
+  const nomes = Object.keys(prods).sort((x, y) => x.localeCompare(y, 'pt-BR'));
+  if (!nomes.length) { toast('Os pedidos não têm produtos.', 'warn'); return; }
+
+  const { data: cfg } = await supabase.from('app_settings').select('business_name').eq('id', 1).maybeSingle();
+  const empresa = cfg?.business_name || 'Play Up Fotografia';
+  const dataEmissao = new Date().toLocaleString('pt-BR');
+
+  const blocos = nomes.map(n => {
+    const linhas = prods[n].sort((x, y) => x.turma.localeCompare(y.turma, 'pt-BR') || x.aluno.localeCompare(y.aluno, 'pt-BR'));
+    return `<div class="pb" data-prod>
+      <h2>${escapeHtml(n)} <span class="tot"></span></h2>
+      <table><thead><tr><th>Aluno</th><th>Turma</th><th class="c">Qtd</th><th>Pedido</th><th>Situação</th></tr></thead><tbody>
+      ${linhas.map(l => `<tr class="${l.pago ? 'pg' : 'pd'}" data-q="${l.qtd}"><td>${escapeHtml(l.aluno)}</td><td class="m">${escapeHtml(l.turma)}</td><td class="c">${l.qtd}</td><td class="m">${escapeHtml(l.pedido)}</td><td class="${l.pago ? 'ok' : 'pen'}">${l.pago ? 'Pago' : 'Pendente'}</td></tr>`).join('')}
+      </tbody></table></div>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="UTF-8">
+<title>Produtos e compradores — ${escapeHtml(drillProjeto?.name || '')}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',Arial,sans-serif;background:#fff;color:#1a1a2e;font-size:12.5px;line-height:1.45}
+@page{size:A4 portrait;margin:14mm}
+@media screen{body{padding:20px;max-width:190mm;margin:0 auto}
+  .btn-row{display:flex;gap:16px;align-items:center;justify-content:center;margin-bottom:18px;flex-wrap:wrap}
+  .btn-row button{padding:9px 18px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;background:#4B6BFB;color:#fff}
+  .btn-row label{font-size:13px;color:#555;display:flex;align-items:center;gap:6px;cursor:pointer}}
+@media print{.btn-row{display:none}}
+.head{text-align:center;border-bottom:2px solid #4B6BFB;padding-bottom:10px;margin-bottom:12px}
+.emp{font-family:'Playfair Display',serif;font-size:21px;color:#4B6BFB;font-weight:700}
+.tit{font-size:16px;font-weight:700;margin-bottom:2px}
+.sub{font-size:11.5px;color:#666;margin-bottom:12px}
+.pb{margin-bottom:16px}
+.pb h2{font-size:13.5px;background:#EEF2FF;border-left:4px solid #4B6BFB;padding:5px 8px;margin-bottom:4px;break-after:avoid}
+.pb h2 .tot{font-weight:400;color:#555;font-size:12px;margin-left:6px}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:10px;text-transform:uppercase;color:#888;border-bottom:1px solid #ccc;padding:4px}
+td{padding:4px;border-bottom:1px solid #eee}
+tr{break-inside:avoid}
+.c{text-align:center;width:42px}.m{color:#666;font-size:11px}
+.ok{color:#1A6B3C;font-weight:600}.pen{color:#854D0E;font-weight:600}
+.foot{margin-top:16px;font-size:10.5px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:8px}
+</style></head><body>
+<div class="btn-row">
+  <button onclick="window.print()">🖨 Imprimir / Salvar como PDF</button>
+  <label><input type="checkbox" id="chkPend" onchange="atualizar()"> Incluir pedidos pendentes (ainda não pagos)</label>
+</div>
+<div class="head"><div class="emp">${escapeHtml(empresa)}</div></div>
+<div class="tit">Produtos e compradores</div>
+<div class="sub">${escapeHtml(drillProjeto?.school?.name || '')}${drillProjeto?.name ? ' — ' + escapeHtml(drillProjeto.name) : ''} · Gerado em ${dataEmissao} · <span id="resumo"></span></div>
+${blocos}
+<div class="foot">Relatório gerado eletronicamente em ${dataEmissao} pelo sistema For School.</div>
+<script>
+function atualizar(){
+  var inc = document.getElementById('chkPend').checked, totU = 0, totP = 0;
+  document.querySelectorAll('[data-prod]').forEach(function(b){
+    var u = 0, n = 0;
+    b.querySelectorAll('tbody tr').forEach(function(tr){
+      var ver = inc || tr.classList.contains('pg');
+      tr.style.display = ver ? '' : 'none';
+      if (ver) { u += Number(tr.getAttribute('data-q')) || 0; n++; }
+    });
+    b.style.display = n ? '' : 'none';
+    b.querySelector('.tot').textContent = '— ' + u + ' unidade(s) · ' + n + ' aluno(s)';
+    totU += u; totP += n;
+  });
+  document.getElementById('resumo').textContent = (inc ? 'pagos e pendentes' : 'somente pagos') + ': ' + totU + ' unidade(s) no total';
+}
+atualizar();
+<\/script>
+</body></html>`;
+
+  const win = window.open('', '_blank', 'width=900,height=800');
+  win.document.write(html);
+  win.document.close();
+}
+window.imprimirRelatorioProdutos = imprimirRelatorioProdutos;
+
 async function imprimirRelatorioSituacao() {
   if (!drillAlunosData.length) { toast('Nada pra mostrar ainda.', 'warn'); return; }
 

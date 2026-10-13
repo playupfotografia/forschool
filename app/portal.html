@@ -4689,8 +4689,14 @@ function calcCart() {
 // tela mostrar a escolha e o total certo.
 function precisaEscolherEntrega() {
   if (!projeto?.delivery_date) return false;
+  const dias = parseInt(projeto.delivery_cutoff_days, 10) || 0;
+  if (projeto.delivery_cutoff_hour != null && projeto.delivery_cutoff_hour !== '') {
+    // Projeto com HORA de corte (Brasilia, UTC-3): mesma regra do servidor.
+    const [Y, M, D] = String(projeto.delivery_date).slice(0, 10).split('-').map(Number);
+    return Date.now() >= Date.UTC(Y, M - 1, D - dias, Number(projeto.delivery_cutoff_hour) + 3, 0, 0);
+  }
   const corte = new Date(projeto.delivery_date + 'T00:00:00');
-  corte.setDate(corte.getDate() - (parseInt(projeto.delivery_cutoff_days, 10) || 0));
+  corte.setDate(corte.getDate() - dias);
   const hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
   return hoje >= corte;
