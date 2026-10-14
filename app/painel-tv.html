@@ -144,7 +144,7 @@ import { supabase, signIn, getCurrentUser, fmtMoney } from './js/supabase-client
 
 let ROWS_POR_PAGINA = 20;   // chute inicial — recalculado de verdade em calcularLinhasPorPagina()
 const CICLO_PAGINA_MS = 9000;
-const REFRESH_MS = 30000;
+const REFRESH_MS = 60000;   // era 30s; menos log no Supabase (14/10/2026)
 const TODOS_VALOR = '__todos__';
 const LIMITE_PEDIDOS_TODOS = 300;   // trava de seguranca no modo "todos os projetos" — e' um feed, nao um relatorio
 

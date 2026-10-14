@@ -3552,7 +3552,7 @@ async function iniciarVigiaGlobal() {
     vigiaGlobal.vistos = vistos;
     // sempre a partir da data de um pedido real (nao do relogio deste computador)
     vigiaGlobal.desde = maxUpd ? new Date(Date.parse(maxUpd) - 5000).toISOString() : new Date(Date.now() - 60000).toISOString();
-    vigiaGlobal.timer = setInterval(vigiarPedidosAgora, 15000);
+    vigiaGlobal.timer = setInterval(vigiarPedidosAgora, 20000);   // era 15s; menos log no Supabase (14/10/2026)
   } catch (err) {
     console.error('vigiaGlobal (inicio):', err.message);
   }
@@ -4051,7 +4051,7 @@ function iniciarAutoRefreshPedidos() {
     } else {
       pararAutoRefreshPedidos();
     }
-  }, 30000);
+  }, 60000);   // era 30s; menos log no Supabase (14/10/2026)
 }
 function pararAutoRefreshPedidos() {
   if (pedidosAutoRefreshTimer) { clearInterval(pedidosAutoRefreshTimer); pedidosAutoRefreshTimer = null; }
@@ -8868,7 +8868,7 @@ let drillAutoRefreshTimer = null;
 // nao resetar busca/turma/status que o Daniel ja tinha escolhido.
 function iniciarAutoRefreshDrill() {
   pararAutoRefreshDrill();
-  drillAutoRefreshTimer = setInterval(atualizarDrillAgora, 10000);
+  drillAutoRefreshTimer = setInterval(atualizarDrillAgora, 25000);   // era 10s; menos log no Supabase (14/10/2026) — ao voltar o foco da janela ainda atualiza na hora
 }
 // Chrome atrasa/pausa timer de janela escondida ou atras de outra — por isso,
 // alem do relogio de 10s, atualiza NA HORA quando a janela volta a ficar visivel.
