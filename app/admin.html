@@ -10504,7 +10504,9 @@ function celulaContato(a) {
   const tipo = a.autorizacao === 'recusou'  ? null
              : a.autorizacao === 'pendente' ? 'sem_autorizacao'
              : !a.order ? 'sem_pedido'
-             : (a.order.payment_status === 'pending' ? 'pendente' : null);
+             // PIX parcelado com parcela ja' paga: ele ESTA pagando — mandar "o pagamento
+             // ainda nao chegou" seria errado (e chato). Sem botao de cobranca.
+             : (a.order.payment_status === 'pending' ? (a.order.parcelasResumo?.pagas > 0 ? null : 'pendente') : null);
 
   // Nota livre sobre a resposta do pai (ex: "disse que compra dia 30") —
   // so' faz sentido depois que ja existe um contato pra pendurar nele.
