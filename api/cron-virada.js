@@ -54,7 +54,11 @@ module.exports = async (req, res) => {
       const cfg = p.virada_config || {};
       const precos = Array.isArray(cfg.precos) ? cfg.precos : [];
       const novoPreco = {};
-      precos.forEach((x) => { if (x.product_id && Number(x.price) > 0) novoPreco[x.product_id] = Number(x.price); });
+      const novoAcrescimo = {};
+      precos.forEach((x) => {
+        if (x.product_id && Number(x.price) > 0) novoPreco[x.product_id] = Number(x.price);
+        if (x.product_id && x.pix_parcela_acrescimo !== undefined) novoAcrescimo[x.product_id] = Number(x.pix_parcela_acrescimo) || 0;
+      });
       const taxa = cfg.taxa_nos_pendentes === false ? 0 : (Number(p.delivery_fee) || 0);
       const rp = { projeto: p.name, precos: precos.length, pendentes: [], erros: [] };
       relatorio.projetos.push(rp);
@@ -141,16 +145,29 @@ module.exports = async (req, res) => {
       // ---- 2. Precos do projeto ---------------------------------------------
       try {
         for (const [productId, price] of Object.entries(novoPreco)) {
+          const campos = { price_with_promo: price, price_without_promo: price };
+          if (novoAcrescimo[productId] !== undefined) campos.pix_parcela_acrescimo = novoAcrescimo[productId];
           await sb(`/school_prices?project_id=eq.${q(p.id)}&product_id=eq.${q(productId)}`, {
             method: 'PATCH', headers: { Prefer: 'return=minimal' },
-            body: JSON.stringify({ price_with_promo: price, price_without_promo: price }),
+            body: JSON.stringify(campos),
           });
         }
-        // ---- 3. Fim do PIX parcelado ---------------------------------------
-        if (cfg.desligar_pix_parcelado !== false) {
+        // ---- 3. Campos do projeto (PIX parcelado etc.) ----------------------
+        // cfg.projeto = { pix_parcelas, pix_parcelas_ate, pix_venc_parcela2/3/4 }
+        // — so' estas colunas sao aceitas; null liga/desliga de verdade (ex:
+        // pix_parcelas null = o PIX parcelado acaba). Sem cfg.projeto, vale o
+        // formato antigo (pix_parcelas / desligar_pix_parcelado).
+        const PERMITIDOS = ['pix_parcelas', 'pix_parcelas_ate', 'pix_venc_parcela2', 'pix_venc_parcela3', 'pix_venc_parcela4'];
+        const camposProj = {};
+        if (cfg.projeto && typeof cfg.projeto === 'object') {
+          PERMITIDOS.forEach((k) => { if (k in cfg.projeto) camposProj[k] = cfg.projeto[k] === '' ? null : cfg.projeto[k]; });
+        } else if ('pix_parcelas' in cfg || cfg.desligar_pix_parcelado !== false) {
+          camposProj.pix_parcelas = 'pix_parcelas' in cfg ? (Number(cfg.pix_parcelas) || null) : null;
+        }
+        if (Object.keys(camposProj).length) {
           await sb(`/projects?id=eq.${q(p.id)}`, {
             method: 'PATCH', headers: { Prefer: 'return=minimal' },
-            body: JSON.stringify({ pix_parcelas: null }),
+            body: JSON.stringify(camposProj),
           });
         }
         // ---- 4. Modelos de WhatsApp (globais) -------------------------------
@@ -169,11 +186,22 @@ module.exports = async (req, res) => {
       }
 
       // ---- 5. So' marca como aplicada se nada falhou ------------------------
+      // Se a config traz "depois" (proxima virada, ex: 3 lotes de preco), ela vira
+      // a virada pendente; senao o projeto fica marcado como concluido.
       if (!rp.erros.length) {
-        await sb(`/projects?id=eq.${q(p.id)}`, {
-          method: 'PATCH', headers: { Prefer: 'return=minimal' },
-          body: JSON.stringify({ virada_aplicada_em: new Date().toISOString() }),
-        });
+        if (cfg.depois?.em) {
+          const { em, ...cfgProx } = cfg.depois;
+          await sb(`/projects?id=eq.${q(p.id)}`, {
+            method: 'PATCH', headers: { Prefer: 'return=minimal' },
+            body: JSON.stringify({ virada_em: em, virada_config: cfgProx, virada_aplicada_em: null }),
+          });
+          rp.proxima = em;
+        } else {
+          await sb(`/projects?id=eq.${q(p.id)}`, {
+            method: 'PATCH', headers: { Prefer: 'return=minimal' },
+            body: JSON.stringify({ virada_aplicada_em: new Date().toISOString() }),
+          });
+        }
         rp.aplicada = true;
       }
     }

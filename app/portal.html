@@ -1754,8 +1754,18 @@ async function blocoEscolhaPagamento(pedido, total) {
       // errado quando o projeto tem datas fixas configuradas (ex: sempre dia
       // 5 do mes, nao importa quando a compra aconteceu).
       const temVencFixo = !!(projeto?.pix_venc_parcela2 || projeto?.pix_venc_parcela3 || projeto?.pix_venc_parcela4);
+      // Mostra as datas fixas na propria opcao ("2ª em 05/11 · 3ª em 05/12") pro
+      // pai saber quando cada parcela vence ANTES de escolher.
+      const datasFixasTxt = [2, 3, 4]
+        .slice(0, Math.max(0, nParc - 1))
+        .map((k) => {
+          const d = projeto?.['pix_venc_parcela' + k];
+          return d ? `${k}ª em ${new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}` : null;
+        })
+        .filter(Boolean)
+        .join(' · ');
       const subParcelado = temVencFixo
-        ? 'Datas de vencimento fixas · pode ter pequeno acréscimo se atrasar'
+        ? (datasFixasTxt ? `1ª hoje · ${datasFixasTxt}` : 'Datas de vencimento fixas') + ' · pode ter pequeno acréscimo se atrasar'
         : 'Um PIX a cada 30 dias, sem cartão · pode ter pequeno acréscimo se atrasar';
       opts.push(`
         <button type="button" class="pay-opt" onclick="escolherPagamento('${oid}','pix_parcelado',${nParc})">
