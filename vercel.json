@@ -11,6 +11,7 @@
     { "source": "/:slug", "destination": "/app/portal.html" }
   ],
   "crons": [
-    { "path": "/api/cron-parcelas-atrasadas", "schedule": "0 12 * * *" }
+    { "path": "/api/cron-parcelas-atrasadas", "schedule": "0 12 * * *" },
+    { "path": "/api/cron-virada", "schedule": "0 3 * * *" }
   ]
 }
