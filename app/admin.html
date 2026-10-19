@@ -10513,8 +10513,9 @@ async function salvarPresenca(studentId, status, nota) {
 // A mensagem sai da conta de WhatsApp logada NESTE computador (o Business da
 // Play Up, via WhatsApp Web) — nao ha numero nosso pra configurar aqui.
 //
-// So' aparece pra quem tem pedido em aberto ou nenhum pedido: quem ja pagou
-// nao precisa ser cobrado.
+// Aparece pra quem tem pedido em aberto, nenhum pedido ou pedido PAGO (nesse caso
+// a mensagem e' de confirmacao/aviso, nao de cobranca). Em todos, "✓ dd/mm"
+// mostra quando foi enviado.
 // ---------------------------------------------------------------------------
 function celulaContato(a) {
   const pago = a.order?.payment_status === 'paid';
@@ -10528,7 +10529,10 @@ function celulaContato(a) {
              : !a.order ? 'sem_pedido'
              // PIX parcelado com parcela ja' paga: ele ESTA pagando — mandar "o pagamento
              // ainda nao chegou" seria errado (e chato). Sem botao de cobranca.
-             : (a.order.payment_status === 'pending' ? (a.order.parcelasResumo?.pagas > 0 ? null : 'pendente') : null);
+             : (a.order.payment_status === 'pending' ? (a.order.parcelasResumo?.pagas > 0 ? null : 'pendente')
+             // Pedido PAGO tambem ganha botao (tipo 'pago'): pra confirmar o pagamento,
+             // avisar da entrega, pedir endereco etc. Cancelado/estornado continua sem.
+             : (a.order.payment_status === 'paid' ? 'pago' : null));
 
   // Nota livre sobre a resposta do pai (ex: "disse que compra dia 30") —
   // so' faz sentido depois que ja existe um contato pra pendurar nele.
@@ -10549,9 +10553,9 @@ function celulaContato(a) {
     ? `<div style="font-size:10px;color:var(--gray-400);margin-top:3px">✓ ${new Date(a.contato.contacted_at).toLocaleDateString('pt-BR')}${notaBtn}</div>${notaTxt}${lembreteTxt}`
     : '';
 
-  // Pagou = nao precisa mais de cobranca; mas se esta sem autorizar, ainda
-  // precisa ser chamado, senao paga e nao e' fotografado.
-  if ((pago && tipo !== 'sem_autorizacao') || !tipo) {
+  // Sem tipo (recusou autorizacao, cancelado, parcelado ja' pagando) = sem botao.
+  // Quem PAGOU tem o tipo 'pago' (ou 'sem_autorizacao', que vem antes).
+  if (!tipo) {
     return quando || '<span style="color:var(--gray-300)">—</span>';
   }
 
@@ -10560,7 +10564,9 @@ function celulaContato(a) {
     return `<span class="badge badge-gray" title="Responsável sem telefone válido cadastrado">sem telefone</span>${quando}`;
   }
 
-  const jaFoi = !!a.contato;
+  // Pedido pago: o contato antigo pode ser de cobranca (pendente/sem pedido) —
+  // so' conta como "ja' enviei" o contato do tipo pago (gravado como 'outro').
+  const jaFoi = !!a.contato && (tipo !== 'pago' || a.contato.kind === 'outro');
   // Sem autorizacao ganha um segundo botao, mais urgente, pra quem a sessao
   // e' hoje — mensagem separada (contact_msg_sessao_hoje), sem mexer no
   // botao generico de sempre. So' aparece se a sessao da turma do aluno for
@@ -10575,7 +10581,7 @@ function celulaContato(a) {
     : '';
   return `<button class="btn btn-sm" style="border:none;cursor:pointer;font-weight:600;background:${jaFoi ? 'var(--gray-100)' : '#25D366'};color:${jaFoi ? 'var(--gray-500)' : '#fff'}"
             onclick="contatarResponsavel('${a.id}','${tipo}')"
-            title="${jaFoi ? 'Já contatado — clique para falar de novo' : 'Abrir conversa no WhatsApp'}">💬 WhatsApp</button>${btnHoje}${quando}`;
+            title="${jaFoi ? 'Já contatado — clique para falar de novo' : (tipo === 'pago' ? 'Pedido pago — enviar mensagem pelo WhatsApp' : 'Abrir conversa no WhatsApp')}">💬 WhatsApp</button>${btnHoje}${jaFoi || tipo !== 'pago' ? quando : ''}`;
 }
 
 // Data local (nao UTC) em "YYYY-MM-DD", pra comparar com photo_date sem risco
@@ -10699,6 +10705,14 @@ async function acrescimoParcelamentoDoPedido(orderId, projectId) {
 
 let contatoMsgCache = null;   // modelos de mensagem, buscados uma vez
 
+// Mensagem padrao pra quem JA' PAGOU (14/10/2026). Sem campo proprio em
+// Configurações ainda: se um dia existir app_settings.contact_msg_pago, ele manda.
+const MSG_PAGO_PADRAO = `Olá, {responsavel}, tudo bem?
+
+Passando para confirmar que recebemos o pagamento do pedido {pedido} ({valor}) de {aluno}. Muito obrigado!
+
+Assim que as lembranças estiverem prontas, avisamos por aqui. Qualquer dúvida, é só me chamar.`;
+
 // Monta a frase do cartao pra mensagem de cobranca, com os MESMOS numeros que
 // o pai ve no portal (gross-up + antecipacao). Uma variavel so' em vez de tres
 // porque o 2x nem sempre existe: assim a frase sai correta nos dois casos, sem
@@ -10759,10 +10773,7 @@ window.contatarResponsavel = async function (studentId, tipo) {
     if (!contatoMsgCache) {
       const { data, error } = await supabase
         .from('app_settings')
-        .select(`contact_msg_sem_pedido, contact_msg_pendente, contact_msg_sem_autorizacao, contact_msg_sessao_hoje, pix_key, pix_key_type,
-                 surcharge_mode, card_fee_percent, card_fee_percent_installment, card_fee_fixed,
-                 anticipation_enabled, anticipation_fee_percent, anticipation_fee_percent_installment,
-                 min_installment_value, max_installments`)
+        .select('*')   // todos os campos (inclui contact_msg_pago, se existir)
         .eq('id', 1).single();
       if (error) throw error;
       contatoMsgCache = data || {};
@@ -10771,6 +10782,7 @@ window.contatarResponsavel = async function (studentId, tipo) {
     const modelo = tipo === 'sem_autorizacao' ? contatoMsgCache.contact_msg_sem_autorizacao
                  : tipo === 'sessao_hoje'     ? contatoMsgCache.contact_msg_sessao_hoje
                  : tipo === 'pendente'        ? contatoMsgCache.contact_msg_pendente
+                 : tipo === 'pago'            ? (contatoMsgCache.contact_msg_pago || MSG_PAGO_PADRAO)
                  : contatoMsgCache.contact_msg_sem_pedido;
     if (!modelo) {
       toast('Escreva a mensagem em Configurações antes de usar.', 'warn');
@@ -10823,13 +10835,13 @@ window.contatarResponsavel = async function (studentId, tipo) {
     const { data: novoContato, error: cErr } = await supabase.from('student_contacts').insert({
       student_id: studentId,
       project_id: drillProjetoId,
-      kind: tipo,
+      kind: tipo === 'pago' ? 'outro' : tipo,   // 'pago' nao existe na constraint; 'outro' existe
       channel: 'whatsapp',
       contacted_by: sess?.user?.id || null,
     }).select('id, contacted_at').single();
     if (cErr) throw cErr;
 
-    a.contato = { id: novoContato.id, kind: tipo, contacted_at: novoContato.contacted_at, notes: null, follow_up_date: null };
+    a.contato = { id: novoContato.id, kind: tipo === 'pago' ? 'outro' : tipo, contacted_at: novoContato.contacted_at, notes: null, follow_up_date: null };
     filtrarDrillAlunos();
   } catch (e) {
     handleError(e, 'contatarResponsavel');
