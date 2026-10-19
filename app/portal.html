@@ -2295,21 +2295,24 @@ async function ofertarPagamentoConjunto(pedido, el) {
     const outrosIds = (_todosFilhos || []).map(f => f.id).filter(id => id !== student?.id);
     if (!outrosIds.length) return;
 
+    // TODOS os irmaos com pedido pendente entram (19/10/2026 — familia com 3
+    // filhos so' conseguia juntar 2). Quem ja' gerou um PIX/cartao SOLO e nao
+    // pagou tambem entra: o servidor derruba essa cobranca ao criar a do grupo.
+    // Fora: quem ja' esta num grupo, e quem ja' pagou parcela.
     const { data: irmaosPendentes } = await supabase
       .from('orders')
-      .select('id, order_number, total_amount, students(name)')
+      .select('id, order_number, total_amount, gateway_id, pix_payload, students(name)')
       .in('student_id', outrosIds)
       .eq('project_id', projeto.id)
       .eq('payment_status', 'pending')
-      .is('gateway_id', null)
-      // PIX parcelado nao usa gateway_id no pedido — o que diz que ele ja'
-      // tem cobranca e' o QR da parcela.
-      .is('pix_payload', null)
-      .eq('has_paid_installment', false);
-    const irmao = irmaosPendentes?.[0];
-    if (!irmao) return;
+      .is('payment_group_id', null)
+      .eq('has_paid_installment', false)
+      .order('order_number');
+    const irmaos = irmaosPendentes || [];
+    if (!irmaos.length) return;
+    const irmaosComQr = irmaos.filter(i => i.gateway_id || i.pix_payload);
 
-    const somaBase = (Number(pedido.total_amount) || 0) + (Number(irmao.total_amount) || 0);
+    const somaBase = (Number(pedido.total_amount) || 0) + irmaos.reduce((s, i) => s + (Number(i.total_amount) || 0), 0);
     // Mesma conta de api/criar-cobranca.js (arredonda o % e nunca deixa o
     // total abaixo de R$ 0,01) — senao a tela mostra um valor e cobra outro.
     let desconto = projeto.sibling_discount_mode === 'percent'
@@ -2325,7 +2328,8 @@ async function ofertarPagamentoConjunto(pedido, el) {
     // nao valia a pena oferecer; bug achado testando em 27/09/2026).
     const totalComDesconto = Math.round((somaBase - desconto) * 100) / 100;
 
-    const orderIds = [pedido.id, irmao.id];
+    const orderIds = [pedido.id, ...irmaos.map(i => i.id)];
+    const idsJs = JSON.stringify(orderIds).replace(/"/g, "'");   // ['a','b','c'] pro onclick
     const metodos = [];
     if (pixAutomaticoAtivo()) metodos.push(['pix', '💚 PIX']);
     if (PAY_CFG.credito) metodos.push(['credito', '💳 Cartão à vista']);
@@ -2355,21 +2359,27 @@ async function ofertarPagamentoConjunto(pedido, el) {
         parcelados.push(['credito', n, `💳 Cartão em ${n}× de ${fmtMoney(parcela)}`]);
       }
     }
-    const numerosJuntos = escapeHtml(`${pedido.order_number || ''} + ${irmao.order_number || ''}`);
+    const numerosJuntos = escapeHtml([pedido.order_number, ...irmaos.map(i => i.order_number)].filter(Boolean).join(' + '));
+    const nomesIrmaos = irmaos.map(i => i.students?.name).filter(Boolean);
+    const nomesTxt = nomesIrmaos.length > 1
+      ? nomesIrmaos.slice(0, -1).join(', ') + ' e ' + nomesIrmaos[nomesIrmaos.length - 1]
+      : (nomesIrmaos[0] || 'seu outro filho');
+    const qtdPedidos = orderIds.length;
 
     const box = document.createElement('div');
     box.className = 'pix-block';
     box.style.cssText = 'border-color:var(--green);background:var(--green-light);margin-bottom:12px';
     box.innerHTML = `
-      <div style="font-weight:700;color:#1A6B3C;margin-bottom:4px">👨‍👩‍👧‍👦 Pague junto com o pedido de ${escapeHtml(irmao.students?.name || 'seu outro filho')}${desconto > 0 ? ' e economize' : ''}</div>
+      <div style="font-weight:700;color:#1A6B3C;margin-bottom:4px">👨‍👩‍👧‍👦 Pague junto com o pedido de ${escapeHtml(nomesTxt)}${desconto > 0 ? ' e economize' : ''}</div>
       <div style="font-size:12px;color:var(--gray-600);margin-bottom:8px">
-        Pedido ${escapeHtml(pedido.order_number || '')} + pedido ${escapeHtml(irmao.order_number || '')}
-        = ${desconto > 0 ? `<s>${fmtMoney(somaBase)}</s> <b>${fmtMoney(totalComDesconto)}</b> <span style="color:var(--green);font-weight:600">(economia de ${fmtMoney(desconto)})</span>` : `<b>${fmtMoney(totalComDesconto)}</b> — um PIX só pros dois pedidos`}
+        Pedidos ${numerosJuntos}
+        = ${desconto > 0 ? `<s>${fmtMoney(somaBase)}</s> <b>${fmtMoney(totalComDesconto)}</b> <span style="color:var(--green);font-weight:600">(economia de ${fmtMoney(desconto)})</span>` : `<b>${fmtMoney(totalComDesconto)}</b> — um PIX só pros ${qtdPedidos} pedidos`}
+        ${irmaosComQr.length ? `<div style="font-size:11px;color:var(--gray-500);margin-top:3px">O pagamento individual já gerado do pedido ${escapeHtml(irmaosComQr.map(i => i.order_number).join(', '))} será substituído por este.</div>` : ''}
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         ${metodos.map(([m, label]) => `
           <button type="button" class="btn pay-junto-btn" style="background:var(--green);color:#fff;flex:1;padding:10px"
-                  onclick="pagarComTodos(['${orderIds[0]}','${orderIds[1]}'],'${m}','${el.id}','${numerosJuntos}',1)">
+                  onclick="pagarComTodos(${idsJs},'${m}','${el.id}','${numerosJuntos}',1)">
             ${label} · pagar junto
           </button>`).join('')}
       </div>
@@ -2378,7 +2388,7 @@ async function ofertarPagamentoConjunto(pedido, el) {
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           ${parcelados.map(([m, n, rotulo]) => `
             <button type="button" class="btn pay-junto-btn" style="background:#fff;color:#1A6B3C;border:1.5px solid var(--green);flex:1 1 45%;padding:8px;font-size:12.5px"
-                    onclick="pagarComTodos(['${orderIds[0]}','${orderIds[1]}'],'${m}','${el.id}','${numerosJuntos}',${n})">
+                    onclick="pagarComTodos(${idsJs},'${m}','${el.id}','${numerosJuntos}',${n})">
               ${rotulo}
             </button>`).join('')}
         </div>` : ''}
