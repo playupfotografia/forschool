@@ -17,7 +17,7 @@
 // Header: Authorization: Bearer <access_token do Supabase>
 // ============================================================================
 
-const { asaas, woovi, sb, usuarioDoToken, avisarPedidoPendente, cancelarParcelasPix } = require('./_lib.js');
+const { asaas, woovi, sb, usuarioDoToken, avisarPedidoPendente, cancelarParcelasPix, verificarProjetoDaTurma } = require('./_lib.js');
 
 const KIT_RANK = { promo: 3, inter: 2, basico: 1 };
 const q = (v) => encodeURIComponent(v);
@@ -43,7 +43,7 @@ module.exports = async (req, res) => {
     if (!studentId) return res.status(400).json({ erro: 'student_id e obrigatorio.' });
 
     // ---- 1. O aluno e' mesmo de quem esta pedindo? -------------------------
-    const alunos = await sb(`/students?id=eq.${q(studentId)}&select=id,name,school_id,user_id,is_test`);
+    const alunos = await sb(`/students?id=eq.${q(studentId)}&select=id,name,school_id,user_id,is_test,class_id`);
     const aluno = alunos?.[0];
     if (!aluno) return res.status(404).json({ erro: 'Aluno nao encontrado.' });
     if (aluno.user_id !== uid) return res.status(403).json({ erro: 'Esse aluno nao e seu.' });
@@ -58,6 +58,23 @@ module.exports = async (req, res) => {
       projeto = projs?.[0];
       if (!projeto || projeto.school_id !== aluno.school_id) {
         return res.status(400).json({ erro: 'Projeto invalido para esse aluno.' });
+      }
+
+      // A turma do aluno nao esta neste projeto mas esta em outro: recusa e
+      // diz qual e' (o portal leva o pai pra la). Falha na checagem nunca
+      // derruba o pedido — so' deixa de proteger.
+      try {
+        const v = await verificarProjetoDaTurma({
+          classId: aluno.class_id, projectId, schoolId: aluno.school_id, isTest: aluno.is_test === true,
+        });
+        if (v.fora) {
+          return res.status(409).json({
+            erro: `A turma de ${aluno.name} faz parte do projeto "${v.destino.name}". Vamos levar voce para o link certo.`,
+            projeto_correto: v.destino.slug,
+          });
+        }
+      } catch (e) {
+        console.error('verificarProjetoDaTurma', e.message);
       }
     }
 

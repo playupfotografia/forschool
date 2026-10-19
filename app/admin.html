@@ -9271,6 +9271,23 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       if (!atual || (inativo(atual) && !inativo(p))) pedidosPorAluno[p.student_id] = p;
     });
 
+    // 4a-bis. Pedidos do aluno em OUTRO projeto (14/10/2026): o responsavel pode
+    // ter entrado pelo link errado — o pedido existe, mas fica em outro projeto
+    // e esta tela mostraria "Sem pedido". Aqui so' avisamos (nada e' movido).
+    const outroProjPorAluno = {};
+    if (alunoIds.length) {
+      const { data: outros, error: outrosErr } = await supabase
+        .from('orders')
+        .select('order_number, payment_status, student_id, project_id, project:projects(name)')
+        .in('student_id', alunoIds)
+        .not('project_id', 'is', null)
+        .neq('project_id', projectId)
+        .not('payment_status', 'in', '(cancelled,refunded)')
+        .not('is_test', 'is', true);
+      if (outrosErr) console.error('pedidos em outro projeto:', outrosErr.message);
+      (outros || []).forEach(o => (outroProjPorAluno[o.student_id] = outroProjPorAluno[o.student_id] || []).push(o));
+    }
+
     // 4b. Ultimo contato de cada aluno NESTE projeto. Por projeto de proposito:
     // quem foi contatado na campanha de 2026 nao pode aparecer como "ja
     // contatado" na de 2027.
@@ -9422,6 +9439,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       order: pedidosPorAluno[a.id] || null,
       // Historico: pedidos cancelados/estornados alem do que esta' na linha
       cancelados: (canceladosPorAluno[a.id] || []).filter(c => c.id !== pedidosPorAluno[a.id]?.id),
+      outroProjeto: outroProjPorAluno[a.id] || [],
       contato: contatoPorAluno[a.id] || null,
       fichaEm:    fichaPorAluno[a.id] || null,   // quando a ficha foi impressa (null = nunca)
       fotoEm:     fotoPorAluno[a.id]?.em || null,
@@ -10041,6 +10059,10 @@ function filtrarDrillAlunos() {
     let numCell  = '<span style="color:var(--gray-300)">—</span>';
     let quandoCell = '<span style="color:var(--gray-300)">—</span>';
     let pedCell  = '<span style="color:var(--gray-400);font-size:11px">Sem pedido</span>';
+    if (!a.order && a.outroProjeto?.length) {
+      const dica = a.outroProjeto.map(o => `${o.order_number} (${o.payment_status === 'paid' ? 'pago' : 'pendente'}) — ${o.project?.name || 'outro projeto'}`).join(' | ');
+      pedCell += `<div style="font-size:11px;color:var(--orange);font-weight:700;margin-top:2px;max-width:170px;white-space:normal" title="${escapeHtml(dica)}">⚠ pedido em outro projeto: ${escapeHtml(a.outroProjeto.map(o => o.order_number).join(', '))}</div>`;
+    }
     let totCell  = '—';
     // Responsavel que nao consegue fazer o pedido sozinho (ex: idoso sem
     // pratica com celular) — admin monta o pedido manualmente aqui.

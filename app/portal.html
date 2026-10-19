@@ -3288,9 +3288,43 @@ function showSelecaoFilhos(students, user) {
   show('screen-filhos');
 }
 
+// A turma deste aluno faz parte do projeto do link? Se nao faz e ela pertence a
+// outro projeto da escola, leva o responsavel pra la (o login continua — e' o
+// mesmo site). Pergunta ao servidor (/api/projeto-da-turma) e, na duvida ou em
+// qualquer erro, deixa seguir normal. Devolve true se redirecionou.
+async function redirecionarSeOutroProjeto(stu) {
+  try {
+    if (!stu?.id || !projeto?.id || projeto.demo_mode) return false;
+    const r = await fetch('/api/projeto-da-turma', {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: JSON.stringify({ student_id: stu.id, project_id: projeto.id }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!d.fora || !d.destino?.slug) return false;
+    irParaProjetoCerto(d.destino, stu.name);
+    return true;
+  } catch (e) {
+    console.error('redirecionarSeOutroProjeto', e);
+    return false;
+  }
+}
+
+function irParaProjetoCerto(destino, nomeAluno) {
+  const url = `${location.origin}/${encodeURIComponent(destino.slug)}`;
+  document.getElementById('erro-titulo').textContent = 'Este é o link de outro projeto';
+  document.getElementById('erro-msg').innerHTML =
+    `A turma de <b>${escapeHtml(nomeAluno || 'seu filho(a)')}</b> faz parte do projeto <b>${escapeHtml(destino.name)}</b>.<br><br>` +
+    `Estamos levando você para o link certo…<br><br>` +
+    `<a href="${url}" style="color:var(--blue);font-weight:700">Se não abrir sozinho, toque aqui</a>`;
+  show('screen-erro');
+  setTimeout(() => { location.href = url; }, 2500);
+}
+
 async function selecionarFilho(idx) {
   student = _todosFilhos[idx];
   const user = _filhosUser;
+  if (await redirecionarSeOutroProjeto(student)) return;
   // Continua o fluxo normal a partir da autorização
   if (!student.authorization_date) {
     showAutorizacao(user);
@@ -3365,6 +3399,7 @@ async function afterLogin(user) {
   }
 
   student = students[0];
+  if (await redirecionarSeOutroProjeto(student)) return;
 
   // Rota baseada em autorização
   if (!student.authorization_date) {
@@ -4884,6 +4919,12 @@ document.getElementById('btn-finalizar').addEventListener('click', async () => {
       }),
     });
     const dados = await r.json().catch(() => ({}));
+    // Servidor diz que a turma e' de outro projeto (pagina antiga aberta, por ex.)
+    if (r.status === 409 && dados.projeto_correto) {
+      closeCartDrawer();
+      irParaProjetoCerto({ name: (dados.erro.match(/"([^"]+)"/) || [])[1] || 'correto', slug: dados.projeto_correto }, student.name);
+      return;
+    }
     if (!r.ok || !dados.ok) throw new Error(dados.erro || 'Não foi possível salvar o pedido.');
 
     pedidoAberto = { id: dados.order_id, order_number: dados.order_number };

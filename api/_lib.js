@@ -150,6 +150,38 @@ async function sb(caminho, opts = {}) {
 // ou cancelar o pedido de outra pessoa. Devolve o id do usuario logado, ou
 // null se o token nao valer.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// A turma do aluno pertence a ESTE projeto? (14/10/2026 — caso real: mae de
+// aluna do 7o ano entrou pelo link do projeto "Pequenos Artistas" da Unidade
+// II, que so' tem 3o a 5o ano; o cadastro deixou escolher qualquer turma da
+// escola e o pedido ficou num projeto onde a turma nao existe — invisivel nas
+// duas telas de Alunos & Pedidos e com os produtos errados.)
+//
+// Devolve { fora: true, destino: {id,name,slug} } so' quando a turma NAO esta
+// nas sessoes do projeto E esta nas de EXATAMENTE UM outro projeto ativo da
+// mesma escola. Qualquer duvida (turma em nenhum projeto, em varios, projeto
+// demo, aluno de teste) devolve fora:false — melhor nao interferir do que
+// mandar o pai pro lugar errado.
+// ---------------------------------------------------------------------------
+async function verificarProjetoDaTurma({ classId, projectId, schoolId, isTest }) {
+  const q = (v) => encodeURIComponent(v);
+  if (!classId || !projectId || isTest) return { fora: false };
+  const atual = (await sb(`/projects?id=eq.${q(projectId)}&select=id,demo_mode`))?.[0];
+  if (!atual || atual.demo_mode) return { fora: false };
+  const sess = await sb(
+    `/project_sessions?select=project_id,project_session_classes!inner(school_class_id)` +
+    `&project_session_classes.school_class_id=eq.${q(classId)}`
+  );
+  const ids = [...new Set((sess || []).map((s) => s.project_id))];
+  if (!ids.length || ids.includes(projectId)) return { fora: false };
+  const projs = await sb(
+    `/projects?id=in.(${ids.map(q).join(',')})&active=is.true&demo_mode=neq.true` +
+    `&school_id=eq.${q(schoolId)}&select=id,name,slug`
+  );
+  if (projs?.length === 1) return { fora: true, destino: projs[0] };
+  return { fora: false, ambiguo: (projs?.length || 0) > 1 };
+}
+
 async function usuarioDoToken(req) {
   const bruto = req.headers?.authorization || '';
   const token = bruto.replace(/^Bearer\s+/i, '').trim();
@@ -1046,4 +1078,4 @@ async function avisarParcelaAtrasada(pedido, parcela) {
   });
 }
 
-module.exports = { descricaoCobranca, env, asaas, woovi, assinaturaWooviValida, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, dividirProporcional, calcularDescontoIrmaos, calcularAcrescimoParcelamento, cancelarParcelasPix, resumoFinanceiro, liquidoCrivel, avisarVenda, avisarPedidoPendente, avisarPedidoCancelado, avisarPagamentoDesfeito, avisarParcelaPaga, avisarPedidoPagoPai, avisarLembreteParcela, avisarParcelaAtrasada };
+module.exports = { verificarProjetoDaTurma, descricaoCobranca, env, asaas, woovi, assinaturaWooviValida, sb, usuarioDoToken, valorComTaxa, apenasDigitos, telefoneBR, emDias, dividirProporcional, calcularDescontoIrmaos, calcularAcrescimoParcelamento, cancelarParcelasPix, resumoFinanceiro, liquidoCrivel, avisarVenda, avisarPedidoPendente, avisarPedidoCancelado, avisarPagamentoDesfeito, avisarParcelaPaga, avisarPedidoPagoPai, avisarLembreteParcela, avisarParcelaAtrasada };
