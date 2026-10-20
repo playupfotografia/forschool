@@ -51,6 +51,20 @@ body{font-family:'DM Sans',sans-serif;background:var(--gray-50);color:var(--gray
 .nome-titular{font-size:12px;color:var(--gray-500);text-align:center;margin-top:10px;line-height:1.5}
 .duvida{display:block;text-align:center;margin-top:16px;font-size:13px;color:var(--gray-500);text-decoration:none}
 .erro{text-align:center;color:var(--gray-500);padding:40px 20px;font-size:15px}
+.titulo-s{font-size:16px;font-weight:800;text-align:center;margin-bottom:12px}
+.ops{display:flex;flex-direction:column;gap:10px}
+.op{width:100%;text-align:left;background:var(--white);border:2px solid var(--gray-200);border-radius:12px;padding:12px 14px;cursor:pointer;font-family:inherit;color:var(--gray-900)}
+.op:hover{border-color:var(--blue)}
+.op[disabled]{cursor:wait}
+.op-topo{display:flex;justify-content:space-between;align-items:center;font-size:15px}
+.selo{background:var(--green);color:#fff;font-size:10px;font-weight:800;padding:3px 8px;border-radius:20px}
+.op-valor{font-size:22px;font-weight:800;margin-top:4px}
+.op-sub{font-size:12px;color:var(--gray-500);margin-top:2px}
+.msg-erro{color:#B91C1C;font-size:13px;text-align:center;margin-top:10px}
+.trocar{display:block;width:100%;margin-top:14px;background:none;border:none;color:var(--blue);font-weight:700;font-size:13px;cursor:pointer;font-family:inherit}
+.cron{margin-top:14px;border-top:1px solid var(--gray-100);padding-top:8px}
+.cron-l{display:flex;justify-content:space-between;font-size:13px;padding:4px 0;color:var(--gray-500)}
+.cron-l.ok{color:var(--green)}
 </style>
 </head>
 <body>
@@ -66,8 +80,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--gray-50);color:var(--gray
 </div>
 
 <script type="module">
-import { supabase } from '/js/supabase-client.js';
-
 // O rewrite do Vercel (/pagar/:token -> /app/pagamento.html?token=:token) so'
 // existe internamente — o navegador nunca ve essa query string na barra de
 // endereco, ela continua mostrando /pagar/<token>. Por isso o token precisa
@@ -84,163 +96,192 @@ function fmtMoney(v) {
 }
 
 // ---------------------------------------------------------------------------
-// Gerador de "Pix Copia e Cola" (BR Code / EMV) — a chave sozinha nao vira
-// QR pagavel de verdade; precisa desse formato com nome/cidade/valor e um
-// checksum CRC16 no final, seguindo o padrao do Banco Central.
+// Carrega o pedido e as formas de pagamento do SERVIDOR (/api/pedido-publico):
+// quem decide o que existe (cartao a vista e parcelado, com as taxas do
+// projeto) e quanto custa e' o servidor. Esta pagina so' desenha e chama
+// /api/criar-cobranca autorizada pelo token do link: PIX automatico (Woovi) e
+// cartao a vista/parcelado — as mesmas formas do portal. Sem PIX manual e sem
+// PIX parcelado aqui (o parcelado so' existe no portal).
 // ---------------------------------------------------------------------------
-function crc16ccitt(str) {
-  let crc = 0xFFFF;
-  for (let i = 0; i < str.length; i++) {
-    crc ^= (str.charCodeAt(i) << 8);
-    for (let j = 0; j < 8; j++) {
-      crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF;
-    }
-  }
-  return crc.toString(16).toUpperCase().padStart(4, '0');
-}
-function tlv(id, valor) {
-  return id + String(valor.length).padStart(2, '0') + valor;
-}
-function montarPayloadPix({ chave, nome, cidade, valor, txid }) {
-  const merchantAccount = tlv('26', tlv('00', 'br.gov.bcb.pix') + tlv('01', chave));
-  const txidSafe = String(txid || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 25) || '***';
-  let payload = tlv('00', '01')
-    + merchantAccount
-    + tlv('52', '0000')
-    + tlv('53', '986')
-    + (valor > 0 ? tlv('54', valor.toFixed(2)) : '')
-    + tlv('58', 'BR')
-    + tlv('59', String(nome).toUpperCase().slice(0, 25))
-    + tlv('60', String(cidade).toUpperCase().slice(0, 15))
-    + tlv('62', tlv('05', txidSafe))
-    + '6304';
-  return payload + crc16ccitt(payload);
-}
+let dados = null;          // ultima resposta de /api/pedido-publico
+let verOpcoes = false;     // true = o pai clicou em "escolher outra forma"
+let vigia = null;
+function pararVigia() { if (vigia) { clearInterval(vigia); vigia = null; } }
 
-// Nome/cidade do titular da chave Pix (conta Nubank) — o codigo do QR
-// precisa bater com o que esta cadastrado no banco, senao o app do
-// pagador mostra aviso de "nome nao confere". A pagina mostra "Play Up
-// Fotografia" pro pai reconhecer, mas explica essa diferenca.
-const PIX_TITULAR_NOME = 'LUCIANA CANTIERI PEREIRA';
-const PIX_TITULAR_CIDADE = 'SANTO ANDRE';
+async function carregar() {
+  const r = await fetch('/api/pedido-publico', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  const json = await r.json().catch(() => ({}));
+  if (!r.ok || !json.ok) throw new Error(json.erro || 'Pedido nao encontrado.');
+  return json;
+}
 
 async function iniciar() {
   if (!token) {
     el.innerHTML = '<div class="erro">Link inválido.</div>';
     return;
   }
-  const { data, error } = await supabase.rpc('get_pedido_publico', { p_token: token });
-  const pedido = data && data[0];
-  if (error || !pedido) {
+  try {
+    dados = await carregar();
+  } catch (e) {
     el.innerHTML = '<div class="erro">Não encontramos esse pedido. Confira se o link está completo, ou fale com a Play Up.</div>';
     return;
   }
-  render(pedido);
+  render();
 }
 
-function render(p) {
+function cabecalho(p) {
   const itens = (p.itens || []).map(i =>
     `${i.quantidade > 1 ? i.quantidade + '× ' : ''}${escapeHtml(i.nome)}${i.variante ? ` (${escapeHtml(i.variante)})` : ''}`
   );
-  if (p.kit_name) itens.unshift(escapeHtml(p.kit_name));
-
-  const infoHtml = `
+  return `
     <div class="card">
       <div class="titulo">Pedido ${escapeHtml(p.order_number || '')}</div>
-      <div class="sub">${escapeHtml(p.school_name || '')}</div>
+      <div class="sub">${escapeHtml(p.school_name || '')}${p.project_name ? ' · ' + escapeHtml(p.project_name) : ''}</div>
       <div class="linha"><span>Aluno</span><b>${escapeHtml(p.student_name || '')}</b></div>
-      <div class="linha"><span>Turma</span><b>${escapeHtml([p.year_name, p.class_name].filter(Boolean).join(' — ') || '—')}</b></div>
+      <div class="linha"><span>Turma</span><b>${escapeHtml(p.turma || '—')}</b></div>
       <div class="linha"><span>Itens</span><b class="itens-lista">${itens.join('<br>') || '—'}</b></div>
       <div class="valor-box">
         <div class="rotulo">Valor do pedido</div>
         <div class="num">${fmtMoney(p.total_amount)}</div>
       </div>
     </div>`;
+}
 
-  if (p.payment_status === 'paid') {
-    el.innerHTML = infoHtml + `
-      <div class="pago-box">✓ Pagamento confirmado<br><span style="font-weight:400;font-size:13px">Obrigada pelo pedido! 💛</span></div>`;
+const RODAPE = (p) => `
+  <a class="duvida" href="https://wa.me/5511999363796?text=${encodeURIComponent('Olá! Tenho uma dúvida sobre o pagamento do pedido ' + (p.order_number || '') + '.')}" target="_blank">💬 Dúvidas? Fale com a Play Up</a>`;
+
+function fmtData(iso) {
+  const [y, m, d] = String(iso).slice(0, 10).split('-');
+  return `${d}/${m}/${y}`;
+}
+
+function render() {
+  pararVigia();
+  const p = dados.pedido;
+
+  if (dados.pago) {
+    el.innerHTML = cabecalho(p) + `
+      <div class="pago-box">✓ Pagamento confirmado<br><span style="font-weight:400;font-size:13px">Obrigada pelo pedido! 💛</span></div>` + RODAPE(p);
     return;
   }
-
-  const temPix = !!p.pix_key;
-  const temCartao = true; // botao sempre disponivel — gera a cobranca na hora se precisar
-  let payloadPix = '';
-  if (temPix) {
-    payloadPix = montarPayloadPix({
-      chave: p.pix_key,
-      nome: PIX_TITULAR_NOME,
-      cidade: PIX_TITULAR_CIDADE,
-      valor: Number(p.total_amount) || 0,
-      txid: p.order_number,
-    });
+  if (dados.cancelado) {
+    el.innerHTML = cabecalho(p) + `<div class="erro">Este pedido foi cancelado. Fale com a Play Up se precisar de ajuda.</div>` + RODAPE(p);
+    return;
   }
+  if (dados.cobranca && !verOpcoes) { renderCobranca(); return; }
+  renderOpcoes();
+}
 
-  el.innerHTML = infoHtml + `
-    <div class="card">
-      <div class="tabs">
-        ${temPix ? `<div class="tab active" data-tab="pix">🔑 Pix</div>` : ''}
-        <div class="tab${temPix ? '' : ' active'}" data-tab="cartao">💳 Cartão</div>
-      </div>
+// ---------------------------------------------------------------------------
+// Escolha da forma de pagamento
+// ---------------------------------------------------------------------------
+function renderOpcoes() {
+  const p = dados.pedido, o = dados.opcoes;
+  const botoes = [];
 
-      ${temPix ? `
-      <div class="pane active" data-pane="pix">
-        <div class="qr-wrap"><canvas id="qr-pix" width="220" height="220"></canvas></div>
-        <div class="copia-box" id="pix-copia">${escapeHtml(payloadPix)}</div>
-        <button class="btn btn-copiar" id="btn-copiar-pix">📋 Copiar código Pix</button>
-        <div class="nome-titular">Aponte a câmera do app do seu banco pro QR acima, ou copie o código e cole na opção "Pix Copia e Cola".<br>A chave está no nome de <b>Luciana Cantieri Pereira</b> (conta da Play Up Fotografia) — é normal aparecer esse nome ao confirmar.</div>
-      </div>` : ''}
+  if (o.pix_auto) botoes.push(`
+    <button class="op" data-acao="pix">
+      <div class="op-topo"><b>💚 PIX</b><span class="selo">MAIS BARATO</span></div>
+      <div class="op-valor">${fmtMoney(o.pix_auto.valor)}</div>
+      <div class="op-sub">Aprovação na hora, sem acréscimo</div>
+    </button>`);
 
-      <div class="pane${temPix ? '' : ' active'}" data-pane="cartao">
-        <button class="btn btn-cartao" id="btn-pagar-cartao">💳 Pagar com cartão</button>
-        <div class="nome-titular">Você será levado(a) pra uma página segura de pagamento (Asaas) — seus dados do cartão não passam pelo nosso site.</div>
-      </div>
-    </div>
-    <a class="duvida" href="https://wa.me/5511999363796?text=${encodeURIComponent('Olá! Tenho uma dúvida sobre o pagamento do pedido ' + (p.order_number || '') + '.')}" target="_blank">💬 Dúvidas? Fale com a Play Up</a>
-  `;
+  (o.credito || []).forEach(c => botoes.push(`
+    <button class="op" data-acao="credito" data-n="${c.n}">
+      <div class="op-topo"><b>💳 ${c.n === 1 ? 'Cartão à vista' : 'Cartão em ' + c.n + '×'}</b></div>
+      <div class="op-valor">${c.n === 1 ? fmtMoney(c.total) : c.n + '× de ' + fmtMoney(c.parcela)}</div>
+      <div class="op-sub">${c.n === 1 ? 'Pagamento em página segura' : 'Total ' + fmtMoney(c.total) + ' · página segura'}</div>
+    </button>`));
 
-  document.querySelectorAll('.tab').forEach(t => {
-    t.addEventListener('click', () => {
-      document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
-      document.querySelectorAll('.pane').forEach(x => x.classList.remove('active'));
-      t.classList.add('active');
-      document.querySelector(`.pane[data-pane="${t.dataset.tab}"]`)?.classList.add('active');
-    });
-  });
+  const semNada = !botoes.length;
+  el.innerHTML = cabecalho(p) + `
+    ${botoes.length ? `<div class="card"><div class="titulo-s">Como você prefere pagar?</div><div class="ops">${botoes.join('')}</div><div id="msg-erro" class="msg-erro"></div></div>` : ''}
+    ${semNada ? `<div class="card erro" style="padding:24px">${dados.sem_cpf ? 'Faltam dados do responsável para gerar o pagamento.' : 'Nenhuma forma de pagamento disponível agora.'}<br>Fale com a Play Up pelo botão abaixo.</div>` : ''}
+  ` + RODAPE(p);
 
-  if (temPix) {
-    QRCode.toCanvas(document.getElementById('qr-pix'), payloadPix, { width: 220, margin: 1 }, err => { if (err) console.error(err); });
-    document.getElementById('btn-copiar-pix').addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(payloadPix);
-        const btn = document.getElementById('btn-copiar-pix');
-        btn.textContent = '✓ Copiado!';
-        setTimeout(() => { btn.textContent = '📋 Copiar código Pix'; }, 2000);
-      } catch { alert('Não consegui copiar automaticamente — selecione o código acima manualmente.'); }
-    });
-  }
+  el.querySelectorAll('.op').forEach(b => b.addEventListener('click', () => escolher(b)));
 
-  document.getElementById('btn-pagar-cartao').addEventListener('click', async () => {
-    const btn = document.getElementById('btn-pagar-cartao');
-    if (p.checkout_url) { location.href = p.checkout_url; return; }
-    btn.disabled = true;
-    btn.textContent = 'Gerando link de pagamento…';
-    try {
-      const resp = await fetch('/api/criar-cobranca', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order_id: p.order_id, method: 'credito', payment_link_token: token }),
-      });
-      const json = await resp.json();
-      if (!resp.ok) throw new Error(json.erro || 'Erro ao gerar cobrança.');
-      if (json.checkout_url) location.href = json.checkout_url;
-      else throw new Error('Não recebemos o link de pagamento.');
-    } catch (err) {
-      alert(err.message || 'Erro ao gerar o pagamento. Tente de novo em instantes.');
-      btn.disabled = false;
-      btn.textContent = '💳 Pagar com cartão';
+}
+
+async function escolher(btn) {
+  const acao = btn.dataset.acao;
+  const n = parseInt(btn.dataset.n, 10) || 1;
+  const caixa = document.getElementById('msg-erro');
+  caixa.textContent = '';
+  el.querySelectorAll('.op').forEach(b => { b.disabled = true; b.style.opacity = '.55'; });
+  btn.querySelector('.op-sub').textContent = 'Gerando… aguarde';
+  try {
+    const corpo = { order_id: dados.pedido.order_id, payment_link_token: token, method: acao === 'pix' ? 'pix' : 'credito', installments: acao === 'pix' ? 1 : n };
+    const resp = await fetch('/api/criar-cobranca', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+    const json = await resp.json().catch(() => ({}));
+    if (!resp.ok || json.ok === false) throw new Error(json.erro || 'Não foi possível gerar o pagamento.');
+    if (acao === 'credito') {
+      if (!json.checkout_url) throw new Error('Não recebemos o link de pagamento.');
+      location.href = json.checkout_url;
+      return;
     }
+    dados = await carregar();     // pega o QR gravado no pedido
+    verOpcoes = false;
+    render();
+  } catch (err) {
+    const msg = err.message || 'Erro ao gerar o pagamento. Tente de novo em instantes.';
+    renderOpcoes();                                   // volta os botoes ao normal
+    document.getElementById('msg-erro').textContent = msg;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Cobranca ja gerada (PIX automatico, parcela do PIX parcelado ou cartao)
+// ---------------------------------------------------------------------------
+function renderCobranca() {
+  const p = dados.pedido, c = dados.cobranca;
+  const ehPix = !!(c.pix_payload || c.pix_qr_image);
+  const miolo = ehPix ? `
+      <div class="titulo-s">Pague com PIX</div>
+      <div class="valor-box" style="margin:6px 0 4px"><div class="num" style="font-size:28px">${fmtMoney(c.valor)}</div></div>
+      <div class="qr-wrap">${c.pix_qr_image ? `<img src="${escapeHtml(c.pix_qr_image)}" alt="QR Code Pix" width="220" height="220" style="border-radius:10px;border:1px solid var(--gray-200)">` : '<canvas id="qr-pix" width="220" height="220"></canvas>'}</div>
+      ${c.pix_payload ? `<div class="copia-box">${escapeHtml(c.pix_payload)}</div><button class="btn btn-copiar" id="btn-copiar-pix">📋 Copiar código Pix</button>` : ''}
+      <div class="nome-titular">Abra o app do seu banco, escolha Pix e aponte a câmera pro QR, ou use "Pix Copia e Cola".<br>Esta tela avisa sozinha quando o pagamento for confirmado.</div>`
+    : `
+      <div class="titulo-s">Pagamento no cartão${c.parcelas > 1 ? ' em ' + c.parcelas + '×' : ''}</div>
+      <div class="valor-box" style="margin:6px 0 10px"><div class="num" style="font-size:28px">${fmtMoney(c.valor)}</div></div>
+      <a class="btn btn-cartao" href="${escapeHtml(c.checkout_url)}">💳 Ir para o pagamento seguro</a>
+      <div class="nome-titular">Você será levado(a) a uma página segura de pagamento (Asaas) — seus dados do cartão não passam pelo nosso site.</div>`;
+
+  el.innerHTML = cabecalho(p) + `
+    <div class="card">${miolo}
+      <button type="button" class="trocar" id="btn-trocar">↩ Escolher outra forma de pagamento</button>
+    </div>` + RODAPE(p);
+
+  document.getElementById('btn-trocar').addEventListener('click', () => { pararVigia(); verOpcoes = true; render(); });
+
+  if (ehPix && !c.pix_qr_image && c.pix_payload) {
+    QRCode.toCanvas(document.getElementById('qr-pix'), c.pix_payload, { width: 220, margin: 1 }, err => { if (err) console.error(err); });
+  }
+  const cp = document.getElementById('btn-copiar-pix');
+  if (cp) cp.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(c.pix_payload);
+      cp.textContent = '✓ Copiado!';
+      setTimeout(() => { cp.textContent = '📋 Copiar código Pix'; }, 2000);
+    } catch { alert('Não consegui copiar automaticamente — selecione o código acima manualmente.'); }
   });
+
+  // Confere o pagamento a cada 5s (mesmo ritmo do portal) e troca pela confirmacao
+  // quando cair. So' PIX: o cartao leva o pai pra fora da pagina.
+  pararVigia();
+  if (ehPix) {
+    vigia = setInterval(async () => {
+      try {
+        const novo = await carregar();
+        if (novo.pago) { dados = novo; render(); }
+      } catch { /* tenta de novo no proximo ciclo */ }
+    }, 5000);
+  }
 }
 
 iniciar();
