@@ -2882,7 +2882,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
         <span id="drill-al-count" style="font-size:12px;color:var(--gray-400);align-self:center"></span>
         <span id="drill-ficha-sel-count" style="font-size:12px;color:var(--blue);align-self:center;font-weight:600"></span>
         <button class="btn btn-sm btn-primary" id="btn-drill-imprimir-fichas" onclick="imprimirFichasSelecionadasDrill()" disabled style="opacity:.45;cursor:not-allowed" title="Marque alunos na tabela pra imprimir as fichas deles">🖨 Imprimir fichas marcadas</button>
-        <button class="btn btn-sm btn-secondary" onclick="marcarFichasImpressasDrill()" title="Marca como impressa a ficha de todos que ainda aparecem como 'falta ficha' — EXCETO os alunos que você deixou marcados (✓) na tabela">✅ Marcar fichas como impressas</button>
+        <button class="btn btn-sm btn-secondary" onclick="marcarFichasImpressasDrill()" title="Marca como impressa a ficha dos alunos que você marcou (✓) na tabela — os mesmos que você imprimiu com 'Imprimir fichas marcadas'">✅ Marcar fichas como impressas</button>
         <button class="btn btn-sm btn-secondary" onclick="exportarDrillExcel()" title="Baixa a lista que está na tela (com os filtros aplicados) para abrir no Excel">⬇ Exportar Excel</button>
         <button class="btn btn-sm btn-secondary" onclick="imprimirRelatorioProdutos()" title="Lista para imprimir: produto por produto, com o nome de quem comprou (só pedidos pagos por padrão; dá pra incluir os pendentes na própria folha)">🛒 Produtos e compradores</button>
         <button class="btn btn-sm btn-secondary" onclick="imprimirRelatorioSituacao()" title="Relatório agrupado por situação (sem autorização, pendente, pendente com parcela paga, sem pedido, pago...), pra imprimir ou salvar em PDF">📋 Relatório da situação</button>
@@ -4827,7 +4827,9 @@ async function gerarRecibo(ped) {
   const html = `<!DOCTYPE html>
 <html lang="pt-BR"><head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Recibo ${escapeHtml(ped.order_number || '')} — ${escapeHtml(empresa)}</title>
+<script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"><\/script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',Arial,sans-serif;background:#fff;color:#1a1a2e;font-size:13px;line-height:1.5}
@@ -4858,10 +4860,32 @@ td{padding:6px 4px;border-bottom:1px solid #f0f0f0}
 </head><body>
 <div class="btn-row">
   <button class="btn-print" onclick="window.print()">🖨 Imprimir</button>
-  <button class="btn-pdf" onclick="window.opener && window.opener.baixarReciboPDF('${ped.id}')">📄 Baixar PDF</button>
+  <button class="btn-pdf" id="btn-pdf" onclick="baixarPdfAqui()">📄 Baixar PDF</button>
   <a class="btn-wpp" style="text-decoration:none;display:inline-flex;align-items:center" href="https://wa.me/${apenasDigitosWpp(ped.user?.phone) || ''}?text=${encodeURIComponent(montarTextoRecibo(ped, empresa, statusTxt, metodoNome, dataPedido, paidAt))}" target="_blank" rel="noopener">💬 Enviar texto por WhatsApp</a>
 </div>
-${montarConteudoRecibo(ped, cfg)}
+<div id="rec-conteudo" style="background:#fff">${montarConteudoRecibo(ped, cfg)}</div>
+<script>
+// PDF gerado AQUI, nesta janela (nao na principal): no celular a janela principal
+// fica em segundo plano e o navegador nao deixa ela baixar arquivo.
+function baixarPdfAqui() {
+  var btn = document.getElementById('btn-pdf');
+  var aviso = 'Nao consegui gerar o PDF. Use Imprimir e escolha "Salvar como PDF".';
+  if (typeof html2pdf === 'undefined') { alert(aviso + ' (a biblioteca de PDF nao carregou — sem internet?)'); return; }
+  var txt = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Gerando...';
+  html2pdf().set({
+    margin: 10,
+    filename: ${JSON.stringify('Recibo-' + String(ped.order_number || 'pedido').replace(/\s+/g, '_') + '.pdf')},
+    image: { type: 'jpeg', quality: 0.97 },
+    html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+  }).from(document.getElementById('rec-conteudo')).save().then(function () {
+    btn.disabled = false; btn.textContent = txt;
+  }).catch(function () {
+    btn.disabled = false; btn.textContent = txt; alert(aviso);
+  });
+}
+<\/script>
 </body></html>`;
 
   const win = window.open('', '_blank', 'width=820,height=760');
@@ -9890,22 +9914,22 @@ window.exportarDrillExcel = exportarDrillExcel;
 // Situacao da ficha impressa — mesma regra do modal "Fichas por turma":
 // precisa imprimir se nunca saiu OU se o pedido mudou depois da impressao.
 // Quem recusou a autorizacao nao recebe ficha (null).
-// Marca como impressa a ficha de quem aparece como "falta ficha", EXCETO os
-// alunos marcados (checkbox) na tabela — esses continuam na fila. Serve pra
-// quando as fichas foram impressas por fora do modal "Fichas por turma" (que
-// e' o unico que grava o registro). So' ACRESCENTA registros em ficha_prints;
-// nada de aluno/pedido muda e "Desmarcar impressas" desfaz.
+// Marca como impressa a ficha dos alunos MARCADOS (checkbox) na tabela — os mesmos
+// que o botao "Imprimir fichas marcadas" imprime (corrigido em 20/10/2026: antes
+// fazia o contrario, marcava todos EXCETO os marcados). Serve pra quando as fichas
+// foram impressas por fora do modal "Fichas por turma" (que e' o unico que grava o
+// registro). So' ACRESCENTA registros em ficha_prints; nada de aluno/pedido muda e
+// "Desmarcar impressas" desfaz. Quem recusou a autorizacao nao tem ficha (ignorado).
 async function marcarFichasImpressasDrill() {
   if (!drillProjetoId) return;
-  const alvo = drillAlunosData.filter(a => ['nunca', 'desatualizada'].includes(fichaStatusDe(a)) && !drillFichaSel.has(a.id));
-  const ficam = drillAlunosData.filter(a => drillFichaSel.has(a.id));
-  if (!alvo.length) { toast('Nenhuma ficha para marcar.', 'warn'); return; }
+  const alvo = drillAlunosData.filter(a => drillFichaSel.has(a.id) && fichaStatusDe(a) !== null);
+  if (!alvo.length) {
+    toast('Marque na tabela (✓) os alunos cujas fichas você imprimiu e clique de novo.', 'warn');
+    return;
+  }
   const NL = String.fromCharCode(10);
-  const lista = ficam.slice(0, 12).map(a => '- ' + a.name).join(NL) + (ficam.length > 12 ? NL + '... e mais ' + (ficam.length - 12) : '');
-  const msg = 'Marcar como IMPRESSA a ficha de ' + alvo.length + ' aluno(s)?' + NL + NL +
-    (ficam.length
-      ? 'Continuam como "falta ficha" os ' + ficam.length + ' marcados na tabela:' + NL + lista
-      : 'ATENCAO: voce nao marcou ninguem na tabela, entao TODOS serao marcados como impressos.');
+  const lista = alvo.slice(0, 12).map(a => '- ' + a.name).join(NL) + (alvo.length > 12 ? NL + '... e mais ' + (alvo.length - 12) : '');
+  const msg = 'Marcar como IMPRESSA a ficha dos ' + alvo.length + ' aluno(s) marcado(s)?' + NL + NL + lista;
   if (!confirm(msg)) return;
   try {
     const agora = new Date().toISOString();

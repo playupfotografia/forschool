@@ -4081,8 +4081,14 @@ function montarConteudoRecibo(pedido, parcela) {
 async function gerarPdfRecibo(pedido, parcela, nomeArquivo) {
   if (typeof html2pdf === 'undefined') { toast('Biblioteca de PDF não carregou. Recarregue a página.', 'warn'); return; }
   toast('Gerando recibo…', 'info');
+  // ⚠️ NAO esconder com position:fixed;left:-9999px — o html2canvas captura esse
+  // elemento com ALTURA ZERO (testado em 20/10/2026: canvas 1438x0) e o PDF sai em
+  // branco ou da' erro, sem aviso. O que funciona e' um pai com max-height:0 +
+  // overflow:hidden (canvas 1438x374 no mesmo teste) — igual ao recibo do admin.
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'max-height:0;overflow:hidden';
   const el = document.createElement('div');
-  el.style.cssText = 'position:fixed;left:-9999px;top:0;width:190mm;background:#fff;font-family:"DM Sans",Arial,sans-serif;font-size:13px;color:#1a1a2e;padding:20px';
+  el.style.cssText = 'width:190mm;background:#fff;font-family:"DM Sans",Arial,sans-serif;font-size:13px;color:#1a1a2e;padding:20px';
   el.innerHTML = `<style>
     .rec-head{text-align:center;border-bottom:2px solid #4B6BFB;padding-bottom:12px;margin-bottom:16px}
     .rec-empresa{font-family:"Playfair Display",serif;font-size:22px;color:#4B6BFB;font-weight:700}
@@ -4099,7 +4105,8 @@ async function gerarPdfRecibo(pedido, parcela, nomeArquivo) {
     .rec-total{display:flex;justify-content:space-between;font-size:16px;font-weight:700;border-top:2px solid #1a1a2e;padding-top:8px;margin-top:4px}
     .rec-foot{margin-top:24px;font-size:10.5px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:10px}
   </style>${montarConteudoRecibo(pedido, parcela)}`;
-  document.body.appendChild(el);
+  wrap.appendChild(el);
+  document.body.appendChild(wrap);
   try {
     await html2pdf().set({
       margin: 10,
@@ -4113,7 +4120,7 @@ async function gerarPdfRecibo(pedido, parcela, nomeArquivo) {
     console.error('gerarPdfRecibo', err);
     toast('Não consegui gerar o recibo. Tenta de novo.', 'warn');
   } finally {
-    el.remove();
+    wrap.remove();
   }
 }
 
