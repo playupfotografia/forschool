@@ -163,8 +163,16 @@ async function sb(caminho, opts = {}) {
 // demo, aluno de teste) devolve fora:false — melhor nao interferir do que
 // mandar o pai pro lugar errado.
 // ---------------------------------------------------------------------------
+// DESLIGADO em 20/10/2026 a pedido do Daniel: os links/QR de um projeto sao
+// distribuidos pra series que nao estao nas sessoes dele (ex: a familia do 9o
+// ano usa o link "Recordacoes Fund II e Medio" mesmo com o 9o ano no Memorial),
+// e o redirecionamento mandava essas familias pro projeto errado. Pra religar,
+// troque pra true (portal.html tem a mesma chave: REDIRECIONAR_TURMA_OUTRO_PROJETO).
+const REDIRECIONAR_TURMA_OUTRO_PROJETO = false;
+
 async function verificarProjetoDaTurma({ classId, projectId, schoolId, isTest }) {
   const q = (v) => encodeURIComponent(v);
+  if (!REDIRECIONAR_TURMA_OUTRO_PROJETO) return { fora: false };
   if (!classId || !projectId || isTest) return { fora: false };
   const atual = (await sb(`/projects?id=eq.${q(projectId)}&select=id,demo_mode`))?.[0];
   if (!atual || atual.demo_mode) return { fora: false };

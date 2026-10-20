@@ -3302,8 +3302,13 @@ function showSelecaoFilhos(students, user) {
 // outro projeto da escola, leva o responsavel pra la (o login continua — e' o
 // mesmo site). Pergunta ao servidor (/api/projeto-da-turma) e, na duvida ou em
 // qualquer erro, deixa seguir normal. Devolve true se redirecionou.
+// DESLIGADO em 20/10/2026 a pedido do Daniel (familias do 9o ano e do 3o medio usam
+// o link "Recordacoes Fund II e Medio" e eram mandadas pro Memorial). Pra religar:
+// true aqui E em api/_lib.js (REDIRECIONAR_TURMA_OUTRO_PROJETO).
+const REDIRECIONAR_TURMA_OUTRO_PROJETO = false;
 async function redirecionarSeOutroProjeto(stu) {
   try {
+    if (!REDIRECIONAR_TURMA_OUTRO_PROJETO) return false;
     if (!stu?.id || !projeto?.id || projeto.demo_mode) return false;
     const r = await fetch('/api/projeto-da-turma', {
       method: 'POST',
