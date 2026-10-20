@@ -10161,6 +10161,13 @@ function filtrarDrillAlunos() {
         stCell = `<span class="badge badge-gray">${escapeHtml(o.payment_status)}</span>`;
       }
 
+      // Pedido cancelado/estornado: o aluno fica SEM pedido ativo, entao o botao de
+      // criar um novo tem que voltar (20/10/2026 — sumia depois de cancelar e nao
+      // dava pra refazer o pedido por aqui).
+      if (o.payment_status === 'cancelled' || o.payment_status === 'refunded') {
+        stCell += `<div style="margin-top:4px"><button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();abrirPedidoManual('${a.id}','${escapeHtml(a.name).replace(/'/g, "\\'")}')" style="font-size:11px">+ Criar pedido</button></div>`;
+      }
+
       // Historico: pedido(s) cancelado(s) antes do que esta' na linha. Sem
       // isso, um P0138 cancelado sumiria de vista assim que o P0140 existisse.
       if (a.cancelados?.length) {
