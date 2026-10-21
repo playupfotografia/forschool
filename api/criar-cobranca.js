@@ -41,6 +41,9 @@ module.exports = async (req, res) => {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
     const metodo = String(body.method || '').toLowerCase();
     const linkToken = body.payment_link_token ? String(body.payment_link_token) : null;
+    // Link combinado (/pagar/<t1>~<t2>, admin junta 2+ pedidos do mesmo responsavel): um
+    // token POR PEDIDO, na mesma ordem de order_ids — cada token autoriza so' o seu pedido.
+    const linkTokens = Array.isArray(body.payment_link_tokens) ? body.payment_link_tokens.map(String) : null;
     let parcelas = parseInt(body.installments, 10) || 1;
 
     // order_ids (lista) e' o caminho novo do pagamento combinado; order_id
@@ -62,10 +65,10 @@ module.exports = async (req, res) => {
     // Combinado exige login: o link publico e' pra 1 responsavel sem conta,
     // nao faz sentido "combinar" nada por ali.
     const uid = await usuarioDoToken(req);
-    if (!uid && !linkToken) {
+    if (!uid && !linkToken && !(linkTokens && linkTokens.length)) {
       return res.status(401).json({ erro: 'Sessao expirada. Faca login novamente.' });
     }
-    if (combinado && !uid) {
+    if (combinado && !uid && !(linkTokens && linkTokens.length === orderIds.length)) {
       return res.status(401).json({ erro: 'Faca login pra pagar pedidos juntos.' });
     }
 
@@ -86,7 +89,9 @@ module.exports = async (req, res) => {
 
     for (const p of pedidosGrupo) {
       const autorizadoPorLogin = uid && (!p.user_id || p.user_id === uid);
-      const autorizadoPorToken = !combinado && linkToken && p.payment_link_token && linkToken === p.payment_link_token;
+      const autorizadoPorToken = combinado
+        ? !!(linkTokens && p.payment_link_token && linkTokens[orderIds.indexOf(p.id)] === p.payment_link_token)
+        : !!(linkToken && p.payment_link_token && linkToken === p.payment_link_token);
       if (!autorizadoPorLogin && !autorizadoPorToken) {
         return res.status(403).json({ erro: 'Esse pedido nao e seu.' });
       }
@@ -99,6 +104,13 @@ module.exports = async (req, res) => {
         return res.status(409).json({
           erro: `O pedido ${p.order_number || ''} ja tem parcela paga. Pra mudar a forma de pagamento, fale com a Play Up.`,
         });
+      }
+    }
+
+    if (combinado && !uid) {
+      const donos = new Set(pedidosGrupo.map((p) => p.user_id));
+      if (donos.size > 1 || !pedidosGrupo[0].user_id) {
+        return res.status(403).json({ erro: 'Estes pedidos nao sao do mesmo responsavel.' });
       }
     }
 

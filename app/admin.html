@@ -2971,6 +2971,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
         <button class="btn btn-sm btn-secondary" onclick="exportarDrillExcel()" title="Baixa a lista que está na tela (com os filtros aplicados) para abrir no Excel">⬇ Exportar Excel</button>
         <button class="btn btn-sm btn-secondary" onclick="imprimirRelatorioProdutos()" title="Lista para imprimir: produto por produto, com o nome de quem comprou (só pedidos pagos por padrão; dá pra incluir os pendentes na própria folha)">🛒 Produtos e compradores</button>
         <button class="btn btn-sm btn-secondary" onclick="imprimirListaSeparar()" title="Lista por turma com cada aluno e tudo o que ele comprou, com caixinha pra riscar — pra separar as fotos impressas">📦 Lista para separar fotos</button>
+        <button class="btn btn-sm btn-secondary" onclick="juntarPedidosLink()" title="Marque (✓) 2 ou mais alunos do mesmo responsável com pedido pendente e gere UM link de pagamento para todos (PIX ou cartão, valor total)">🔗 Juntar pedidos marcados (link único)</button>
         <button class="btn btn-sm btn-secondary" onclick="imprimirRelatorioSituacao()" title="Relatório agrupado por situação (sem autorização, pendente, pendente com parcela paga, sem pedido, pago...), pra imprimir ou salvar em PDF">📋 Relatório da situação</button>
       </div>
       <div id="drill-al-soma" style="display:none;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:13px"></div>
@@ -11598,6 +11599,55 @@ atualizar();
   win.document.close();
 }
 window.imprimirListaSeparar = imprimirListaSeparar;
+
+// ---------------------------------------------------------------------------
+// LINK DE PAGAMENTO COMBINADO (21/10/2026): junta 2+ pedidos PENDENTES do mesmo
+// responsavel num link so' (/pagar/<token1>~<token2>), pra pagar tudo de uma vez
+// no PIX (Woovi) ou no cartao (a vista/parcelado) — mesmo caminho do "pagar
+// junto" do portal, mas sem a mae precisar de login. Cada pedido tem o seu
+// token (gerado aqui se ainda nao existe — igual ao link de um pedido so');
+// nada mais e' alterado nos pedidos.
+// ---------------------------------------------------------------------------
+window.juntarPedidosLink = async function () {
+  const marcados = drillAlunosData.filter(a => drillFichaSel.has(a.id));
+  const validos = marcados.filter(a => a.order && a.order.payment_status === 'pending' && !(a.order.parcelasResumo?.pagas > 0));
+  if (validos.length < 2) {
+    toast('Marque (✓) na tabela pelo menos 2 alunos com pedido PENDENTE do mesmo responsável.', 'warn');
+    return;
+  }
+  const donos = new Set(validos.map(a => a.user_id));
+  if (donos.size > 1 || ![...donos][0]) {
+    toast('Os pedidos marcados precisam ser do MESMO responsável (e ele precisa ter cadastro).', 'warn');
+    return;
+  }
+  const NL = String.fromCharCode(10);
+  const soma = validos.reduce((t, a) => t + (Number(a.order.total_amount) || 0), 0);
+  const ignorados = marcados.length - validos.length;
+  const msg = 'Gerar UM link de pagamento para estes ' + validos.length + ' pedidos?' + NL + NL +
+    validos.map(a => '- ' + a.order.order_number + ' · ' + a.name + ' · ' + fmtMoney(Number(a.order.total_amount) || 0)).join(NL) + NL + NL +
+    'Total: ' + fmtMoney(soma) + (ignorados ? NL + NL + '(' + ignorados + ' marcado(s) ficaram de fora: sem pedido pendente.)' : '');
+  if (!confirm(msg)) return;
+  try {
+    const tokens = [];
+    for (const a of validos) {
+      const { data: ped, error } = await supabase.from('orders')
+        .select('id, payment_link_token').eq('id', a.order.id).single();
+      if (error) throw error;
+      let tk = ped.payment_link_token;
+      if (!tk) {
+        tk = crypto.randomUUID();
+        const { error: e2 } = await supabase.from('orders').update({ payment_link_token: tk }).eq('id', ped.id);
+        if (e2) throw e2;
+      }
+      tokens.push(tk);
+    }
+    const link = 'https://forschool.playupfotografia.com.br/pagar/' + tokens.join('~');
+    try { await navigator.clipboard.writeText(link); toast('Link copiado!', 'ok'); } catch (e) { /* o prompt abaixo deixa copiar na mao */ }
+    prompt('Link único para pagar os ' + validos.length + ' pedidos (' + fmtMoney(soma) + '). Já foi copiado — cole no WhatsApp:', link);
+  } catch (err) {
+    handleError(err, 'juntarPedidosLink');
+  }
+};
 
 // ============================================================================
 // ENTREGA / CONFERENCIA DE MATERIAL IMPRESSO (21/10/2026)

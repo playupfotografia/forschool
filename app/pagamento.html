@@ -85,7 +85,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--gray-50);color:var(--gray
 // endereco, ela continua mostrando /pagar/<token>. Por isso o token precisa
 // vir do proprio caminho da URL, nao de location.search (que fica vazio).
 const tokenDoPath = (location.pathname.match(/\/pagar\/([^/]+)/) || [])[1];
-const token = tokenDoPath || new URLSearchParams(location.search).get('token');
+const tokenBruto = tokenDoPath || new URLSearchParams(location.search).get('token') || '';
+// Link combinado (admin junta pedidos do mesmo responsavel): /pagar/<token1>~<token2>
+const tokens = decodeURIComponent(tokenBruto).split(/[~+ ]/).map(t => t.trim()).filter(Boolean);
+const token = tokens[0];
 const el = document.getElementById('conteudo');
 
 function escapeHtml(s) {
@@ -112,7 +115,7 @@ async function carregar() {
   const r = await fetch('/api/pedido-publico', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token }),
+    body: JSON.stringify({ tokens }),
   });
   const json = await r.json().catch(() => ({}));
   if (!r.ok || !json.ok) throw new Error(json.erro || 'Pedido nao encontrado.');
@@ -133,17 +136,37 @@ async function iniciar() {
   render();
 }
 
-function cabecalho(p) {
-  const itens = (p.itens || []).map(i =>
+function itensHtml(o) {
+  return (o.itens || []).map(i =>
     `${i.quantidade > 1 ? i.quantidade + '× ' : ''}${escapeHtml(i.nome)}${i.variante ? ` (${escapeHtml(i.variante)})` : ''}`
-  );
+  ).join('<br>') || '—';
+}
+function cabecalho(p) {
+  // Link combinado: um bloco por aluno e o total dos pedidos
+  if (dados && dados.grupo) {
+    return `
+    <div class="card">
+      <div class="titulo">Pedidos ${escapeHtml(dados.grupo.map(o => o.order_number).join(' + '))}</div>
+      <div class="sub">${escapeHtml(p.school_name || '')}${p.project_name ? ' · ' + escapeHtml(p.project_name) : ''}</div>
+      ${dados.grupo.map(o => `
+        <div class="linha"><span>Aluno</span><b>${escapeHtml(o.student_name)}</b></div>
+        <div class="linha"><span>Turma</span><b>${escapeHtml(o.turma || '—')}</b></div>
+        <div class="linha"><span>Itens</span><b class="itens-lista">${itensHtml(o)}</b></div>
+        <div class="linha" style="border-bottom:2px solid var(--gray-200)"><span>Pedido ${escapeHtml(o.order_number)}</span><b>${fmtMoney(o.total_amount)}</b></div>`).join('')}
+      <div class="valor-box">
+        <div class="rotulo">${dados.desconto > 0 ? 'Total dos pedidos' : 'Valor dos pedidos juntos'}</div>
+        <div class="num">${fmtMoney(p.total_amount)}</div>
+        ${dados.desconto > 0 ? `<div style="font-size:12px;color:var(--green);font-weight:700">Desconto de irmãos: − ${fmtMoney(dados.desconto)}</div>` : ''}
+      </div>
+    </div>`;
+  }
   return `
     <div class="card">
       <div class="titulo">Pedido ${escapeHtml(p.order_number || '')}</div>
       <div class="sub">${escapeHtml(p.school_name || '')}${p.project_name ? ' · ' + escapeHtml(p.project_name) : ''}</div>
       <div class="linha"><span>Aluno</span><b>${escapeHtml(p.student_name || '')}</b></div>
       <div class="linha"><span>Turma</span><b>${escapeHtml(p.turma || '—')}</b></div>
-      <div class="linha"><span>Itens</span><b class="itens-lista">${itens.join('<br>') || '—'}</b></div>
+      <div class="linha"><span>Itens</span><b class="itens-lista">${itensHtml(p)}</b></div>
       <div class="valor-box">
         <div class="rotulo">Valor do pedido</div>
         <div class="num">${fmtMoney(p.total_amount)}</div>
@@ -166,6 +189,10 @@ function render() {
   if (dados.pago) {
     el.innerHTML = cabecalho(p) + `
       <div class="pago-box">✓ Pagamento confirmado<br><span style="font-weight:400;font-size:13px">Obrigada pelo pedido! 💛</span></div>` + RODAPE(p);
+    return;
+  }
+  if (dados.parcial_pago) {
+    el.innerHTML = cabecalho(p) + `<div class="erro">Um dos pedidos deste link já foi pago. Fale com a Play Up para ajustar o pagamento.</div>` + RODAPE(p);
     return;
   }
   if (dados.cancelado) {
@@ -215,7 +242,10 @@ async function escolher(btn) {
   el.querySelectorAll('.op').forEach(b => { b.disabled = true; b.style.opacity = '.55'; });
   btn.querySelector('.op-sub').textContent = 'Gerando… aguarde';
   try {
-    const corpo = { order_id: dados.pedido.order_id, payment_link_token: token, method: acao === 'pix' ? 'pix' : 'credito', installments: acao === 'pix' ? 1 : n };
+    const metodo = acao === 'pix' ? 'pix' : 'credito';
+    const corpo = tokens.length > 1
+      ? { order_ids: dados.order_ids, payment_link_tokens: tokens, method: metodo, installments: acao === 'pix' ? 1 : n }
+      : { order_id: dados.pedido.order_id, payment_link_token: token, method: metodo, installments: acao === 'pix' ? 1 : n };
     const resp = await fetch('/api/criar-cobranca', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
     const json = await resp.json().catch(() => ({}));
     if (!resp.ok || json.ok === false) throw new Error(json.erro || 'Não foi possível gerar o pagamento.');

@@ -2,20 +2,25 @@
 // POST /api/pedido-publico
 //
 // Alimenta a pagina publica /pagar/<token> (pagamento.html) — o link que o
-// admin gera pra responsavel que nao consegue usar o portal. Antes essa pagina
-// so' sabia mostrar o PIX manual (chave fixa) e cartao a vista; agora ela
-// mostra PIX automatico (Woovi) e cartao de credito a vista e parcelado (ate o
-// maximo do projeto, com as mesmas taxas e acrescimos do portal).
+// admin gera pra responsavel que nao consegue usar o portal. Mostra PIX
+// automatico (Woovi) e cartao de credito a vista e parcelado (ate o maximo do
+// projeto, com as mesmas taxas e acrescimos do portal).
+//
+// LINK COMBINADO (21/10/2026): o admin pode juntar 2+ pedidos do MESMO
+// responsavel e projeto num link so': /pagar/<token1>~<token2>. Cada pedido
+// tem o seu proprio token (autoriza so' ele); a pagina soma os valores e paga
+// tudo numa cobranca (api/criar-cobranca.js, mesmo caminho do "pagar junto" do
+// portal, com o desconto de irmaos do projeto, se houver).
 //
 // Quem decide o que existe e quanto custa e' este servidor (mesma cadeia
 // projeto -> geral de criar-cobranca.js); a pagina so' desenha. Preco nunca
-// vem do navegador — quem cobra de verdade continua sendo criar-cobranca.js /
-// criar-parcelamento-pix.js, que revalidam tudo.
+// vem do navegador — quem cobra de verdade e' criar-cobranca.js, que
+// revalida tudo.
 //
-// Body: { token }   (sem login — o token do pedido e' a autorizacao)
+// Body: { tokens: [t1, t2...] }  (ou { token })   — sem login: o token e' a autorizacao
 // ============================================================================
 
-const { sb, valorComTaxa, calcularAcrescimoParcelamento } = require('./_lib.js');
+const { sb, valorComTaxa, calcularAcrescimoParcelamento, calcularDescontoIrmaos } = require('./_lib.js');
 
 const q = (v) => encodeURIComponent(v);
 const arred = (n) => Math.round(Number(n) * 100) / 100;
@@ -35,37 +40,57 @@ module.exports = async (req, res) => {
   }
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
-    const token = String(body.token || '').trim();
-    if (!token || token.length < 8) return res.status(400).json({ erro: 'Link invalido.' });
+    const tokens = [...new Set((Array.isArray(body.tokens) ? body.tokens : [body.token])
+      .map((t) => String(t || '').trim()).filter(Boolean))].slice(0, 6);
+    if (!tokens.length || tokens.some((t) => t.length < 8)) return res.status(400).json({ erro: 'Link invalido.' });
 
-    const peds = await sb(
-      `/orders?payment_link_token=eq.${q(token)}&select=` +
+    const brutos = await sb(
+      `/orders?payment_link_token=in.(${tokens.map(q).join(',')})&select=` +
       'id,order_number,total_amount,payment_status,payment_method,installments,amount_charged,gateway,gateway_id,' +
-      'pix_payload,pix_qr_image,checkout_url,has_paid_installment,project_id,is_test,' +
+      'pix_payload,pix_qr_image,checkout_url,has_paid_installment,project_id,user_id,is_test,payment_link_token,' +
       'users(cpf),students(name,class:school_classes(name,year:school_years(name))),school:schools(name),project:projects(name),' +
       'items:order_items(quantity,variant_name,product:products(name)),kits:order_kits(quantity,kit:school_kits(name))'
     );
-    const p = peds?.[0];
-    if (!p) return res.status(404).json({ erro: 'Pedido nao encontrado.' });
+    if (!brutos || brutos.length !== tokens.length) return res.status(404).json({ erro: 'Pedido nao encontrado.' });
+    // mantem a ordem dos tokens do link
+    const peds = tokens.map((t) => brutos.find((o) => o.payment_link_token === t));
+    const p = peds[0];
+    const grupo = peds.length > 1;
+    if (grupo) {
+      const mesmoResp = peds.every((o) => o.user_id && o.user_id === p.user_id);
+      const mesmoProj = peds.every((o) => o.project_id && o.project_id === p.project_id);
+      if (!mesmoResp || !mesmoProj) return res.status(400).json({ erro: 'Estes pedidos nao podem ser pagos juntos.' });
+    }
+
+    const resumo = (o) => ({
+      order_id: o.id,
+      order_number: o.order_number,
+      total_amount: Number(o.total_amount) || 0,
+      payment_status: o.payment_status,
+      student_name: o.students?.name || '',
+      turma: [o.students?.class?.year?.name, o.students?.class?.name].filter(Boolean).join(' — '),
+      itens: [
+        ...(o.kits || []).map((k) => ({ nome: k.kit?.name || 'Kit', quantidade: k.quantity || 1 })),
+        ...(o.items || []).map((i) => ({ nome: i.product?.name || '—', quantidade: i.quantity || 1, variante: i.variant_name || null })),
+      ],
+    });
+    const lista = peds.map(resumo);
+    const total0 = arred(lista.reduce((s, o) => s + o.total_amount, 0));
 
     const pedido = {
-      order_id: p.id,
-      order_number: p.order_number,
-      total_amount: Number(p.total_amount) || 0,
-      payment_status: p.payment_status,
-      student_name: p.students?.name || '',
-      turma: [p.students?.class?.year?.name, p.students?.class?.name].filter(Boolean).join(' — '),
+      ...lista[0],
+      total_amount: total0,
       school_name: p.school?.name || '',
       project_name: p.project?.name || '',
-      itens: [
-        ...(p.kits || []).map((k) => ({ nome: k.kit?.name || 'Kit', quantidade: k.quantity || 1 })),
-        ...(p.items || []).map((i) => ({ nome: i.product?.name || '—', quantidade: i.quantity || 1, variante: i.variant_name || null })),
-      ],
     };
+    const extra = grupo ? { grupo: lista, order_ids: lista.map((o) => o.order_id) } : { order_ids: [p.id] };
 
-    if (p.payment_status === 'paid') return res.status(200).json({ ok: true, pago: true, pedido });
-    if (p.payment_status === 'cancelled' || p.payment_status === 'refunded') {
-      return res.status(200).json({ ok: true, cancelado: true, pedido });
+    if (peds.every((o) => o.payment_status === 'paid')) return res.status(200).json({ ok: true, pago: true, pedido, ...extra });
+    if (peds.some((o) => o.payment_status === 'cancelled' || o.payment_status === 'refunded')) {
+      return res.status(200).json({ ok: true, cancelado: true, pedido, ...extra });
+    }
+    if (peds.some((o) => o.payment_status === 'paid')) {
+      return res.status(200).json({ ok: true, parcial_pago: true, pedido, ...extra });
     }
 
     // ---- Configuracao (projeto manda, depois o geral) ----------------------
@@ -76,26 +101,29 @@ module.exports = async (req, res) => {
     let proj = null;
     if (p.project_id) {
       proj = (await sb(
-        `/projects?id=eq.${q(p.project_id)}&select=pix_mode,max_installments,surcharge_mode`
+        `/projects?id=eq.${q(p.project_id)}&select=pix_mode,max_installments,surcharge_mode,sibling_discount_mode,sibling_discount_value`
       ))?.[0] || null;
     }
 
-    const total = pedido.total_amount;
     // Mesma cadeia projeto -> geral do portal/criar-cobranca: o pix_mode do projeto
     // manda; em branco vale o interruptor geral.
     const pixAuto = proj?.pix_mode === 'automatico' ? true : proj?.pix_mode === 'manual' ? false : (cfg.pay_pix_enabled !== false);
-        const semCpf = !String(p.users?.cpf || '').replace(/\D/g, '');
+    const semCpf = !String(p.users?.cpf || '').replace(/\D/g, '');
     const gatewayOk = !semCpf;   // o gateway (Woovi/Asaas) exige o CPF do pagador
 
-    const acrescimo = p.project_id ? await calcularAcrescimoParcelamento([p.id], p.project_id) : 0;
-    const base = arred(total + acrescimo);   // base de cartao e de PIX parcelado (migration_061)
+    // Desconto de irmaos (so' em pagamento combinado, e so' se o projeto configurou) —
+    // mesma conta de criar-cobranca.js.
+    const desconto = grupo ? calcularDescontoIrmaos(total0, proj) : 0;
+    const valorPix = arred(total0 - desconto);
+    const acrescimo = p.project_id ? await calcularAcrescimoParcelamento(peds.map((o) => o.id), p.project_id) : 0;
+    const base = arred(valorPix + acrescimo);   // base do cartao (migration_061)
 
     const opcoes = { pix_auto: null, credito: [] };
 
     // PIX automatico (Woovi ou Asaas, conforme o motor configurado): QR gerado na
-    // hora e confirmado sozinho. Este link NAO oferece mais o PIX manual (chave
-    // fixa) — pedido do Daniel em 20/10/2026. PIX parcelado fica so' no portal.
-    if (pixAuto && gatewayOk) opcoes.pix_auto = { valor: arred(total) };
+    // hora e confirmado sozinho. Este link NAO oferece o PIX manual (chave fixa).
+    // PIX parcelado fica so' no portal.
+    if (pixAuto && gatewayOk) opcoes.pix_auto = { valor: valorPix };
 
     // Cartao de credito (sempre Asaas): a vista e parcelado ate o maximo
     if (cfg.pay_credit_enabled !== false && gatewayOk) {
@@ -118,20 +146,20 @@ module.exports = async (req, res) => {
     }
 
     // ---- Cobranca ja gerada (PIX automatico ou cartao): reabrir o link mostra ela,
-    // sem criar outra. PIX parcelado do portal fica de fora (tem fluxo proprio).
+    // sem criar outra. Num grupo, a cobranca e' a mesma nos pedidos (valor = soma).
     let cobranca = null;
     if (p.payment_method !== 'pix_parcelado' && (p.pix_payload || p.pix_qr_image || p.checkout_url)) {
       cobranca = {
         metodo: p.payment_method || null,
         parcelas: p.installments || 1,
-        valor: arred(p.amount_charged ?? total),
+        valor: arred(peds.reduce((s, o) => s + (Number(o.amount_charged ?? o.total_amount) || 0), 0)),
         pix_payload: p.pix_payload || null,
         pix_qr_image: p.pix_qr_image || null,
         checkout_url: p.checkout_url || null,
       };
     }
 
-    return res.status(200).json({ ok: true, pedido, opcoes, cobranca, sem_cpf: semCpf });
+    return res.status(200).json({ ok: true, pedido, opcoes, cobranca, sem_cpf: semCpf, desconto, ...extra });
   } catch (err) {
     console.error('pedido-publico', err);
     return res.status(500).json({ erro: 'Nao consegui carregar o pedido. Tente de novo em instantes.' });
