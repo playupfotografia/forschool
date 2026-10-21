@@ -649,6 +649,10 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></svg>
       Pedidos
     </button>
+    <button class="sb-item" data-page="entrega">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 8l-9-5-9 5v8l9 5 9-5V8z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>
+      Entrega / Conferência
+    </button>
     <button class="sb-item" data-page="relatorios">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
       Relatórios
@@ -1234,6 +1238,84 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
   </div>
 
   <!-- ANÁLISE DE PRODUTOS -->
+  <!-- ============ ENTREGA / CONFERÊNCIA DE MATERIAL IMPRESSO ============ -->
+  <div id="page-entrega" class="page">
+    <div class="topbar"><div class="topbar-title">Entrega / Conferência de material</div></div>
+
+    <div class="card card-pad" style="margin-bottom:14px">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="form-group" style="margin:0;flex:1;min-width:240px">
+          <label class="form-label">Projeto</label>
+          <select class="form-select" id="ent-projeto"><option value="">Carregando…</option></select>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--gray-600);cursor:pointer;padding-bottom:9px">
+          <input type="checkbox" id="ent-pend"> Incluir pedidos pendentes
+        </label>
+        <button class="btn btn-primary" id="btn-ent-carregar">Carregar</button>
+      </div>
+      <div style="font-size:11px;color:var(--gray-400);margin-top:8px;line-height:1.5">
+        Para separar e conferir o material impresso: uma <b>tira por aluno</b> (foto 3×4, nome grande, ano/turma e tudo que ele comprou) para
+        <b>recortar e colocar em cima do monte</b>. Só lê os pedidos — não altera nada nos projetos. Pedidos cancelados e de teste ficam de fora.
+        A foto vem do organizador de fotos (botão <b>Enviar miniaturas</b>); sem ela, a tira sai com um quadro cinza com a inicial.
+      </div>
+    </div>
+
+    <div id="ent-conteudo" style="display:none">
+      <div class="card card-pad" style="margin-bottom:14px">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+          <div class="form-group" style="margin:0;min-width:220px">
+            <label class="form-label">Turma</label>
+            <select class="form-select" id="ent-turma"><option value="">Todas as turmas</option></select>
+          </div>
+          <span id="ent-resumo" style="font-size:12px;color:var(--gray-500);padding-bottom:9px"></span>
+        </div>
+        <div style="font-size:11px;color:var(--gray-500);margin-bottom:12px">
+          As duas abas imprimem os alunos <b>marcados (☑)</b> na lista abaixo; se ninguém estiver marcado, imprimem <b>todos da turma mostrada</b> (ou do projeto inteiro, se a turma for "Todas").
+        </div>
+
+        <div class="tabs" id="ent-tabs">
+          <button class="tab-btn active" data-ent-tab="tiras">📋 Tiras de conferência</button>
+          <button class="tab-btn" data-ent-tab="etiquetas">🏷 Etiquetas</button>
+        </div>
+
+        <!-- Aba 1: tiras -->
+        <div id="ent-pane-tiras" style="margin-top:12px">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            <button class="btn btn-primary" id="btn-ent-tiras">🖨 Imprimir tiras (A4)</button>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--gray-600);cursor:pointer">
+              <input type="checkbox" id="ent-quebra" checked> Cada turma começa numa folha nova
+            </label>
+          </div>
+          <div style="font-size:11px;color:var(--gray-500);margin-top:8px">6 tiras por folha A4, com foto 3×4, nome grande, ano/turma e os itens comprados. Recorte na linha tracejada e coloque em cima do monte do aluno.</div>
+        </div>
+
+        <!-- Aba 2: etiquetas -->
+        <div id="ent-pane-etiquetas" style="margin-top:12px;display:none">
+          <div style="font-weight:700;font-size:13px;margin-bottom:8px">Maxprint 6089 — 60 etiquetas por folha (Carta, 16,93 × 44,45 mm)</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+            <div class="form-group" style="margin:0"><label class="form-label">Etiquetas por aluno</label><input class="form-input" type="number" id="ent-etq-qtd" value="1" min="1" max="20" style="width:90px"></div>
+            <div class="form-group" style="margin:0"><label class="form-label">Começar na etiqueta nº</label><input class="form-input" type="number" id="ent-etq-ini" value="1" min="1" max="60" style="width:90px"></div>
+            <button class="btn btn-primary" id="btn-ent-etq">🏷 Gerar etiquetas</button>
+            <button class="btn btn-secondary" id="btn-ent-etq-teste">Folha de teste (só contornos)</button>
+          </div>
+          <div style="font-size:11px;color:var(--gray-500);margin-top:8px;line-height:1.5">
+            Cada etiqueta leva o <b>nome do aluno, o ano e a turma</b>. "Começar na etiqueta nº" reaproveita folha já usada (1 = canto superior esquerdo; conta da esquerda para a direita, linha por linha).<br>
+            <b>Antes de imprimir de verdade:</b> imprima a <b>folha de teste</b> em papel comum, coloque contra a luz sobre a folha de etiquetas e confira. Se estiver deslocada, ajuste as margens abaixo.
+            Na impressão: papel <b>Carta</b>, escala <b>100%</b> (nada de "ajustar à página") e margens "Nenhuma".
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+            <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Margem superior (mm)</label><input class="form-input" type="number" step="0.1" id="ent-cal-top" value="12.7" style="width:110px"></div>
+            <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Margem esquerda (mm)</label><input class="form-input" type="number" step="0.1" id="ent-cal-left" value="7.2" style="width:110px"></div>
+            <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Espaço entre colunas (mm)</label><input class="form-input" type="number" step="0.1" id="ent-cal-gx" value="7.85" style="width:110px"></div>
+            <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Espaço entre linhas (mm)</label><input class="form-input" type="number" step="0.1" id="ent-cal-gy" value="0" style="width:110px"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="ent-lista"></div>
+    </div>
+  </div>
+
   <div id="page-analise-produtos" class="page">
     <div class="topbar"><div class="topbar-title">Análise de Produtos</div></div>
 
@@ -2885,6 +2967,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
         <button class="btn btn-sm btn-secondary" onclick="marcarFichasImpressasDrill()" title="Marca como impressa a ficha dos alunos que você marcou (✓) na tabela — os mesmos que você imprimiu com 'Imprimir fichas marcadas'">✅ Marcar fichas como impressas</button>
         <button class="btn btn-sm btn-secondary" onclick="exportarDrillExcel()" title="Baixa a lista que está na tela (com os filtros aplicados) para abrir no Excel">⬇ Exportar Excel</button>
         <button class="btn btn-sm btn-secondary" onclick="imprimirRelatorioProdutos()" title="Lista para imprimir: produto por produto, com o nome de quem comprou (só pedidos pagos por padrão; dá pra incluir os pendentes na própria folha)">🛒 Produtos e compradores</button>
+        <button class="btn btn-sm btn-secondary" onclick="imprimirListaSeparar()" title="Lista por turma com cada aluno e tudo o que ele comprou, com caixinha pra riscar — pra separar as fotos impressas">📦 Lista para separar fotos</button>
         <button class="btn btn-sm btn-secondary" onclick="imprimirRelatorioSituacao()" title="Relatório agrupado por situação (sem autorização, pendente, pendente com parcela paga, sem pedido, pago...), pra imprimir ou salvar em PDF">📋 Relatório da situação</button>
       </div>
       <div id="drill-al-soma" style="display:none;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:13px"></div>
@@ -3614,7 +3697,7 @@ function abrirPaginaPorHash() {
   const pagina = location.hash.slice(1);
   const paginasValidas = ['dashboard','escolas','informativos','termos','produtos',
     'projetos','bilhete','alunos','carometro','comunicados','montagem','pedidos',
-    'relatorios','analise-produtos','vendedores','comissoes','colaboradores','config'];
+    'entrega','relatorios','analise-produtos','vendedores','comissoes','colaboradores','config'];
   if (paginasValidas.includes(pagina)) {
     document.querySelector(`.sb-item[data-page="${pagina}"]`)?.click();
   }
@@ -3688,6 +3771,7 @@ document.querySelectorAll('.sb-item').forEach(btn => {
     if (page === 'colaboradores') loadColaboradores();
     if (page === 'relatorios') loadRelatorios();
     if (page === 'analise-produtos') loadAnaliseProdutos();
+    if (page === 'entrega') loadEntrega();
     if (page === 'vendedores') loadVendedores();
     if (page === 'comissoes') loadComissoes();
     if (page === 'comunicados') loadComunicados();
@@ -11370,6 +11454,450 @@ atualizar();
   win.document.close();
 }
 window.imprimirRelatorioProdutos = imprimirRelatorioProdutos;
+
+// ---------------------------------------------------------------------------
+// LISTA PARA SEPARAR AS FOTOS (21/10/2026): uma linha por ALUNO, agrupada por
+// ano e turma, com tudo que ele comprou (kits abertos nos produtos, quantidades
+// somadas) e uma caixinha pra riscar quando a foto estiver separada. Pedido do
+// Daniel: "lista de alunos e pedidos comprados pra separar as fotos impressas",
+// com ano e turma. So' pagos por padrao; "incluir pendentes" liga na propria
+// janela. Mesma abertura de kit do relatorio "Produtos e compradores".
+// ---------------------------------------------------------------------------
+async function imprimirListaSeparar() {
+  const comPedido = drillAlunosData.filter(a => a.order && !['cancelled', 'refunded'].includes(a.order.payment_status));
+  if (!comPedido.length) { toast('Nenhum pedido neste projeto ainda.', 'warn'); return; }
+
+  const porId = {};
+  comPedido.forEach(a => { porId[a.order.id] = a; });
+  const ids = Object.keys(porId);
+  const pedidos = [];
+  try {
+    for (let i = 0; i < ids.length; i += 80) {
+      const { data, error } = await supabase.from('orders')
+        .select(`id, order_number, payment_status,
+          items:order_items(quantity, variant_name, from_kit_id, product:products(name)),
+          kits:order_kits(quantity, kit:school_kits(name, items:school_kit_items(quantity, product:products(name))))`)
+        .in('id', ids.slice(i, i + 80));
+      if (error) throw error;
+      pedidos.push(...(data || []));
+    }
+  } catch (err) { toast('Erro ao montar a lista: ' + err.message, 'error'); return; }
+
+  // aluno -> { turma, itens: {nome: qtd}, pedido, pago }
+  const linhas = [];
+  pedidos.forEach(p => {
+    const a = porId[p.id];
+    if (!a) return;
+    const itens = {};
+    const soma = (nome, q) => { if (nome) itens[nome] = (itens[nome] || 0) + q; };
+    const temKit = (p.kits || []).length > 0;
+    (p.items || []).forEach(it => {
+      if (it.from_kit_id && temKit) return;          // o kit ja' abre nos produtos dele
+      const nome = (it.product?.name || '').trim();
+      soma(nome ? nome + (it.variant_name ? ' — ' + it.variant_name : '') : '', Number(it.quantity) || 1);
+    });
+    (p.kits || []).forEach(k => {
+      const kq = Number(k.quantity) || 1;
+      (k.kit?.items || []).forEach(ki => soma((ki.product?.name || '').trim(), (Number(ki.quantity) || 1) * kq));
+    });
+    if (!Object.keys(itens).length) return;
+    const ano = a.year_name && a.year_name !== '—' ? a.year_name : 'Sem ano';
+    const turma = a.class_name && a.class_name !== '—' ? a.class_name : 'Sem turma';
+    linhas.push({ ano, turma, aluno: a.name, itens, pedido: p.order_number || '', pago: p.payment_status === 'paid' });
+  });
+  if (!linhas.length) { toast('Os pedidos não têm produtos.', 'warn'); return; }
+
+  // agrupa por "ano — turma", em ordem natural (1°, 2°, 10°...), alunos A-Z
+  const cmp = (x, y) => String(x).localeCompare(String(y), 'pt-BR', { numeric: true, sensitivity: 'base' });
+  const grupos = {};
+  linhas.forEach(l => { (grupos[l.ano + ' — ' + l.turma] = grupos[l.ano + ' — ' + l.turma] || []).push(l); });
+  const nomesGrupos = Object.keys(grupos).sort(cmp);
+
+  const { data: cfg } = await supabase.from('app_settings').select('business_name').eq('id', 1).maybeSingle();
+  const empresa = cfg?.business_name || 'Play Up Fotografia';
+  const dataEmissao = new Date().toLocaleString('pt-BR');
+
+  const blocos = nomesGrupos.map(g => {
+    const lista = grupos[g].sort((x, y) => cmp(x.aluno, y.aluno));
+    return `<div class="tb" data-turma>
+      <h2>${escapeHtml(g)} <span class="tot"></span></h2>
+      <table><thead><tr><th class="ck"></th><th>Aluno</th><th>Itens comprados</th><th class="m">Pedido</th><th class="m">Situação</th></tr></thead><tbody>
+      ${lista.map(l => `<tr class="${l.pago ? 'pg' : 'pd'}"><td class="ck">☐</td><td class="al">${escapeHtml(l.aluno)}</td>
+        <td>${Object.keys(l.itens).sort(cmp).map(n => `<span class="it">${escapeHtml(n)}${l.itens[n] > 1 ? ' <b>×' + l.itens[n] + '</b>' : ''}</span>`).join('')}</td>
+        <td class="m">${escapeHtml(l.pedido)}</td><td class="m ${l.pago ? 'ok' : 'pen'}">${l.pago ? 'Pago' : 'Pendente'}</td></tr>`).join('')}
+      </tbody></table></div>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lista para separar fotos — ${escapeHtml(drillProjeto?.name || '')}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',Arial,sans-serif;background:#fff;color:#1a1a2e;font-size:12px;line-height:1.4}
+@page{size:A4 portrait;margin:12mm}
+@media screen{body{padding:20px;max-width:190mm;margin:0 auto}
+  .btn-row{display:flex;gap:16px;align-items:center;justify-content:center;margin-bottom:18px;flex-wrap:wrap}
+  .btn-row button{padding:9px 18px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;background:#4B6BFB;color:#fff}
+  .btn-row label{font-size:13px;color:#555;display:flex;align-items:center;gap:6px;cursor:pointer}}
+@media print{.btn-row{display:none}}
+.head{text-align:center;border-bottom:2px solid #4B6BFB;padding-bottom:8px;margin-bottom:10px}
+.emp{font-family:'Playfair Display',serif;font-size:20px;color:#4B6BFB;font-weight:700}
+.tit{font-size:15px;font-weight:700;margin-bottom:2px}
+.sub{font-size:11px;color:#666;margin-bottom:10px}
+.tb{margin-bottom:14px}
+body.pagina .tb{break-after:page}
+.tb h2{font-size:13px;background:#EEF2FF;border-left:4px solid #4B6BFB;padding:5px 8px;margin-bottom:3px;break-after:avoid}
+.tb h2 .tot{font-weight:400;color:#555;font-size:11.5px;margin-left:6px}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:9.5px;text-transform:uppercase;color:#888;border-bottom:1px solid #ccc;padding:3px 4px}
+td{padding:4px;border-bottom:1px solid #eee;vertical-align:top}
+tr{break-inside:avoid}
+.ck{width:20px;font-size:15px;text-align:center}.al{font-weight:600;white-space:nowrap}
+.it{display:inline-block;background:#F3F4F6;border-radius:4px;padding:1px 6px;margin:1px 3px 1px 0;font-size:11px}
+.m{color:#666;font-size:10.5px;white-space:nowrap}
+.ok{color:#1A6B3C;font-weight:600}.pen{color:#854D0E;font-weight:600}
+.foot{margin-top:14px;font-size:10px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:6px}
+</style></head><body>
+<div class="btn-row">
+  <button onclick="window.print()">🖨 Imprimir / Salvar como PDF</button>
+  <label><input type="checkbox" id="chkPend" onchange="atualizar()"> Incluir pedidos pendentes (ainda não pagos)</label>
+  <label><input type="checkbox" id="chkPag" onchange="document.body.classList.toggle('pagina', this.checked)"> Cada turma em uma folha</label>
+</div>
+<div class="head"><div class="emp">${escapeHtml(empresa)}</div></div>
+<div class="tit">Lista para separar as fotos</div>
+<div class="sub">${escapeHtml(drillProjeto?.school?.name || '')}${drillProjeto?.name ? ' — ' + escapeHtml(drillProjeto.name) : ''} · Gerado em ${dataEmissao} · <span id="resumo"></span></div>
+${blocos}
+<div class="foot">Lista gerada eletronicamente em ${dataEmissao} pelo sistema For School.</div>
+<script>
+function atualizar(){
+  var inc = document.getElementById('chkPend').checked, totA = 0;
+  document.querySelectorAll('[data-turma]').forEach(function(b){
+    var n = 0;
+    b.querySelectorAll('tbody tr').forEach(function(tr){
+      var ver = inc || tr.classList.contains('pg');
+      tr.style.display = ver ? '' : 'none';
+      if (ver) n++;
+    });
+    b.style.display = n ? '' : 'none';
+    b.querySelector('.tot').textContent = '— ' + n + ' aluno(s)';
+    totA += n;
+  });
+  document.getElementById('resumo').textContent = (inc ? 'pagos e pendentes' : 'somente pagos') + ': ' + totA + ' aluno(s)';
+}
+atualizar();
+<\/script>
+</body></html>`;
+
+  const win = window.open('', '_blank', 'width=900,height=800');
+  win.document.write(html);
+  win.document.close();
+}
+window.imprimirListaSeparar = imprimirListaSeparar;
+
+// ============================================================================
+// ENTREGA / CONFERENCIA DE MATERIAL IMPRESSO (21/10/2026)
+//
+// Pedido do Daniel: separar as fotos impressas por aluno. Tira A4 (6 por folha)
+// com foto 3x4, nome grande, ano/turma e tudo que o aluno comprou — recorta e
+// coloca em cima de cada monte pra conferir. So' LE pedidos; nao altera nada.
+// A foto vem do organizador (miniaturas em media/miniaturas/<student_id>.jpg).
+// ============================================================================
+let entLinhas = [];            // um item por aluno
+const entSel = new Set();      // ids de alunos marcados (☑)
+
+async function loadEntrega() {
+  const sel = document.getElementById('ent-projeto');
+  if (!sel || sel.dataset.pronto) return;
+  const { data, error } = await supabase.from('projects')
+    .select('id, name, school:schools(name)').eq('active', true).order('name');
+  if (error) { handleError(error, 'loadEntrega'); return; }
+  sel.innerHTML = '<option value="">— escolha o projeto —</option>' +
+    (data || []).map(p => `<option value="${p.id}">${escapeHtml((p.school?.name || '') + ' — ' + p.name)}</option>`).join('');
+  sel.dataset.pronto = '1';
+}
+
+function entMiniaturaUrl(studentId) {
+  return supabase.storage.from('media').getPublicUrl('miniaturas/' + studentId + '.jpg').data.publicUrl;
+}
+
+const entCmp = (x, y) => String(x).localeCompare(String(y), 'pt-BR', { numeric: true, sensitivity: 'base' });
+
+async function entregaCarregar() {
+  const pid = document.getElementById('ent-projeto').value;
+  if (!pid) { toast('Escolha o projeto.', 'warn'); return; }
+  const btn = document.getElementById('btn-ent-carregar');
+  btn.disabled = true; btn.textContent = 'Carregando…';
+  try {
+    const status = document.getElementById('ent-pend').checked ? ['paid', 'pending'] : ['paid'];
+    const pedidos = [];
+    for (let o = 0; ; o += 1000) {
+      const { data, error } = await supabase.from('orders')
+        .select(`id, order_number, payment_status, created_at,
+          student:students(id, name, class:school_classes(name, year:school_years(name, sort_order))),
+          items:order_items(quantity, variant_name, from_kit_id, product:products(name)),
+          kits:order_kits(quantity, kit:school_kits(name, items:school_kit_items(quantity, product:products(name))))`)
+        .eq('project_id', pid).not('is_test', 'is', true).in('payment_status', status)
+        .order('created_at').range(o, o + 999);
+      if (error) throw error;
+      pedidos.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
+
+    // um item por ALUNO (junta os pedidos dele); "pago" so' se todos estao pagos
+    const porAluno = {};
+    pedidos.forEach(p => {
+      const s = p.student;
+      if (!s) return;
+      const l = porAluno[s.id] || (porAluno[s.id] = {
+        sid: s.id, aluno: s.name,
+        ano: s.class?.year?.name || 'Sem ano', anoOrd: s.class?.year?.sort_order ?? 999,
+        turma: s.class?.name || 'Sem turma', itens: {}, pedidos: [], pago: true,
+      });
+      const soma = (nome, q) => { if (nome) l.itens[nome] = (l.itens[nome] || 0) + q; };
+      const temKit = (p.kits || []).length > 0;
+      (p.items || []).forEach(it => {
+        if (it.from_kit_id && temKit) return;     // o kit ja' abre nos produtos dele
+        const nome = (it.product?.name || '').trim();
+        soma(nome ? nome + (it.variant_name ? ' — ' + it.variant_name : '') : '', Number(it.quantity) || 1);
+      });
+      (p.kits || []).forEach(k => {
+        const kq = Number(k.quantity) || 1;
+        (k.kit?.items || []).forEach(ki => soma((ki.product?.name || '').trim(), (Number(ki.quantity) || 1) * kq));
+      });
+      if (p.order_number) l.pedidos.push(p.order_number);
+      if (p.payment_status !== 'paid') l.pago = false;
+    });
+    entLinhas = Object.values(porAluno).filter(l => Object.keys(l.itens).length)
+      .sort((a, b) => (a.anoOrd - b.anoOrd) || entCmp(a.ano, b.ano) || entCmp(a.turma, b.turma) || entCmp(a.aluno, b.aluno));
+    entSel.clear();
+    if (!entLinhas.length) { toast('Nenhum pedido pago neste projeto.', 'warn'); document.getElementById('ent-conteudo').style.display = 'none'; return; }
+
+    const turmas = [...new Set(entLinhas.map(l => l.ano + ' — ' + l.turma))];
+    document.getElementById('ent-turma').innerHTML = '<option value="">Todas as turmas</option>' +
+      turmas.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+    document.getElementById('ent-conteudo').style.display = 'block';
+    entregaRender();
+  } catch (err) {
+    handleError(err, 'entregaCarregar');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Carregar';
+  }
+}
+
+function entVisiveis() {
+  const t = document.getElementById('ent-turma').value;
+  return entLinhas.filter(l => !t || (l.ano + ' — ' + l.turma) === t);
+}
+
+function entregaRender() {
+  const vis = entVisiveis();
+  const grupos = {};
+  vis.forEach(l => { (grupos[l.ano + ' — ' + l.turma] = grupos[l.ano + ' — ' + l.turma] || []).push(l); });
+  document.getElementById('ent-resumo').textContent = `${vis.length} aluno(s)` + (entSel.size ? ` · ${entSel.size} marcado(s)` : '');
+  document.getElementById('ent-lista').innerHTML = Object.keys(grupos).map(g => `
+    <div class="card" style="margin-bottom:14px;overflow:hidden">
+      <div style="padding:10px 14px;font-weight:700;background:var(--blue-light);border-bottom:1px solid var(--gray-100)">${escapeHtml(g)} <span style="font-weight:400;color:var(--gray-500)">— ${grupos[g].length} aluno(s)</span></div>
+      <table class="table" style="width:100%"><tbody>
+        ${grupos[g].map(l => `<tr>
+          <td style="width:30px"><input type="checkbox" ${entSel.has(l.sid) ? 'checked' : ''} onchange="entregaMarcar('${l.sid}',this.checked)"></td>
+          <td style="width:52px">${entFotoHtml(l, 36, 48)}</td>
+          <td style="font-weight:600">${escapeHtml(l.aluno)}<div style="font-size:11px;color:var(--gray-400);font-weight:400">${escapeHtml(l.pedidos.join(' + '))} · ${l.pago ? '<span style="color:var(--green)">Pago</span>' : '<span style="color:#854D0E">Pendente</span>'}</div></td>
+          <td style="font-size:12px">${Object.keys(l.itens).sort(entCmp).map(n => `<span style="display:inline-block;background:var(--gray-100);border-radius:4px;padding:1px 6px;margin:1px 3px 1px 0">${escapeHtml(n)}${l.itens[n] > 1 ? ' <b>×' + l.itens[n] + '</b>' : ''}</span>`).join('')}</td>
+        </tr>`).join('')}
+      </tbody></table>
+    </div>`).join('');
+}
+
+// miniatura (ou quadro cinza com a inicial, se a foto nao existe ainda)
+function entFotoHtml(l, w, h) {
+  const ini = escapeHtml((l.aluno || '?').trim().charAt(0).toUpperCase());
+  return `<div style="position:relative;width:${w}px;height:${h}px;background:#E5E7EB;border-radius:4px;overflow:hidden;display:flex;align-items:center;justify-content:center;color:#9CA3AF;font-weight:700">${ini}
+    <img src="${entMiniaturaUrl(l.sid)}" alt="" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover" onerror="this.remove()"></div>`;
+}
+
+window.entregaMarcar = function (sid, marcado) {
+  if (marcado) entSel.add(sid); else entSel.delete(sid);
+  document.getElementById('ent-resumo').textContent = `${entVisiveis().length} aluno(s)` + (entSel.size ? ` · ${entSel.size} marcado(s)` : '');
+};
+
+function entregaImprimirTiras() {
+  let lista = entSel.size ? entLinhas.filter(l => entSel.has(l.sid)) : entVisiveis();
+  if (!lista.length) { toast('Nada para imprimir.', 'warn'); return; }
+  lista = [...lista].sort((a, b) => (a.anoOrd - b.anoOrd) || entCmp(a.ano, b.ano) || entCmp(a.turma, b.turma) || entCmp(a.aluno, b.aluno));
+  const quebra = document.getElementById('ent-quebra').checked;
+  const projNome = document.getElementById('ent-projeto').selectedOptions[0]?.text || '';
+  const dataEmissao = new Date().toLocaleString('pt-BR');
+
+  const grupos = {};
+  lista.forEach(l => { (grupos[l.ano + ' — ' + l.turma] = grupos[l.ano + ' — ' + l.turma] || []).push(l); });
+  const secoes = Object.keys(grupos).map(g => `<section class="sec${quebra ? ' quebra' : ''}">
+    ${grupos[g].map(l => {
+      const ini = escapeHtml((l.aluno || '?').trim().charAt(0).toUpperCase());
+      const itens = Object.keys(l.itens).sort(entCmp)
+        .map(n => `<span class="it">${escapeHtml(n)}${l.itens[n] > 1 ? ' <b>×' + l.itens[n] + '</b>' : ''}</span>`).join('');
+      return `<div class="tira">
+        <div class="foto">${ini}<img src="${entMiniaturaUrl(l.sid)}" alt="" onerror="this.remove()"></div>
+        <div class="corpo">
+          <div class="nome">${escapeHtml(l.aluno)}</div>
+          <div class="turma">${escapeHtml(l.ano)} — ${escapeHtml(l.turma)}</div>
+          <div class="itens">${itens}</div>
+        </div>
+        <div class="lado">
+          <div class="ped">${escapeHtml(l.pedidos.join(' + '))}</div>
+          <div class="${l.pago ? 'ok' : 'pen'}">${l.pago ? 'Pago' : 'Pendente'}</div>
+          <div class="ck">☐ conferido</div>
+        </div>
+      </div>`;
+    }).join('')}
+  </section>`).join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tiras de conferência — ${escapeHtml(projNome)}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',Arial,sans-serif;background:#fff;color:#111;font-size:12px}
+@page{size:A4 portrait;margin:10mm}
+@media screen{body{padding:16px;max-width:190mm;margin:0 auto}
+  .btn-row{display:flex;gap:12px;justify-content:center;margin-bottom:14px;flex-wrap:wrap}
+  .btn-row button{padding:9px 18px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;background:#4B6BFB;color:#fff}
+  .sub{font-size:11px;color:#666;text-align:center;margin-bottom:12px}}
+@media print{.btn-row,.sub{display:none}}
+.sec.quebra{break-after:page}
+.tira{display:flex;gap:4mm;height:45mm;padding:2.5mm 1mm;border-bottom:1px dashed #888;break-inside:avoid;overflow:hidden}
+.foto{position:relative;flex:none;width:30mm;height:40mm;background:#E5E7EB;border:1px solid #ccc;display:flex;align-items:center;justify-content:center;font-size:30pt;font-weight:700;color:#9CA3AF;overflow:hidden}
+.foto img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.corpo{flex:1;min-width:0;display:flex;flex-direction:column}
+.nome{font-size:20pt;font-weight:800;line-height:1.22;white-space:nowrap;overflow:hidden}
+.turma{font-size:11pt;font-weight:600;color:#444;margin:0.5mm 0 1.5mm}
+.itens{font-size:9pt;line-height:1.3;overflow:hidden;flex:1;min-height:0}
+.it{display:inline-block;background:#F3F4F6;border:1px solid #E5E7EB;border-radius:3px;padding:0 1.4mm;margin:0 1mm 0.8mm 0}
+.lado{flex:none;width:26mm;text-align:right;display:flex;flex-direction:column;justify-content:space-between;font-size:9pt;color:#666}
+.lado .ok{color:#1A6B3C;font-weight:700}.lado .pen{color:#854D0E;font-weight:700}
+.lado .ck{font-size:10pt;color:#111;font-weight:600;white-space:nowrap}
+</style></head><body>
+<div class="btn-row"><button onclick="window.print()">🖨 Imprimir / Salvar como PDF</button></div>
+<div class="sub">${escapeHtml(projNome)} · ${lista.length} aluno(s) · Gerado em ${dataEmissao}<br>Recorte na linha tracejada e coloque cada tira em cima do monte do aluno. Imprima em A4, escala 100%.</div>
+${secoes}
+<script>
+// nome grande numa linha so' e lista de itens inteira: reduz a letra ate caber
+// (nome comprido nao quebra; kit com muitos itens encolhe em vez de cortar)
+function ajustarNomes(){
+  document.querySelectorAll('.nome').forEach(function(el){
+    var tam = 20;
+    while (el.scrollWidth > el.clientWidth && tam > 9) { tam -= 0.5; el.style.fontSize = tam + 'pt'; }
+  });
+  document.querySelectorAll('.itens').forEach(function(el){
+    var tam = 9;
+    while (el.scrollHeight > el.clientHeight + 0.5 && tam > 6) { tam -= 0.25; el.style.fontSize = tam + 'pt'; }
+  });
+}
+window.addEventListener('load', ajustarNomes);
+<\/script>
+</body></html>`;
+
+  const win = window.open('', '_blank', 'width=900,height=800');
+  win.document.write(html);
+  win.document.close();
+}
+
+// ---------------------------------------------------------------------------
+// ETIQUETAS (aba "Etiquetas"): Maxprint 6089, 60 por folha Carta (4 colunas x
+// 15 linhas), cada uma 44,45 x 16,93 mm. Posicao absoluta em mm com margens
+// ajustaveis (cada impressora desloca um pouco — por isso existe a folha de
+// teste). A geometria padrao e' a da familia 6089/Pimaco; conferir no teste.
+// ---------------------------------------------------------------------------
+const ETQ = { colunas: 4, linhas: 15, w: 44.45, h: 16.93, porFolha: 60, pagW: 215.9, pagH: 279.4 };
+
+function entregaImprimirEtiquetas(teste) {
+  let lista = [];
+  if (!teste) {
+    lista = entSel.size ? entLinhas.filter(l => entSel.has(l.sid)) : entVisiveis();
+    if (!lista.length) { toast('Nada para imprimir.', 'warn'); return; }
+    lista = [...lista].sort((a, b) => (a.anoOrd - b.anoOrd) || entCmp(a.ano, b.ano) || entCmp(a.turma, b.turma) || entCmp(a.aluno, b.aluno));
+  }
+  const num = (id, pad) => { const v = parseFloat(document.getElementById(id).value); return Number.isFinite(v) ? v : pad; };
+  const qtd = Math.max(1, Math.min(20, parseInt(document.getElementById('ent-etq-qtd').value, 10) || 1));
+  const ini = Math.max(1, Math.min(ETQ.porFolha, parseInt(document.getElementById('ent-etq-ini').value, 10) || 1));
+  const top = num('ent-cal-top', 12.7), left = num('ent-cal-left', 7.2), gx = num('ent-cal-gx', 7.85), gy = num('ent-cal-gy', 0);
+
+  // sequencia de etiquetas: [vazias ate' a posicao inicial] + cada aluno x qtd
+  const seq = [];
+  for (let i = 1; i < ini; i++) seq.push(null);
+  if (teste) { for (let i = ini; i <= ETQ.porFolha; i++) seq.push({ teste: i }); }
+  else lista.forEach(l => { for (let k = 0; k < qtd; k++) seq.push(l); });
+
+  // "Prof..." no nome da turma nao cabe na etiqueta: "A Professora Camila" vira "A"
+  const turmaCurta = t => (String(t || '').replace(/\s*Prof.*$/i, '').trim() || String(t || ''));
+
+  const folhas = [];
+  for (let i = 0; i < seq.length; i += ETQ.porFolha) folhas.push(seq.slice(i, i + ETQ.porFolha));
+  const folhasHtml = folhas.map(fo => `<div class="folha">${fo.map((l, idx) => {
+    if (!l) return '';
+    const col = idx % ETQ.colunas, lin = Math.floor(idx / ETQ.colunas);
+    const x = left + col * (ETQ.w + gx), y = top + lin * (ETQ.h + gy);
+    const pos = `left:${x.toFixed(2)}mm;top:${y.toFixed(2)}mm`;
+    if (l.teste) return `<div class="etq teste" style="${pos}">${l.teste}</div>`;
+    return `<div class="etq" style="${pos}"><div class="n">${escapeHtml(l.aluno)}</div><div class="t">${escapeHtml(l.ano)} — ${escapeHtml(turmaCurta(l.turma))}</div></div>`;
+  }).join('')}</div>`).join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${teste ? 'Folha de teste' : 'Etiquetas'} — Maxprint 6089</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',Arial,sans-serif;background:#fff;color:#000}
+@page{size:${ETQ.pagW}mm ${ETQ.pagH}mm;margin:0}
+@media screen{body{background:#9CA3AF;padding:16px}
+  .btn-row{display:flex;gap:12px;justify-content:center;margin-bottom:12px;flex-wrap:wrap}
+  .btn-row button{padding:9px 18px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;background:#4B6BFB;color:#fff}
+  .aviso{font-size:12px;color:#fff;text-align:center;margin-bottom:12px;line-height:1.5}
+  .folha{box-shadow:0 2px 10px rgba(0,0,0,.35);margin:0 auto 16px}}
+@media print{.btn-row,.aviso{display:none}.folha{break-after:page}}
+.folha{position:relative;width:${ETQ.pagW}mm;height:${ETQ.pagH}mm;background:#fff;overflow:hidden}
+.etq{position:absolute;width:${ETQ.w}mm;height:${ETQ.h}mm;padding:1mm 1.8mm;display:flex;flex-direction:column;justify-content:center;overflow:hidden}
+.etq .n{font-weight:800;line-height:1.08;font-size:10pt;height:7.4mm;overflow:hidden;display:flex;align-items:center}
+.etq .t{font-size:7.5pt;font-weight:600;color:#222;margin-top:0.6mm;white-space:nowrap;overflow:hidden}
+.etq.teste{border:0.2mm solid #000;justify-content:center;align-items:center;font-size:8pt;color:#666}
+</style></head><body>
+<div class="btn-row"><button onclick="window.print()">🖨 Imprimir</button></div>
+<div class="aviso">${teste ? 'FOLHA DE TESTE — imprima em papel comum e confira contra a luz sobre a folha de etiquetas.<br>' : ''}Papel <b>Carta</b>, escala <b>100%</b>, margens <b>Nenhuma</b> · ${teste ? ETQ.porFolha - ini + 1 : seq.filter(Boolean).length} etiqueta(s) em ${folhas.length} folha(s)</div>
+${folhasHtml}
+<script>
+// nome ate' 2 linhas: reduz a letra ate' caber na altura da caixa
+function ajustar(){
+  document.querySelectorAll('.etq .n').forEach(function(el){
+    var tam = 10;
+    while (el.scrollHeight > el.clientHeight + 0.5 && tam > 5.5) { tam -= 0.25; el.style.fontSize = tam + 'pt'; }
+  });
+}
+window.addEventListener('load', ajustar);
+<\/script>
+</body></html>`;
+
+  const win = window.open('', '_blank', 'width=900,height=800');
+  win.document.write(html);
+  win.document.close();
+}
+
+// troca de aba (Tiras / Etiquetas)
+document.querySelectorAll('#ent-tabs .tab-btn').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('#ent-tabs .tab-btn').forEach(x => x.classList.toggle('active', x === b));
+  document.getElementById('ent-pane-tiras').style.display = b.dataset.entTab === 'tiras' ? '' : 'none';
+  document.getElementById('ent-pane-etiquetas').style.display = b.dataset.entTab === 'etiquetas' ? '' : 'none';
+}));
+document.getElementById('btn-ent-etq')?.addEventListener('click', () => entregaImprimirEtiquetas(false));
+document.getElementById('btn-ent-etq-teste')?.addEventListener('click', () => entregaImprimirEtiquetas(true));
+
+document.getElementById('btn-ent-carregar')?.addEventListener('click', entregaCarregar);
+document.getElementById('btn-ent-tiras')?.addEventListener('click', entregaImprimirTiras);
+document.getElementById('ent-turma')?.addEventListener('change', entregaRender);
 
 async function imprimirRelatorioSituacao() {
   if (!drillAlunosData.length) { toast('Nada pra mostrar ainda.', 'warn'); return; }

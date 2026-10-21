@@ -721,6 +721,9 @@ class App(tk.Tk):
                   cor=COR_LARANJA).pack(side='left')
         self._btn(rodape, '📂  Abrir pasta das tratadas', self._abrir_tratadas,
                   cor=COR_CINZA).pack(side='left', padx=(8, 0))
+        # Miniaturas 3x4 pro admin (Entrega / Conferencia -> tiras com a foto do aluno)
+        self._btn(rodape, '🖼  Enviar miniaturas (entrega)', self._enviar_miniaturas,
+                  cor=COR_AZUL).pack(side='left', padx=(8, 0))
 
         self.log2 = scrolledtext.ScrolledText(p, height=6, font=('Consolas', 9),
                                               bg='#1E1E2E', fg='#A8D8A8',
@@ -1892,6 +1895,107 @@ class App(tk.Tk):
             f'{novas} foto(s) nova(s) em:\n{destino_raiz}\n\n'
             'Trate no Lightroom e exporte pra pasta _TRATADAS (dentro da pasta organizada), '
             'mantendo o nome original do arquivo. Depois clique em "Montar e salvar tudo".')
+
+    # ── Miniaturas pro admin (21/10/2026) ─────────────────────────────────────
+    # Pedido do Daniel: na tela Entrega / Conferencia do admin, cada aluno aparece
+    # com uma fotinho 3x4 (pra reconhecer quem e' na hora de separar o material
+    # impresso). Aqui gera, de cada aluno, um JPEG 3x4 pequeno (240x320, ~15 KB) a
+    # partir da foto de UNIFORME escolhida (senao a 1a da pasta) e sobe pro Storage:
+    #   bucket 'media' (publico) / miniaturas/<id do aluno>.jpg
+    # Nao mexe em nenhum cadastro nem em students.photo_url (que e' usado pela
+    # Montagem do admin). Reenviar so' substitui a miniatura do mesmo aluno.
+    def _enviar_miniaturas(self):
+        pasta = getattr(self, '_pasta_organizada', None)
+        if not self.alunos_info or not pasta:
+            messagebox.showwarning('Atenção', 'Abra uma pasta organizada (ou rode o Passo 1) primeiro.')
+            return
+        if not messagebox.askyesno(
+                'Enviar miniaturas',
+                'Vou criar uma foto 3×4 pequena de cada aluno (a foto de uniforme escolhida) e enviar '
+                'para o sistema, para aparecer nas tiras da tela Entrega / Conferência do admin.\n\n'
+                'Não altera cadastro nem pedido. Pode reenviar quando quiser.\n\nContinuar?'):
+            return
+        # monta a lista aqui (thread principal): id -> caminho da foto
+        alvos, sem_id, sem_foto, vistos = [], [], [], set()
+        for nome_pasta, info in self.alunos_info.items():
+            if info.get('tipo') == 'turma':
+                continue
+            aid = (info.get('id') or '').strip()
+            nome = info.get('nome', nome_pasta)
+            if not aid:
+                sem_id.append(nome)
+                continue
+            if aid in vistos:
+                continue
+            foto = None
+            r = self._foto_escolhida_de(nome_pasta, '')           # tema "Uniforme"
+            if r and r[0] and Path(r[0]).exists():
+                foto = Path(r[0])
+            if foto is None:
+                for tema in self.foto_vars.get(nome_pasta, {}):
+                    r = self._foto_escolhida_de(nome_pasta, tema)
+                    if r and r[0] and Path(r[0]).exists():
+                        foto = Path(r[0]); break
+            if foto is None:
+                fotos = [Path(f) for f in info.get('fotos', []) if Path(f).exists()]
+                foto = fotos[0] if fotos else None
+            if foto is None:
+                sem_foto.append(nome)
+                continue
+            vistos.add(aid)
+            alvos.append((aid, nome, foto))
+        if not alvos:
+            messagebox.showinfo('Enviar miniaturas', 'Nenhum aluno com cadastro ligado e foto encontrada.')
+            return
+        self._log2(f'🖼 Enviando miniaturas de {len(alvos)} aluno(s)…')
+        threading.Thread(target=self._rodar_miniaturas, args=(alvos, sem_id, sem_foto), daemon=True).start()
+
+    def _rodar_miniaturas(self, alvos, sem_id, sem_foto):
+        import io
+        from PIL import Image, ImageOps
+        ok = 0
+        falhas = []
+        for i, (aid, nome, foto) in enumerate(alvos, 1):
+            try:
+                with Image.open(foto) as im:
+                    im = ImageOps.exif_transpose(im).convert('RGB')
+                    w, h = im.size
+                    # recorte 3x4 (largura:altura), puxado pro alto (rosto fica em cima)
+                    if w * 4 > h * 3:                       # mais larga que 3:4 -> corta as laterais
+                        nw = int(h * 3 / 4)
+                        x0 = (w - nw) // 2
+                        im = im.crop((x0, 0, x0 + nw, h))
+                    else:                                   # mais alta que 3:4 -> corta embaixo
+                        nh = int(w * 4 / 3)
+                        y0 = int((h - nh) * 0.25)
+                        im = im.crop((0, y0, w, y0 + nh))
+                    im = im.resize((240, 320), Image.LANCZOS)
+                    buf = io.BytesIO()
+                    im.save(buf, 'JPEG', quality=82, optimize=True)
+                r = requests.post(
+                    f'{SUPABASE_URL}/storage/v1/object/media/miniaturas/{aid}.jpg',
+                    headers={**HEADERS, 'Content-Type': 'image/jpeg', 'x-upsert': 'true'},
+                    data=buf.getvalue(), timeout=30, verify=False)
+                if r.status_code >= 300:
+                    raise RuntimeError(f'{r.status_code} {r.text[:120]}')
+                ok += 1
+            except Exception as e:
+                falhas.append(f'{nome}: {e}')
+            if i % 10 == 0:
+                self._log2(f'   … {i}/{len(alvos)}')
+        self._log2(f'🖼 Miniaturas enviadas: {ok} de {len(alvos)}.')
+        if sem_id:
+            self._log2(f'   ⚠ {len(sem_id)} aluno(s) SEM cadastro ligado (sem id): '
+                       + '; '.join(sem_id[:6]) + (' …' if len(sem_id) > 6 else ''))
+        if sem_foto:
+            self._log2(f'   ⚠ {len(sem_foto)} aluno(s) sem foto na pasta: ' + '; '.join(sem_foto[:6]))
+        for f in falhas[:6]:
+            self._log2(f'   ❌ {f}')
+        self.after(0, lambda: messagebox.showinfo(
+            'Miniaturas',
+            f'{ok} miniatura(s) enviada(s).' + (f'\n{len(falhas)} falha(s) — veja o log.' if falhas else '')
+            + (f'\n{len(sem_id)} aluno(s) sem cadastro ligado ficaram de fora.' if sem_id else '')
+            + '\n\nAbra Entrega / Conferência no admin (Ctrl+F5) para ver as fotos nas tiras.'))
 
     def _abrir_tratadas(self):
         pasta = getattr(self, '_pasta_organizada', None)
