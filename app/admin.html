@@ -1267,6 +1267,9 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
             <label class="form-label">Turma</label>
             <select class="form-select" id="ent-turma"><option value="">Todas as turmas</option></select>
           </div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-700);cursor:pointer;padding-bottom:9px">
+            <input type="checkbox" id="ent-todos"> Marcar todos
+          </label>
           <span id="ent-resumo" style="font-size:12px;color:var(--gray-500);padding-bottom:9px"></span>
         </div>
         <div style="font-size:11px;color:var(--gray-500);margin-bottom:12px">
@@ -11696,19 +11699,50 @@ function entregaRender() {
   const grupos = {};
   vis.forEach(l => { (grupos[l.ano + ' — ' + l.turma] = grupos[l.ano + ' — ' + l.turma] || []).push(l); });
   document.getElementById('ent-resumo').textContent = `${vis.length} aluno(s)` + (entSel.size ? ` · ${entSel.size} marcado(s)` : '');
-  document.getElementById('ent-lista').innerHTML = Object.keys(grupos).map(g => `
+  entGrupos = Object.keys(grupos).map(g => grupos[g].map(l => l.sid));   // ids por turma (pro "marcar a turma")
+  document.getElementById('ent-lista').innerHTML = Object.keys(grupos).map((g, gi) => `
     <div class="card" style="margin-bottom:14px;overflow:hidden">
-      <div style="padding:10px 14px;font-weight:700;background:var(--blue-light);border-bottom:1px solid var(--gray-100)">${escapeHtml(g)} <span style="font-weight:400;color:var(--gray-500)">— ${grupos[g].length} aluno(s)</span></div>
+      <label style="display:flex;align-items:center;gap:8px;padding:10px 14px;font-weight:700;background:var(--blue-light);border-bottom:1px solid var(--gray-100);cursor:pointer">
+        <input type="checkbox" data-turma-ck="${gi}" onchange="entregaMarcarTurma(${gi},this.checked)">
+        <span>${escapeHtml(g)} <span style="font-weight:400;color:var(--gray-500)">— ${grupos[g].length} aluno(s)</span></span>
+      </label>
       <table class="table" style="width:100%"><tbody>
         ${grupos[g].map(l => `<tr>
-          <td style="width:30px"><input type="checkbox" ${entSel.has(l.sid) ? 'checked' : ''} onchange="entregaMarcar('${l.sid}',this.checked)"></td>
+          <td style="width:30px"><input type="checkbox" data-sid="${l.sid}" ${entSel.has(l.sid) ? 'checked' : ''} onchange="entregaMarcar('${l.sid}',this.checked)"></td>
           <td style="width:52px">${entFotoHtml(l, 36, 48)}</td>
           <td style="font-weight:600">${escapeHtml(l.aluno)}<div style="font-size:11px;color:var(--gray-400);font-weight:400">${escapeHtml(l.pedidos.join(' + '))} · ${l.pago ? '<span style="color:var(--green)">Pago</span>' : '<span style="color:#854D0E">Pendente</span>'}</div></td>
           <td style="font-size:12px">${Object.keys(l.itens).sort(entCmp).map(n => `<span style="display:inline-block;background:var(--gray-100);border-radius:4px;padding:1px 6px;margin:1px 3px 1px 0">${escapeHtml(n)}${l.itens[n] > 1 ? ' <b>×' + l.itens[n] + '</b>' : ''}</span>`).join('')}</td>
         </tr>`).join('')}
       </tbody></table>
     </div>`).join('');
+  entSyncChecks();
 }
+
+// ---- marcar todos / marcar a turma (21/10/2026) ----------------------------
+let entGrupos = [];   // [[ids da turma 1], [ids da turma 2], ...] do que esta' na tela
+function entSyncChecks() {
+  document.querySelectorAll('#ent-lista input[data-sid]').forEach(c => { c.checked = entSel.has(c.dataset.sid); });
+  document.querySelectorAll('#ent-lista input[data-turma-ck]').forEach(c => {
+    const ids = entGrupos[+c.dataset.turmaCk] || [];
+    const n = ids.filter(id => entSel.has(id)).length;
+    c.checked = ids.length > 0 && n === ids.length;
+    c.indeterminate = n > 0 && n < ids.length;
+  });
+  const vis = entGrupos.flat();
+  const n = vis.filter(id => entSel.has(id)).length;
+  const todos = document.getElementById('ent-todos');
+  if (todos) { todos.checked = vis.length > 0 && n === vis.length; todos.indeterminate = n > 0 && n < vis.length; }
+  const r = document.getElementById('ent-resumo');
+  if (r) r.textContent = `${vis.length} aluno(s)` + (entSel.size ? ` · ${entSel.size} marcado(s)` : '');
+}
+window.entregaMarcarTurma = function (gi, marcado) {
+  (entGrupos[gi] || []).forEach(id => marcado ? entSel.add(id) : entSel.delete(id));
+  entSyncChecks();
+};
+document.getElementById('ent-todos')?.addEventListener('change', e => {
+  entGrupos.flat().forEach(id => e.target.checked ? entSel.add(id) : entSel.delete(id));
+  entSyncChecks();
+});
 
 // miniatura (ou quadro cinza com a inicial, se a foto nao existe ainda)
 function entFotoHtml(l, w, h) {
@@ -11719,7 +11753,7 @@ function entFotoHtml(l, w, h) {
 
 window.entregaMarcar = function (sid, marcado) {
   if (marcado) entSel.add(sid); else entSel.delete(sid);
-  document.getElementById('ent-resumo').textContent = `${entVisiveis().length} aluno(s)` + (entSel.size ? ` · ${entSel.size} marcado(s)` : '');
+  entSyncChecks();
 };
 
 function entregaImprimirTiras() {
