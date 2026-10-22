@@ -10480,7 +10480,7 @@ async function imprimirFichasSelecionadasDrill() {
       .from('orders')
       .select(`id, student_id,
         items:order_items(quantity, product:products(name, photo_theme), variant:product_variants(photo_theme)),
-        kits:order_kits(quantity, kit:school_kits(name, kit_type, items:school_kit_items(quantity, product:products(name))))`)
+        kits:order_kits(quantity, kit:school_kits(name, kit_type, items:school_kit_items(quantity, product:products(name, photo_theme))))`)
       .in('student_id', ids)
       .not('payment_status', 'in', '(cancelled,refunded)')   // cancelado nao sai como "COMPROU" na ficha
       .order('created_at', { ascending: false });
@@ -10488,11 +10488,10 @@ async function imprimirFichasSelecionadasDrill() {
 
     const pedidoMap = {};
     (pedidos || []).forEach(p => { if (!pedidoMap[p.student_id]) pedidoMap[p.student_id] = p; });
-    const todosTemas = await buscarTodosTemasAtivos();
 
     const qrPayloads = {};
     const fichasHtml = (alunos || []).map(a => {
-      const { html, qrPayload } = montarFichaCard(a, pedidoMap[a.id], todosTemas);
+      const { html, qrPayload } = montarFichaCard(a, pedidoMap[a.id]);
       qrPayloads[a.id] = qrPayload;
       return html;
     }).join('');
@@ -11270,7 +11269,7 @@ async function buscarTodosTemasAtivos() {
   return [...new Set([...(prods || []).map(p => p.photo_theme), ...(vars || []).map(v => v.photo_theme)].filter(Boolean))];
 }
 
-function montarFichaCard(a, ped, todosTemas = []) {
+function montarFichaCard(a, ped) {
   const turma  = a.school_class?.name || '—';
   const ano    = a.school_class?.year?.name || '—';
   const escola = a.school?.name || '—';
@@ -11288,11 +11287,13 @@ function montarFichaCard(a, ped, todosTemas = []) {
     (ped.kits || []).forEach(ok => {
       const kqty = parseInt(ok.quantity || 1);
       compradoPartes.push((kqty > 1 ? kqty + '× ' : '') + (ok.kit?.name || '?'));
-      // Kit Promocional nao tem tema marcado nele mesmo — "carrega" todos os
-      // temas que existirem no momento, pra acompanhar sozinho ano a ano.
-      if (ok.kit?.kit_type === 'promo') {
-        todosTemas.forEach(t => temasNecessarios.add(t));
-      }
+      // O kit nao tem tema marcado nele mesmo: quem manda sao os produtos que ELE traz
+      // (school_kit_items). Antes o Kit Promocional "carregava" os temas de TODO o
+      // catalogo global — o Memorial de Formatura (kit sem nenhum produto tematico)
+      // saia com "Fotografar: Pequenos Artistas + Natal" (corrigido 21/10/2026).
+      (ok.kit?.items || []).forEach(ki => {
+        if (ki.product?.photo_theme) temasNecessarios.add(ki.product.photo_theme);
+      });
     });
   }
   const comprou = compradoPartes.length > 0;
@@ -12258,7 +12259,7 @@ async function imprimirFichasSelecionadas() {
       .from('orders')
       .select(`id, student_id,
         items:order_items(quantity, product:products(name, photo_theme), variant:product_variants(photo_theme)),
-        kits:order_kits(quantity, kit:school_kits(name, kit_type, items:school_kit_items(quantity, product:products(name))))`)
+        kits:order_kits(quantity, kit:school_kits(name, kit_type, items:school_kit_items(quantity, product:products(name, photo_theme))))`)
       .in('student_id', ids)
       .not('payment_status', 'in', '(cancelled,refunded)')   // cancelado nao sai como "COMPROU" na ficha
       .order('created_at', { ascending: false });
@@ -12266,11 +12267,10 @@ async function imprimirFichasSelecionadas() {
 
     const pedidoMap = {};
     (pedidos || []).forEach(p => { if (!pedidoMap[p.student_id]) pedidoMap[p.student_id] = p; });
-    const todosTemas = await buscarTodosTemasAtivos();
 
     const qrPayloads = {};
     const fichasHtml = alunos.map(a => {
-      const { html, qrPayload } = montarFichaCard(a, pedidoMap[a.id], todosTemas);
+      const { html, qrPayload } = montarFichaCard(a, pedidoMap[a.id]);
       qrPayloads[a.id] = qrPayload;
       return html;
     }).join('');
@@ -13412,19 +13412,18 @@ async function imprimirFichasSessao() {
       .from('orders')
       .select(`id, student_id,
         items:order_items(quantity, product:products(name, photo_theme), variant:product_variants(photo_theme)),
-        kits:order_kits(quantity, kit:school_kits(name, kit_type, items:school_kit_items(quantity, product:products(name))))`)
+        kits:order_kits(quantity, kit:school_kits(name, kit_type, items:school_kit_items(quantity, product:products(name, photo_theme))))`)
       .in('student_id', alunoIds)
       .not('payment_status', 'in', '(cancelled,refunded)')   // cancelado nao sai como "COMPROU" na ficha
       .order('created_at', { ascending: false });
 
     const pedidoMap = {};
     (pedidos || []).forEach(p => { if (!pedidoMap[p.student_id]) pedidoMap[p.student_id] = p; });
-    const todosTemas = await buscarTodosTemasAtivos();
 
     // 4. Monta fichas (mesmo layout/QR usado em "Imprimir fichas")
     const qrPayloads = {};
     const fichasHtml = autorizados.map(a => {
-      const { html, qrPayload } = montarFichaCard(a, pedidoMap[a.id], todosTemas);
+      const { html, qrPayload } = montarFichaCard(a, pedidoMap[a.id]);
       qrPayloads[a.id] = qrPayload;
       return html;
     }).join('');
