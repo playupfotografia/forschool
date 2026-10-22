@@ -11625,6 +11625,8 @@ window.imprimirListaSeparar = imprimirListaSeparar;
 // projeto daquele pedido, ja' filtrado pelo numero do pedido.
 // ---------------------------------------------------------------------------
 var dashPagosEmCurso = false;   // var de proposito (TDZ: o vigia pode chamar antes da linha ser executada)
+// a cada minuto redesenha o card (o verde some sozinho apos 60 min e pega pagamento novo)
+setInterval(() => { if (document.querySelector('#page-dashboard.active') && !document.hidden) dashAtualizarPagamentos(); }, 60000);
 async function dashAtualizarPagamentos() {
   const tb = document.getElementById('dash-pagos');
   if (!tb || dashPagosEmCurso) return;
@@ -11652,14 +11654,15 @@ async function dashAtualizarPagamentos() {
       return hoje ? 'hoje ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
                   : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     };
-    tb.innerHTML = data.map(o => `<tr style="cursor:pointer" onclick="abrirPedidoDoDashboard('${o.project_id}','${escapeHtml(o.order_number || '')}')" title="Abrir Alunos & Pedidos deste projeto">
-      <td style="white-space:nowrap">${quando(o)}</td>
+    // pagamento dos ultimos 60 min: letras verdes + $ (volta ao normal sozinho)
+    tb.innerHTML = data.map(o => { const novo = (Date.now() - efetivo(o).getTime()) < 60 * 60 * 1000; return `<tr style="cursor:pointer${novo ? ';color:#16a34a;font-weight:700' : ''}" onclick="abrirPedidoDoDashboard('${o.project_id}','${escapeHtml(o.order_number || '')}')" title="Abrir Alunos & Pedidos deste projeto">
+      <td style="white-space:nowrap">${novo ? '💲 ' : ''}${quando(o)}</td>
       <td>${escapeHtml(o.order_number || '—')}</td>
       <td class="td-name">${escapeHtml(o.student?.name || '—')}</td>
       <td>${escapeHtml(o.project?.name || '—')}<div style="font-size:11px;color:var(--gray-400)">${escapeHtml(o.project?.school?.name || '')}</div></td>
       <td style="white-space:nowrap">${fmtMoney(o.total_amount)}</td>
       <td style="white-space:nowrap">${escapeHtml(METODO_LABEL[o.payment_method] || o.payment_method || '—')}</td>
-    </tr>`).join('');
+    </tr>`; }).join('');
   } catch (err) {
     console.error('dashAtualizarPagamentos:', err.message);
     tb.innerHTML = '<tr><td colspan="6" class="empty">Não consegui carregar os pagamentos.</td></tr>';
