@@ -700,6 +700,19 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
       <div class="stat-card purple"><div class="stat-label">Produtos ativos</div><div class="stat-value" id="d-prod">—</div></div>
     </div>
     <div class="card">
+      <div class="card-header">
+        <div class="card-title">💰 Pagamentos recentes — todos os projetos</div>
+        <div style="font-size:11px;color:var(--gray-400)">atualiza sozinho · clique para abrir o aluno no projeto</div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Quando</th><th>Pedido</th><th>Aluno</th><th>Projeto</th><th>Valor</th><th>Forma</th></tr></thead>
+          <tbody id="dash-pagos"><tr><td colspan="6" class="loading"><span class="spinner"></span>Carregando…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="card-header"><div class="card-title">Últimos pedidos</div></div>
       <div class="table-wrap">
         <table>
@@ -3675,6 +3688,8 @@ async function vigiarPedidosAgora() {
       if (msgs.some(m => m.startsWith('💰'))) somCaixaRegistradora(); else bipeAviso();
       conferirSomLiberado();
     }
+    // novo pagamento (ou mudanca) em qualquer projeto: o card do dashboard acompanha
+    if ((data || []).some(o => o.payment_status === 'paid')) dashAtualizarPagamentos();
   } catch (err) {
     console.error('vigiaGlobal:', err.message);
   } finally {
@@ -5502,6 +5517,8 @@ async function loadDashboard() {
     document.getElementById('d-prod').textContent = prod.count ?? 0;
     const receita = (peds.data || []).filter(p => p.payment_status === 'paid').reduce((s, p) => s + Number(p.total_amount), 0);
     setReceitaEl('d-rec', fmtMoney(receita).replace(',00',''));
+
+    dashAtualizarPagamentos();
 
     // Últimos pedidos
     const { data: ultimos } = await supabase
@@ -11599,6 +11616,75 @@ atualizar();
   win.document.close();
 }
 window.imprimirListaSeparar = imprimirListaSeparar;
+
+// ---------------------------------------------------------------------------
+// PAGAMENTOS RECENTES NO DASHBOARD (21/10/2026): o som de "pago" toca, mas nao
+// diz de qual projeto — o Daniel precisava abrir projeto por projeto. Aqui ficam
+// os ultimos pagamentos de TODOS os projetos; clicar abre Alunos & Pedidos do
+// projeto daquele pedido, ja' filtrado pelo numero do pedido.
+// ---------------------------------------------------------------------------
+var dashPagosEmCurso = false;   // var de proposito (TDZ: o vigia pode chamar antes da linha ser executada)
+async function dashAtualizarPagamentos() {
+  const tb = document.getElementById('dash-pagos');
+  if (!tb || dashPagosEmCurso) return;
+  dashPagosEmCurso = true;
+  try {
+    const { data, error } = await supabase.from('orders')
+      .select('id, order_number, total_amount, payment_method, paid_at, updated_at, project_id, student:students(name), project:projects(name, school:schools(name))')
+      .eq('payment_status', 'paid').neq('is_test', true)
+      .order('updated_at', { ascending: false }).limit(40);
+    if (error) throw error;
+    if (!data?.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">Nenhum pagamento ainda.</td></tr>'; return; }
+    // "quando": paid_at do Asaas costuma vir so' com a data (meia-noite UTC) — nesse caso
+    // vale updated_at. Pedido antigo mexido hoje (updated_at novo) tem paid_at com hora e
+    // nao sobe na lista: ordena pelo horario efetivo do pagamento, nao por updated_at.
+    const efetivo = o => {
+      const pa = o.paid_at ? new Date(o.paid_at) : null;
+      const semHora = pa && pa.getUTCHours() === 0 && pa.getUTCMinutes() === 0 && pa.getUTCSeconds() === 0;
+      return (pa && !semHora) ? pa : new Date(o.updated_at);
+    };
+    data.sort((x, y) => efetivo(y) - efetivo(x));
+    data.length = Math.min(data.length, 12);
+    const quando = o => {
+      const d = efetivo(o);
+      const hoje = new Date().toDateString() === d.toDateString();
+      return hoje ? 'hoje ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                  : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    };
+    tb.innerHTML = data.map(o => `<tr style="cursor:pointer" onclick="abrirPedidoDoDashboard('${o.project_id}','${escapeHtml(o.order_number || '')}')" title="Abrir Alunos & Pedidos deste projeto">
+      <td style="white-space:nowrap">${quando(o)}</td>
+      <td>${escapeHtml(o.order_number || '—')}</td>
+      <td class="td-name">${escapeHtml(o.student?.name || '—')}</td>
+      <td>${escapeHtml(o.project?.name || '—')}<div style="font-size:11px;color:var(--gray-400)">${escapeHtml(o.project?.school?.name || '')}</div></td>
+      <td style="white-space:nowrap">${fmtMoney(o.total_amount)}</td>
+      <td style="white-space:nowrap">${escapeHtml(METODO_LABEL[o.payment_method] || o.payment_method || '—')}</td>
+    </tr>`).join('');
+  } catch (err) {
+    console.error('dashAtualizarPagamentos:', err.message);
+    tb.innerHTML = '<tr><td colspan="6" class="empty">Não consegui carregar os pagamentos.</td></tr>';
+  } finally {
+    dashPagosEmCurso = false;
+  }
+}
+
+window.abrirPedidoDoDashboard = async function (projectId, numeroPedido) {
+  try {
+    if (!projectId || projectId === 'null') { toast('Este pedido não tem projeto.', 'warn'); return; }
+    if (!projetosCache.length) {
+      const { data, error } = await supabase.from('projects')
+        .select('id, name, slug, year, project_type, active, demo_mode, max_installments, surcharge_mode, school:schools(id, name)')
+        .order('name');
+      if (error) throw error;
+      projetosCache = data || [];
+    }
+    await abrirDrillProjeto(projectId);
+    // ja' filtrado pelo pedido clicado (a busca aceita o numero do pedido)
+    document.getElementById('drill-al-busca').value = numeroPedido || '';
+    filtrarDrillAlunos();
+  } catch (e) {
+    handleError(e, 'abrirPedidoDoDashboard');
+  }
+};
 
 // ---------------------------------------------------------------------------
 // LINK DE PAGAMENTO COMBINADO (21/10/2026): junta 2+ pedidos PENDENTES do mesmo
