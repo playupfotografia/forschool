@@ -3073,39 +3073,44 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
 
       <div id="fa-tab-lote" class="tab-pane">
         <p style="font-size:12.5px;color:var(--gray-500);margin-bottom:12px;line-height:1.5">
-          Para quando você fotografou várias fichas avulsas e agora precisa
-          <b>dar o nome a cada código</b> (ex: alunos só do carômetro). Digite o
-          nome e escolha o ano/turma de cada código; as linhas <b>em branco são
-          ignoradas</b>. Cada linha vira um aluno só com nome e turma (sem
-          responsável) já ligado ao código — e o organizador de fotos passa a
-          criar a pasta com o nome dele.
+          Para dar nome às fichas avulsas que você já fotografou (ex: alunos só do
+          carômetro). Escolha a <b>escola</b> e a <b>turma</b>, <b>cole a lista de
+          nomes</b> (um por linha, direto do arquivo) e depois digite, ao lado de
+          cada nome, o <b>código</b> da ficha que você usou nele. Cada um fica salvo
+          ao apertar <b>Enter</b>.
         </p>
-        <div class="form-group">
-          <label class="form-label">Escola</label>
-          <select class="form-select" id="fa-lote-escola" onchange="faLoteCarregar()"></select>
+        <div class="fg2" style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
+          <div class="form-group">
+            <label class="form-label">Escola</label>
+            <select class="form-select" id="fa-lote-escola" onchange="faLoteCarregar()"></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Ano / Turma</label>
+            <select class="form-select" id="fa-lote-turma"></select>
+          </div>
         </div>
         <div id="fa-lote-corpo" style="display:none">
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:12.5px">
-            <span>Turma para as linhas vazias:</span>
-            <select class="form-select" id="fa-lote-padrao" style="width:auto;min-width:220px"></select>
-            <button class="btn btn-sm btn-secondary" onclick="faLoteAplicarPadrao()">Aplicar às linhas sem turma</button>
+          <div class="form-group">
+            <label class="form-label">Cole aqui os nomes (um por linha)</label>
+            <textarea class="form-input" id="fa-lote-colar" rows="4" placeholder="Ana Beatriz Souza&#10;Bruno Lima&#10;…"></textarea>
+            <button class="btn btn-sm btn-secondary" style="margin-top:6px" onclick="faLoteMontarLista()">Montar lista para digitar os códigos</button>
           </div>
-          <div style="max-height:46vh;overflow:auto;border:1px solid var(--gray-200);border-radius:8px">
+          <div id="fa-lote-aviso" style="font-size:12.5px;margin:0 0 6px;min-height:18px"></div>
+          <div style="max-height:40vh;overflow:auto;border:1px solid var(--gray-200);border-radius:8px">
             <table style="width:100%;font-size:13px">
-              <thead><tr><th style="width:110px">Código</th><th>Nome do aluno</th><th style="width:230px">Ano / Turma</th></tr></thead>
-              <tbody id="fa-lote-linhas"></tbody>
+              <thead><tr><th>Nome</th><th style="width:170px">Código da ficha</th><th style="width:70px"></th></tr></thead>
+              <tbody id="fa-lote-linhas"><tr><td colspan="3" class="empty" style="padding:10px">Cole os nomes acima e clique em “Montar lista”.</td></tr></tbody>
             </table>
           </div>
+          <div style="font-size:12px;color:var(--gray-500);margin:6px 0 0"><span id="fa-lote-qtd">0</span> salvo(s) agora — <span id="fa-lote-livres"></span>. Nome sem código fica de fora (não é salvo).</div>
           <label class="chk-inline" style="margin:10px 0 6px;display:flex">
             <input type="checkbox" id="fa-lote-autorizado" checked>
             <span>Marcar como autorizado (individual + turma) — a escola confirmou</span>
           </label>
           <div class="form-group">
-            <label class="form-label">Quem confirmou / observação</label>
+            <label class="form-label">Quem confirmou / observação (opcional)</label>
             <input class="form-input" id="fa-lote-obs" placeholder='Ex: "Alunos só do carômetro, autorizado pela coordenação"'>
           </div>
-          <button class="btn btn-primary" id="btn-fa-lote" onclick="faLoteSalvar()">Salvar nomes preenchidos</button>
-          <span id="fa-lote-info" style="font-size:12px;color:var(--gray-500);margin-left:10px"></span>
         </div>
       </div>
 
@@ -12885,26 +12890,55 @@ async function abrirModalFichasAvulsas() {
 window.abrirModalFichasAvulsas = abrirModalFichasAvulsas;
 
 // ---------------------------------------------------------------------------
-// NOMES EM LOTE (22/10/2026): varias fichas avulsas ja' fotografadas (ex: alunos
-// so' de carometro, sem pedido) — o Daniel digita o nome de cada codigo de uma
-// vez. Cada linha preenchida vira um aluno (so' nome + turma, sem responsavel)
-// ligado ao codigo; linha em branco e' ignorada. Se o responsavel se cadastrar
-// depois, vale o fluxo de sempre: "Vincular ficha usada" -> aluno ja' cadastrado.
+// NOMES NAS FICHAS AVULSAS (22/10/2026): fichas ja' fotografadas (ex: alunos so'
+// de carometro, sem pedido). O Daniel escolhe escola + turma, COLA a lista de
+// nomes do arquivo e digita, ao lado de cada nome, o codigo da ficha usada.
+// Cada linha vira um aluno (so' nome + turma, sem responsavel) ligado ao codigo,
+// salvo ao apertar Enter. Se o responsavel se cadastrar depois, vale o fluxo de
+// sempre: "Vincular ficha usada" -> aluno ja' cadastrado.
 // ---------------------------------------------------------------------------
-let faLoteTurmas = [];   // [{id, rotulo}]
+let faLoteFichas = {};   // CODIGO (maiusculo) -> {id, status, aluno}
+let faLoteSalvos = 0;    // quantos foram salvos nesta abertura da tela
+let faLoteSeq = 0;       // ultimo photo_seq_number usado (a escola inteira)
+
+function faLoteNorm(c) { return String(c || '').trim().toUpperCase().replace(/\s+/g, ''); }
+function faLoteAviso(msg, cor) {
+  const el = document.getElementById('fa-lote-aviso');
+  el.style.color = cor || 'var(--gray-600)';
+  el.textContent = msg || '';
+}
+function faLoteAchar(digitado) {
+  const c = faLoteNorm(digitado);
+  if (!c) return null;
+  return faLoteFichas[c] ? { cod: c, ...faLoteFichas[c] }
+       : faLoteFichas['AV-' + c] ? { cod: 'AV-' + c, ...faLoteFichas['AV-' + c] } : null;
+}
+function faLoteContarLivres() {
+  const n = Object.values(faLoteFichas).filter(f => f.status === 'livre').length;
+  document.getElementById('fa-lote-livres').textContent = n + ' código(s) ainda livre(s) nessa escola';
+  document.getElementById('fa-lote-qtd').textContent = faLoteSalvos;
+}
+
 window.faLoteCarregar = async function () {
   const escolaId = document.getElementById('fa-lote-escola').value;
   const corpo = document.getElementById('fa-lote-corpo');
   corpo.style.display = 'none';
-  if (!escolaId) return;
+  faLoteFichas = {}; faLoteSalvos = 0; faLoteAviso('');
+  document.getElementById('fa-lote-linhas').innerHTML = '<tr><td colspan="3" class="empty" style="padding:10px">Cole os nomes acima e clique em “Montar lista”.</td></tr>';
+  if (!escolaId) { document.getElementById('fa-lote-turma').innerHTML = ''; return; }
   try {
-    const [r1, r2] = await Promise.all([
-      supabase.from('avulso_tickets').select('id, code').eq('school_id', escolaId).eq('status', 'livre').order('created_at'),
+    const [r1, r2, r3] = await Promise.all([
+      supabase.from('avulso_tickets').select('id, code, status, student:students(name)').eq('school_id', escolaId).limit(2000),
       supabase.from('school_years').select('id,name,sort_order').eq('school_id', escolaId).order('sort_order'),
+      supabase.from('students').select('photo_seq_number').eq('school_id', escolaId)
+        .not('photo_seq_number', 'is', null).order('photo_seq_number', { ascending: false }).limit(1).maybeSingle(),
     ]);
     if (r1.error) throw r1.error;
     if (r2.error) throw r2.error;
-    const tks = r1.data || [], years = r2.data || [];
+    if (r3.error) throw r3.error;
+    (r1.data || []).forEach(t => { faLoteFichas[faLoteNorm(t.code)] = { id: t.id, status: t.status, aluno: t.student?.name || '' }; });
+    faLoteSeq = (r3.data && r3.data.photo_seq_number) || 0;
+    const years = r2.data || [];
     let classes = [];
     if (years.length) {
       const { data, error } = await supabase.from('school_classes').select('id,name,year_id')
@@ -12912,98 +12946,96 @@ window.faLoteCarregar = async function () {
       if (error) throw error;
       classes = data || [];
     }
-    faLoteTurmas = [];
+    const opts = [];
     years.forEach(y => classes.filter(c => c.year_id === y.id).forEach(c =>
-      faLoteTurmas.push({ id: c.id, rotulo: y.name + ' — Turma ' + c.name })));
-    const opts = '<option value="">— turma —</option>' +
-      faLoteTurmas.map(t => `<option value="${t.id}">${escapeHtml(t.rotulo)}</option>`).join('');
-    document.getElementById('fa-lote-padrao').innerHTML = opts;
-    document.getElementById('fa-lote-linhas').innerHTML = tks.length
-      ? tks.map(t => `<tr data-tk="${t.id}">
-          <td style="font-family:monospace;font-weight:700">${escapeHtml(t.code)}</td>
-          <td><input class="form-input fa-lote-nome" style="padding:5px 8px" placeholder="Nome completo" onkeydown="faLoteEnter(event)"></td>
-          <td><select class="form-select fa-lote-turma" style="padding:5px 8px">${opts}</select></td></tr>`).join('')
-      : '<tr><td colspan="3" class="empty">Nenhuma ficha avulsa livre nessa escola.</td></tr>';
-    document.getElementById('fa-lote-info').textContent = tks.length + ' ficha(s) livre(s)';
+      opts.push(`<option value="${c.id}">${escapeHtml(y.name + ' — Turma ' + c.name)}</option>`)));
+    document.getElementById('fa-lote-turma').innerHTML = '<option value="">— escolha a turma —</option>' + opts.join('');
+    faLoteContarLivres();
     corpo.style.display = 'block';
   } catch (err) {
     toast('Erro ao buscar fichas: ' + err.message, 'error');
   }
 };
-window.faLoteEnter = function (ev) {
+
+// Cada linha do texto colado vira um nome. Tira numeracao no comecinho ("1. ", "2) ", "3 - ").
+window.faLoteMontarLista = function () {
+  const nomes = document.getElementById('fa-lote-colar').value.split(/\r?\n/)
+    .map(l => l.replace(/^\s*\d+\s*[.)\-–]\s*/, '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  const tb = document.getElementById('fa-lote-linhas');
+  if (!nomes.length) { tb.innerHTML = '<tr><td colspan="3" class="empty" style="padding:10px">Nenhum nome colado.</td></tr>'; return; }
+  tb.innerHTML = nomes.map(n => `<tr>
+    <td class="fa-lote-nm">${escapeHtml(n)}</td>
+    <td><input class="form-input fa-lote-cod" style="padding:5px 8px;font-family:monospace;text-transform:uppercase" placeholder="AV-XXXXXX" autocomplete="off" onkeydown="faLoteTecla(event)"></td>
+    <td class="fa-lote-st" style="font-size:12px"></td></tr>`).join('');
+  faLoteAviso(nomes.length + ' nome(s) na lista. Digite o código ao lado de cada um e aperte Enter.');
+  const primeiro = tb.querySelector('.fa-lote-cod');
+  if (primeiro) primeiro.focus();
+};
+
+window.faLoteTecla = function (ev) {
   if (ev.key !== 'Enter') return;
   ev.preventDefault();
   const tr = ev.target.closest('tr');
-  const sel = tr.querySelector('.fa-lote-turma');
-  if (!sel.value) { const pad = document.getElementById('fa-lote-padrao').value; if (pad) sel.value = pad; }
-  const prox = tr.nextElementSibling && tr.nextElementSibling.querySelector('.fa-lote-nome');
-  if (prox) prox.focus();
-};
-window.faLoteAplicarPadrao = function () {
-  const pad = document.getElementById('fa-lote-padrao').value;
-  if (!pad) { toast('Escolha a turma no seletor ao lado primeiro.', 'warn'); return; }
-  document.querySelectorAll('#fa-lote-linhas tr').forEach(tr => {
-    const sel = tr.querySelector('.fa-lote-turma');
-    if (sel && !sel.value) sel.value = pad;
+  faLoteSalvarLinha(tr).then(() => {
+    // vai para o proximo campo de codigo ainda editavel
+    let prox = tr.nextElementSibling;
+    while (prox && prox.querySelector('.fa-lote-cod')?.disabled) prox = prox.nextElementSibling;
+    const campo = prox && prox.querySelector('.fa-lote-cod');
+    if (campo) campo.focus();
   });
 };
-window.faLoteSalvar = async function () {
+
+async function faLoteSalvarLinha(tr) {
+  const inCod = tr.querySelector('.fa-lote-cod');
+  const st = tr.querySelector('.fa-lote-st');
+  if (inCod.disabled || !inCod.value.trim()) return;      // linha ja' salva, ou sem codigo = pula
   const escolaId = document.getElementById('fa-lote-escola').value;
-  const linhas = [...document.querySelectorAll('#fa-lote-linhas tr[data-tk]')].map(tr => ({
-    ticketId: tr.dataset.tk,
-    code: tr.children[0].textContent.trim(),
-    nome: tr.querySelector('.fa-lote-nome').value.trim().replace(/\s+/g, ' '),
-    classId: tr.querySelector('.fa-lote-turma').value,
-  })).filter(l => l.nome);
-  if (!linhas.length) { toast('Digite pelo menos um nome.', 'warn'); return; }
-  const semTurma = linhas.filter(l => !l.classId);
-  if (semTurma.length) {
-    toast('Escolha a turma de: ' + semTurma.slice(0, 5).map(l => l.code).join(', ') + (semTurma.length > 5 ? '…' : ''), 'warn');
-    return;
-  }
-  if (!confirm('Cadastrar ' + linhas.length + ' aluno(s) e ligar cada um ao seu código?')) return;
-  const autorizado = document.getElementById('fa-lote-autorizado').checked;
-  const obs = document.getElementById('fa-lote-obs').value.trim();
-  const btn = document.getElementById('btn-fa-lote');
-  const orig = btn.innerHTML;
-  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Salvando…';
-  let ok = 0; const falhas = [];
+  const classId = document.getElementById('fa-lote-turma').value;
+  const nome = tr.querySelector('.fa-lote-nm').textContent.trim();
+  if (!classId) { faLoteAviso('Escolha o ano/turma primeiro.', 'var(--red)'); document.getElementById('fa-lote-turma').focus(); return; }
+  const f = faLoteAchar(inCod.value);
+  if (!f) { st.style.color = 'var(--red)'; st.textContent = 'não existe'; faLoteAviso('Código "' + faLoteNorm(inCod.value) + '" não existe nessa escola — confira o que está impresso embaixo do QR.', 'var(--red)'); inCod.select(); return; }
+  if (f.status !== 'livre') { st.style.color = 'var(--red)'; st.textContent = 'já usado'; faLoteAviso('A ficha ' + f.cod + ' já está ligada a ' + (f.aluno || 'um aluno') + '.', 'var(--red)'); inCod.select(); return; }
+
+  inCod.disabled = true; st.style.color = 'var(--gray-500)'; st.textContent = 'salvando…';
   try {
-    const { data: maxRow } = await supabase.from('students').select('photo_seq_number')
-      .eq('school_id', escolaId).not('photo_seq_number', 'is', null)
-      .order('photo_seq_number', { ascending: false }).limit(1).maybeSingle();
-    let fichaNum = (maxRow && maxRow.photo_seq_number) || 0;
-    for (const l of linhas) {
-      try {
-        fichaNum++;
-        const now = new Date().toISOString();
-        const dados = { name: l.nome, class_id: l.classId, school_id: escolaId, photo_seq_number: fichaNum,
-          notes: 'Ficha avulsa ' + l.code + (obs ? ' — ' + obs : '') };
-        if (autorizado) {
-          const assinadoPor = 'Admin (ficha avulsa)' + (obs ? ' — ' + obs : '');
-          Object.assign(dados, { authorize_individual: true, authorize_class: true, authorization_date: now,
-            authorization_signed_by: assinadoPor,
-            authorization_log: [{ action: 'authorized', date: now, signed_by: assinadoPor, individual: true, class: true,
-              note: obs || 'Autorização confirmada pela escola, registrada pelo admin (ficha avulsa)' }] });
-        }
-        const { data: al, error: aErr } = await supabase.from('students').insert(dados).select('id').single();
-        if (aErr) throw aErr;
-        const { error: tErr } = await supabase.from('avulso_tickets')
-          .update({ status: 'vinculado', student_id: al.id, vinculado_at: now }).eq('id', l.ticketId);
-        if (tErr) throw tErr;
-        ok++;
-      } catch (e) { falhas.push(l.code + ': ' + e.message); }
+    const autorizado = document.getElementById('fa-lote-autorizado').checked;
+    const obs = document.getElementById('fa-lote-obs').value.trim();
+    const now = new Date().toISOString();
+    const dados = { name: nome, class_id: classId, school_id: escolaId, photo_seq_number: faLoteSeq + 1,
+      notes: 'Ficha avulsa ' + f.cod + (obs ? ' — ' + obs : '') };
+    if (autorizado) {
+      const assinadoPor = 'Admin (ficha avulsa)' + (obs ? ' — ' + obs : '');
+      Object.assign(dados, { authorize_individual: true, authorize_class: true, authorization_date: now,
+        authorization_signed_by: assinadoPor,
+        authorization_log: [{ action: 'authorized', date: now, signed_by: assinadoPor, individual: true, class: true,
+          note: obs || 'Autorização confirmada pela escola, registrada pelo admin (ficha avulsa)' }] });
     }
+    const { data: al, error: aErr } = await supabase.from('students').insert(dados).select('id').single();
+    if (aErr) throw aErr;
+    faLoteSeq++;
+    const { error: tErr } = await supabase.from('avulso_tickets')
+      .update({ status: 'vinculado', student_id: al.id, vinculado_at: now }).eq('id', f.id);
+    if (tErr) {
+      // aluno criado mas sem a ligacao: desfaz o aluno pra nao ficar cadastro solto
+      await supabase.from('students').delete().eq('id', al.id);
+      throw tErr;
+    }
+    faLoteFichas[f.cod] = { id: f.id, status: 'vinculado', aluno: nome };
+    faLoteSalvos++;
+    inCod.value = f.cod;
+    st.style.color = 'var(--green)'; st.textContent = '✔ salvo';
+    tr.style.background = 'var(--green-light, #ecfdf5)';
+    faLoteContarLivres();
+    faLoteAviso('✔ ' + f.cod + ' → ' + nome, 'var(--green)');
+    if (typeof loadAlunos === 'function') loadAlunos();
   } catch (err) {
-    falhas.push(err.message);
-  } finally {
-    btn.disabled = false; btn.innerHTML = orig;
+    inCod.disabled = false;
+    st.style.color = 'var(--red)'; st.textContent = 'erro';
+    faLoteAviso('Erro ao salvar: ' + err.message, 'var(--red)');
   }
-  if (falhas.length) toast(ok + ' salvo(s); falhou: ' + falhas.join(' | '), 'error');
-  else toast(ok + ' aluno(s) cadastrado(s) e ligado(s) aos códigos!', 'ok');
-  await faLoteCarregar();   // os ja' salvos saem da lista
-  if (typeof loadAlunos === 'function') loadAlunos();
-};
+}
 
 document.querySelectorAll('#mod-fichas-avulsas .tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
