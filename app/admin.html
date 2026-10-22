@@ -11313,7 +11313,7 @@ function montarFichaCard(a, ped) {
 
   const temaBadge = temasNecessarios.size
     ? `<div class="ficha-tema">📸 Fotografar: ${escapeHtml([...temasNecessarios].join(' + '))}</div>`
-    : '';
+    : `<div class="ficha-tema">📸 Fotografar: só uniforme</div>`;
 
   const html = `<div class="ficha${semAutorizacao ? ' ficha-alerta' : ''}">
   <div class="ficha-body">
