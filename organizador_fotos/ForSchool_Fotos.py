@@ -113,6 +113,42 @@ def supabase_get(table, params):
     return r.json()
 
 
+_AVULSOS_CACHE = {}
+
+
+def dados_ficha_avulsa(codigo):
+    """QR de FICHA AVULSA (Admin > Alunos > Fichas avulsas): so' traz um codigo.
+    Procura no Supabase o aluno que o Daniel ligou a esse codigo ("Nomes em lote"
+    ou "Vincular ficha usada") e devolve os mesmos dados de um QR de aluno comum
+    (n/t/a/e/id) — a pasta sai "Nome - Ano - Turma X" e o pedido e' achado pelo id.
+    Sem internet, ou codigo ainda sem nome: pasta "FICHA AVULSA <codigo>" (da' pra
+    rodar a Fase 1 de novo depois, com o nome cadastrado)."""
+    if codigo in _AVULSOS_CACHE:
+        return _AVULSOS_CACHE[codigo]
+    padrao = {'n': f'FICHA AVULSA {codigo}', 't': '', 'a': '', 'e': '', 'id': ''}
+    try:
+        rows = supabase_get('avulso_tickets', {
+            'select': 'code,student:students(id,name,class:school_classes(name,year:school_years(name)),school:schools(name))',
+            'code': 'eq.' + codigo,
+        })
+    except Exception:
+        return padrao          # offline: nao guarda no cache, tenta de novo na proxima foto
+    al = rows[0].get('student') if rows else None
+    if not al:
+        _AVULSOS_CACHE[codigo] = padrao
+        return padrao
+    cls = al.get('class') or {}
+    dados = {
+        'n': al.get('name') or padrao['n'],
+        't': cls.get('name') or '',
+        'a': (cls.get('year') or {}).get('name') or '',
+        'e': (al.get('school') or {}).get('name') or '',
+        'id': al.get('id') or '',
+    }
+    _AVULSOS_CACHE[codigo] = dados
+    return dados
+
+
 def _chave_ordem(nome):
     # Ordem alfabetica sem diferenciar maiuscula/minuscula nem acento
     # ("ANTONELLA" junto de "Antonio", "Benício" junto de "Benicio").
@@ -550,6 +586,14 @@ class App(tk.Tk):
                 turmas_info.setdefault(nome_pasta, 0)
                 self._log1(f'🏫 QR TURMA → {nome_pasta}' + (f'  ({periodo})' if periodo else ''))
                 continue
+
+            # QR de FICHA AVULSA: so' tem um codigo; o nome vem do cadastro (ver
+            # dados_ficha_avulsa). Antes, o QR avulso caia aqui como "Desconhecido"
+            # e todas as fichas avulsas se misturavam numa pasta so'.
+            if dados and str(dados.get('tipo', '')).lower() == 'avulso':
+                codigo = str(dados.get('codigo', dados.get('c', ''))).strip() or 'SEM-CODIGO'
+                dados = dados_ficha_avulsa(codigo)
+                self._log1(f'🎫 Ficha avulsa {codigo} → {dados["n"]}')
 
             if dados:
                 nome   = dados.get('nome', dados.get('n', 'Desconhecido'))
