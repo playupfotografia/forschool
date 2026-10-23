@@ -12261,11 +12261,40 @@ window.imprimirRelatorioSituacao = imprimirRelatorioSituacao;
  * Abre a janela de impressão com as fichas já montadas + script de QR code.
  * Compartilhado por "Imprimir fichas" e "Fichas da sessão".
  */
+// Mostra o documento de fichas numa camada DENTRO do proprio admin (iframe), em vez de
+// abrir pop-up: o admin roda como aplicativo sem barra de endereco, onde pop-up bloqueado
+// nao tem icone pra liberar e a janela nova ia parar atras da principal (23/10/2026).
+function mostrarFichasNaTela(doc, total) {
+  const velho = document.getElementById('ficha-overlay');
+  if (velho) velho.remove();
+  const ov = document.createElement('div');
+  ov.id = 'ficha-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#fff;display:flex;flex-direction:column';
+  const barra = document.createElement('div');
+  barra.style.cssText = 'display:flex;gap:10px;align-items:center;padding:8px 14px;background:#1f2937;color:#fff;font:14px sans-serif';
+  barra.innerHTML = '<b style="flex:1">Fichas para imprimir (' + total + ')</b>';
+  const bImp = document.createElement('button');
+  bImp.textContent = '🖨 Imprimir';
+  bImp.style.cssText = 'padding:7px 18px;background:#4B6BFB;color:#fff;border:0;border-radius:8px;font-size:14px;cursor:pointer';
+  const bFechar = document.createElement('button');
+  bFechar.textContent = '✕ Fechar';
+  bFechar.style.cssText = 'padding:7px 18px;background:#e5e7eb;color:#111;border:0;border-radius:8px;font-size:14px;cursor:pointer';
+  barra.appendChild(bImp); barra.appendChild(bFechar);
+  const fr = document.createElement('iframe');
+  fr.style.cssText = 'flex:1;border:0;width:100%;background:#fff';
+  fr.srcdoc = doc;
+  bImp.onclick = () => { try { fr.contentWindow.focus(); fr.contentWindow.print(); } catch (e) { toast('Não consegui abrir a impressão: ' + e.message, 'error'); } };
+  const fechar = () => { ov.remove(); document.removeEventListener('keydown', esc); };
+  const esc = (ev) => { if (ev.key === 'Escape') fechar(); };
+  bFechar.onclick = fechar;
+  document.addEventListener('keydown', esc);
+  ov.appendChild(barra); ov.appendChild(fr);
+  document.body.appendChild(ov);
+}
+
 function abrirJanelaFichas(fichasHtml, qrPayloads, total, janela = null) {
   const qrJson = JSON.stringify(qrPayloads).replace(/</g, '\\u003c');
-  const win = janela || window.open('', '_blank', 'width=900,height=700');
-  if (!win) { toast('O navegador bloqueou a janela de impressão. Libere os pop-ups deste site (ícone na barra de endereço) e tente de novo.', 'error'); return; }
-  win.document.write(`<!DOCTYPE html>
+  const doc = `<!DOCTYPE html>
 <html lang="pt-BR"><head>
 <meta charset="UTF-8">
 <title>Fichas de Alunos — For School</title>
@@ -12314,8 +12343,8 @@ ${fichasHtml}
   else window.addEventListener('load', gerarQRs);
 })();
 <\/script>
-</body></html>`);
-  win.document.close();
+</body></html>`;
+  mostrarFichasNaTela(doc, total);
 }
 
 // Grava em ficha_prints que as fichas desses alunos foram impressas, por QUALQUER
@@ -13066,15 +13095,9 @@ window.faLoteCriarEImprimir = async function () {
   const opt = turSel.selectedOptions[0];
   const anoNome = opt?.dataset.ano || '', turmaNome = opt?.dataset.turma || '';
 
-  // A janela de impressao e' aberta AGORA, no clique — depois dos awaits o navegador
-  // pode bloquear o pop-up e as fichas ficavam criadas sem imprimir (visto em 23/10/2026).
-  const janela = window.open('', '_blank', 'width=900,height=700');
-  if (!janela) { toast('O navegador bloqueou a janela de impressão. Libere os pop-ups deste site (ícone na barra de endereço) e clique de novo.', 'error'); return; }
-
   const btn = document.getElementById('btn-fa-lote-imprimir');
   const orig = btn.innerHTML;
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Verificando…';
-  let impressa = false;
   try {
     // nome que ja' existe na turma nao e' criado de novo (evita duplicar se clicar 2x);
     // se ele veio deste fluxo (ficha avulsa), a ficha e' REIMPRESSA em vez de ignorada.
@@ -13153,8 +13176,7 @@ window.faLoteCriarEImprimir = async function () {
         qrPayloads[c.id] = r.qrPayload;
         return r.html;
       }).join('');
-      abrirJanelaFichas(html, qrPayloads, criados.length, janela);
-      impressa = true;
+      abrirJanelaFichas(html, qrPayloads, criados.length);
       gravarFichasImpressasDosAlunos(criados.map(c => c.id));
       const nNovos = criados.filter(c => !c.reimpressa).length;
       toast((nNovos ? nNovos + ' aluno(s) cadastrado(s). ' : '') + criados.length + ' ficha(s) geradas!', 'ok');
@@ -13165,7 +13187,6 @@ window.faLoteCriarEImprimir = async function () {
   } catch (err) {
     toast('Erro: ' + err.message, 'error');
   } finally {
-    if (!impressa) { try { janela.close(); } catch (e) {} }   // nao deixa janela em branco aberta
     btn.disabled = false; btn.innerHTML = orig;
   }
 };
