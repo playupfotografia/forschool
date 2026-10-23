@@ -3093,7 +3093,11 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           <div class="form-group">
             <label class="form-label">Cole aqui os nomes (um por linha)</label>
             <textarea class="form-input" id="fa-lote-colar" rows="4" placeholder="Ana Beatriz Souza&#10;Bruno Lima&#10;…"></textarea>
-            <button class="btn btn-sm btn-secondary" style="margin-top:6px" onclick="faLoteMontarLista()">Montar lista para digitar os códigos</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+              <button class="btn btn-sm btn-secondary" onclick="faLoteMontarLista()">Montar lista para digitar os códigos</button>
+              <button class="btn btn-sm btn-primary" id="btn-fa-lote-imprimir" onclick="faLoteCriarEImprimir()" title="Cria os alunos, gera um código novo para cada um e imprime as fichas com nome + QR code">🖨 Cadastrar estes nomes e imprimir fichas novas</button>
+            </div>
+            <div style="font-size:11.5px;color:var(--gray-500);margin-top:5px">O segundo botão não precisa de código: ele <b>cria</b> o aluno, <b>gera</b> um código novo e já imprime a ficha com nome e QR.</div>
           </div>
           <div id="fa-lote-aviso" style="font-size:12.5px;margin:0 0 6px;min-height:18px"></div>
           <div style="max-height:40vh;overflow:auto;border:1px solid var(--gray-200);border-radius:8px">
@@ -10541,6 +10545,28 @@ async function imprimirFichasSelecionadasDrill() {
     }).join('');
 
     abrirJanelaFichas(fichasHtml, qrPayloads, (alunos || []).length);
+
+    // Grava que essas fichas foram impressas (ficha_prints, migration_041) — antes so'
+    // o modal "Fichas por turma" gravava, e quem imprimia por aqui continuava com
+    // "falta ficha" (visto em 23/10/2026). Depois de abrir a janela: se a gravacao
+    // falhar, so' avisa — nunca impede a impressao. Quem recusou a autorizacao nao tem ficha.
+    if (drillProjetoId) {
+      try {
+        const marcar = (alunos || []).map(x => drillAlunosData.find(d => d.id === x.id))
+          .filter(d => d && fichaStatusDe(d) !== null);
+        if (marcar.length) {
+          const agora = new Date().toISOString();
+          const { error: fpErr } = await supabase.from('ficha_prints').upsert(
+            marcar.map(d => ({ student_id: d.id, project_id: drillProjetoId, printed_at: agora })),
+            { onConflict: 'student_id,project_id' });
+          if (fpErr) throw fpErr;
+          marcar.forEach(d => { d.fichaEm = agora; });
+          filtrarDrillAlunos();
+        }
+      } catch (e) {
+        toast('Fichas geradas, mas não consegui marcar como impressas: ' + e.message, 'warn');
+      }
+    }
   } catch (err) {
     toast('Erro ao gerar fichas: ' + err.message, 'error');
   } finally {
@@ -11313,7 +11339,7 @@ async function buscarTodosTemasAtivos() {
   return [...new Set([...(prods || []).map(p => p.photo_theme), ...(vars || []).map(v => v.photo_theme)].filter(Boolean))];
 }
 
-function montarFichaCard(a, ped) {
+function montarFichaCard(a, ped, extra = {}) {
   const turma  = a.school_class?.name || '—';
   const ano    = a.school_class?.year?.name || '—';
   const escola = a.school?.name || '—';
@@ -11353,7 +11379,9 @@ function montarFichaCard(a, ped) {
 
   const badge = comprou
     ? `<div class="ficha-badge ficha-badge-comprou">✅ COMPROU</div>`
-    : `<div class="ficha-badge ficha-badge-autorizou">📷 SÓ AUTORIZOU</div>`;
+    : extra.carometro
+      ? `<div class="ficha-badge ficha-badge-autorizou">📷 CARÔMETRO</div>`
+      : `<div class="ficha-badge ficha-badge-autorizou">📷 SÓ AUTORIZOU</div>`;
 
   const temaBadge = temasNecessarios.size
     ? `<div class="ficha-tema">📸 Fotografar: ${escapeHtml([...temasNecessarios].join(' + '))}</div>`
@@ -11362,7 +11390,7 @@ function montarFichaCard(a, ped) {
   const html = `<div class="ficha${semAutorizacao ? ' ficha-alerta' : ''}">
   <div class="ficha-body">
     <div class="ficha-header">
-      <div class="ficha-seq">${a.photo_seq_number ? 'Ficha #' + a.photo_seq_number : ''}</div>
+      <div class="ficha-seq">${a.photo_seq_number ? 'Ficha #' + a.photo_seq_number : ''}${extra.codigo ? ' · ' + escapeHtml(extra.codigo) : ''}</div>
       <div class="ficha-escola">${escapeHtml(escola)}</div>
     </div>
     ${semAutorizacao ? '<div class="ficha-sem-aut">⚠ SEM AUTORIZAÇÃO — conferir antes de fotografar</div>' : ''}
@@ -11373,7 +11401,7 @@ function montarFichaCard(a, ped) {
       <span><b>Ano:</b> ${escapeHtml(ano)}</span>
       <span><b>Turma:</b> ${escapeHtml(turma)}</span>
     </div>
-    ${comprou ? `<div class="ficha-comprado"><b>Comprado:</b> ${escapeHtml(compradoStr)}</div>` : '<div class="ficha-comprado" style="color:#888;font-style:italic">Não realizou pedido — fotografar e oferecer depois</div>'}
+    ${comprou ? `<div class="ficha-comprado"><b>Comprado:</b> ${escapeHtml(compradoStr)}</div>` : extra.carometro ? '<div class="ficha-comprado" style="color:#888;font-style:italic">Só carômetro — sem pedido</div>' : '<div class="ficha-comprado" style="color:#888;font-style:italic">Não realizou pedido — fotografar e oferecer depois</div>'}
     <div class="ficha-resp"><b>Responsável:</b> ${escapeHtml(resp.name || '—')}${resp.phone ? ' · ' + escapeHtml(resp.phone) : ''}</div>
     <div class="ficha-obs">Obs / Anotações:</div>
   </div>
@@ -12289,6 +12317,50 @@ ${fichasHtml}
   win.document.close();
 }
 
+// Grava em ficha_prints que as fichas desses alunos foram impressas, por QUALQUER
+// caminho de impressao. Quando o caminho nao sabe o projeto (aba Alunos), usa os
+// projetos cujas sessoes incluem a turma do aluno. Quem recusou a autorizacao nao
+// tem ficha. Nunca impede a impressao: falha so' avisa (23/10/2026).
+async function gravarFichasImpressasDosAlunos(alunoIds) {
+  try {
+    if (!alunoIds || !alunoIds.length) return;
+    const { data: als, error: e1 } = await supabase.from('students')
+      .select('id, class_id, authorization_date, authorize_individual, authorize_class')
+      .in('id', alunoIds);
+    if (e1) throw e1;
+    const valid = (als || []).filter(x => !(x.authorization_date && !(x.authorize_individual || x.authorize_class)));
+    const classIds = [...new Set(valid.map(x => x.class_id).filter(Boolean))];
+    if (!classIds.length) return;
+    const { data: vinc, error: e2 } = await supabase.from('project_session_classes')
+      .select('school_class_id, session:project_sessions(project_id)').in('school_class_id', classIds);
+    if (e2) throw e2;
+    const projPorTurma = {};
+    (vinc || []).forEach(v => {
+      const pid = v.session && v.session.project_id;
+      if (pid) (projPorTurma[v.school_class_id] ??= new Set()).add(pid);
+    });
+    const agora = new Date().toISOString();
+    const linhas = [];
+    valid.forEach(x => (projPorTurma[x.class_id] || []).forEach(pid =>
+      linhas.push({ student_id: x.id, project_id: pid, printed_at: agora })));
+    for (let i = 0; i < linhas.length; i += 200) {
+      const { error } = await supabase.from('ficha_prints').upsert(linhas.slice(i, i + 200),
+        { onConflict: 'student_id,project_id' });
+      if (error) throw error;
+    }
+    // se o "Alunos & Pedidos" estiver aberto, a etiqueta "falta ficha" some na hora
+    if (typeof drillAlunosData !== 'undefined' && drillProjetoId) {
+      linhas.filter(l => l.project_id === drillProjetoId).forEach(l => {
+        const d = drillAlunosData.find(z => z.id === l.student_id);
+        if (d) d.fichaEm = agora;
+      });
+      if (typeof filtrarDrillAlunos === 'function') filtrarDrillAlunos();
+    }
+  } catch (e) {
+    toast('Fichas geradas, mas não consegui marcar como impressas: ' + e.message, 'warn');
+  }
+}
+
 async function imprimirFichasSelecionadas() {
   const ids = [...document.querySelectorAll('.al-chk:checked')].map(c => c.dataset.id);
   if (!ids.length) return;
@@ -12323,6 +12395,7 @@ async function imprimirFichasSelecionadas() {
     }).join('');
 
     abrirJanelaFichas(fichasHtml, qrPayloads, alunos.length);
+    await gravarFichasImpressasDosAlunos(alunos.map(x => x.id));
   } catch (err) {
     toast('Erro ao gerar fichas: ' + err.message, 'error');
   } finally {
@@ -12948,7 +13021,7 @@ window.faLoteCarregar = async function () {
     }
     const opts = [];
     years.forEach(y => classes.filter(c => c.year_id === y.id).forEach(c =>
-      opts.push(`<option value="${c.id}">${escapeHtml(y.name + ' — Turma ' + c.name)}</option>`)));
+      opts.push(`<option value="${c.id}" data-ano="${escapeHtml(y.name)}" data-turma="${escapeHtml(c.name)}">${escapeHtml(y.name + ' — Turma ' + c.name)}</option>`)));
     document.getElementById('fa-lote-turma').innerHTML = '<option value="">— escolha a turma —</option>' + opts.join('');
     faLoteContarLivres();
     corpo.style.display = 'block';
@@ -12959,9 +13032,7 @@ window.faLoteCarregar = async function () {
 
 // Cada linha do texto colado vira um nome. Tira numeracao no comecinho ("1. ", "2) ", "3 - ").
 window.faLoteMontarLista = function () {
-  const nomes = document.getElementById('fa-lote-colar').value.split(/\r?\n/)
-    .map(l => l.replace(/^\s*\d+\s*[.)\-–]\s*/, '').replace(/\s+/g, ' ').trim())
-    .filter(Boolean);
+  const nomes = faLoteLerNomes();
   const tb = document.getElementById('fa-lote-linhas');
   if (!nomes.length) { tb.innerHTML = '<tr><td colspan="3" class="empty" style="padding:10px">Nenhum nome colado.</td></tr>'; return; }
   tb.innerHTML = nomes.map(n => `<tr>
@@ -12971,6 +13042,110 @@ window.faLoteMontarLista = function () {
   faLoteAviso(nomes.length + ' nome(s) na lista. Digite o código ao lado de cada um e aperte Enter.');
   const primeiro = tb.querySelector('.fa-lote-cod');
   if (primeiro) primeiro.focus();
+};
+
+function faLoteLerNomes() {
+  return document.getElementById('fa-lote-colar').value.split(/\r?\n/)
+    .map(l => l.replace(/^\s*\d+\s*[.)\-–]?\s+/, '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+}
+
+// Cria os alunos da lista colada, gera um codigo novo pra cada um (ja' ligado) e
+// imprime as fichas com nome + QR. O QR leva o aluno (mesmo formato das outras
+// fichas: id, nome, turma, ano, escola), entao a separacao das fotos funciona ate'
+// sem internet; o codigo AV-XXXXXX vai impresso na ficha e fica registrado.
+window.faLoteCriarEImprimir = async function () {
+  const escSel = document.getElementById('fa-lote-escola');
+  const turSel = document.getElementById('fa-lote-turma');
+  const escolaId = escSel.value, classId = turSel.value;
+  if (!escolaId || !classId) { toast('Escolha a escola e o ano/turma.', 'warn'); return; }
+  const nomes = faLoteLerNomes();
+  if (!nomes.length) { toast('Cole os nomes (um por linha) primeiro.', 'warn'); return; }
+  const escolaNome = escSel.selectedOptions[0]?.textContent || '';
+  const opt = turSel.selectedOptions[0];
+  const anoNome = opt?.dataset.ano || '', turmaNome = opt?.dataset.turma || '';
+
+  const btn = document.getElementById('btn-fa-lote-imprimir');
+  const orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Verificando…';
+  try {
+    // nome que ja' existe na turma nao e' criado de novo (evita duplicar se clicar 2x)
+    const { data: jaTem, error: jErr } = await supabase.from('students').select('name').eq('class_id', classId);
+    if (jErr) throw jErr;
+    const existentes = new Set((jaTem || []).map(x => normalizarNome(x.name)));
+    const vistos = new Set();
+    const novos = [], repetidos = [];
+    nomes.forEach(n => {
+      const k = normalizarNome(n);
+      if (existentes.has(k) || vistos.has(k)) repetidos.push(n); else { vistos.add(k); novos.push(n); }
+    });
+    if (!novos.length) { toast('Todos esses nomes já existem nessa turma — nada a criar.', 'warn'); return; }
+    const NL = String.fromCharCode(10);
+    const msg = 'Cadastrar ' + novos.length + ' aluno(s) em ' + anoNome + ' — Turma ' + turmaNome + ', gerar um código novo para cada um e imprimir as fichas?' +
+      (repetidos.length ? NL + NL + 'Ficam de fora (já existem na turma): ' + repetidos.slice(0, 8).join(', ') + (repetidos.length > 8 ? '…' : '') : '');
+    if (!confirm(msg)) return;
+
+    btn.innerHTML = '<span class="spinner"></span> Cadastrando…';
+    const autorizado = document.getElementById('fa-lote-autorizado').checked;
+    const obs = document.getElementById('fa-lote-obs').value.trim();
+    const { data: maxRow } = await supabase.from('students').select('photo_seq_number')
+      .eq('school_id', escolaId).not('photo_seq_number', 'is', null)
+      .order('photo_seq_number', { ascending: false }).limit(1).maybeSingle();
+    let seq = (maxRow && maxRow.photo_seq_number) || 0;
+
+    const criados = [], falhas = [];
+    for (const nome of novos) {
+      let alunoId = null;
+      try {
+        seq++;
+        const now = new Date().toISOString();
+        const dados = { name: nome, class_id: classId, school_id: escolaId, photo_seq_number: seq, notes: 'Ficha avulsa' + (obs ? ' — ' + obs : '') };
+        if (autorizado) {
+          const assinadoPor = 'Admin (ficha avulsa)' + (obs ? ' — ' + obs : '');
+          Object.assign(dados, { authorize_individual: true, authorize_class: true, authorization_date: now,
+            authorization_signed_by: assinadoPor,
+            authorization_log: [{ action: 'authorized', date: now, signed_by: assinadoPor, individual: true, class: true,
+              note: obs || 'Autorização confirmada pela escola, registrada pelo admin (ficha avulsa)' }] });
+        }
+        const { data: al, error: aErr } = await supabase.from('students').insert(dados).select('id').single();
+        if (aErr) throw aErr;
+        alunoId = al.id;
+        let codigo = null;
+        for (let t = 0; t < 5 && !codigo; t++) {
+          const c = gerarCodigoAvulso();
+          const { error: tErr } = await supabase.from('avulso_tickets')
+            .insert({ code: c, school_id: escolaId, status: 'vinculado', student_id: al.id, vinculado_at: now });
+          if (!tErr) codigo = c;
+          else if (!String(tErr.message || '').toLowerCase().includes('duplicate')) throw tErr;
+        }
+        if (!codigo) throw new Error('não consegui gerar um código livre');
+        criados.push({ id: al.id, name: nome, seq, codigo, authorization_date: autorizado ? now : null });
+      } catch (e) {
+        if (alunoId) await supabase.from('students').delete().eq('id', alunoId);   // nao deixa aluno solto sem ficha
+        falhas.push(nome + ': ' + e.message);
+      }
+    }
+    if (criados.length) {
+      const qrPayloads = {};
+      const html = criados.map(c => {
+        const aluno = { id: c.id, name: c.name, photo_seq_number: c.seq, authorization_date: c.authorization_date,
+          school: { name: escolaNome }, school_class: { name: turmaNome, year: { name: anoNome } }, user: {} };
+        const r = montarFichaCard(aluno, null, { codigo: c.codigo, carometro: true });
+        qrPayloads[c.id] = r.qrPayload;
+        return r.html;
+      }).join('');
+      abrirJanelaFichas(html, qrPayloads, criados.length);
+      gravarFichasImpressasDosAlunos(criados.map(c => c.id));
+      toast(criados.length + ' aluno(s) cadastrado(s) e fichas geradas!', 'ok');
+      if (typeof loadAlunos === 'function') loadAlunos();
+      faLoteCarregar();   // atualiza o estoque de codigos
+    }
+    if (falhas.length) toast('Falhou: ' + falhas.slice(0, 3).join(' | '), 'error');
+  } catch (err) {
+    toast('Erro: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = orig;
+  }
 };
 
 window.faLoteTecla = function (ev) {
