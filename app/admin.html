@@ -12261,9 +12261,10 @@ window.imprimirRelatorioSituacao = imprimirRelatorioSituacao;
  * Abre a janela de impressão com as fichas já montadas + script de QR code.
  * Compartilhado por "Imprimir fichas" e "Fichas da sessão".
  */
-function abrirJanelaFichas(fichasHtml, qrPayloads, total) {
+function abrirJanelaFichas(fichasHtml, qrPayloads, total, janela = null) {
   const qrJson = JSON.stringify(qrPayloads).replace(/</g, '\\u003c');
-  const win = window.open('', '_blank', 'width=900,height=700');
+  const win = janela || window.open('', '_blank', 'width=900,height=700');
+  if (!win) { toast('O navegador bloqueou a janela de impressão. Libere os pop-ups deste site (ícone na barra de endereço) e tente de novo.', 'error'); return; }
   win.document.write(`<!DOCTYPE html>
 <html lang="pt-BR"><head>
 <meta charset="UTF-8">
@@ -13065,24 +13066,40 @@ window.faLoteCriarEImprimir = async function () {
   const opt = turSel.selectedOptions[0];
   const anoNome = opt?.dataset.ano || '', turmaNome = opt?.dataset.turma || '';
 
+  // A janela de impressao e' aberta AGORA, no clique — depois dos awaits o navegador
+  // pode bloquear o pop-up e as fichas ficavam criadas sem imprimir (visto em 23/10/2026).
+  const janela = window.open('', '_blank', 'width=900,height=700');
+  if (!janela) { toast('O navegador bloqueou a janela de impressão. Libere os pop-ups deste site (ícone na barra de endereço) e clique de novo.', 'error'); return; }
+
   const btn = document.getElementById('btn-fa-lote-imprimir');
   const orig = btn.innerHTML;
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Verificando…';
+  let impressa = false;
   try {
-    // nome que ja' existe na turma nao e' criado de novo (evita duplicar se clicar 2x)
-    const { data: jaTem, error: jErr } = await supabase.from('students').select('name').eq('class_id', classId);
+    // nome que ja' existe na turma nao e' criado de novo (evita duplicar se clicar 2x);
+    // se ele veio deste fluxo (ficha avulsa), a ficha e' REIMPRESSA em vez de ignorada.
+    const { data: jaTem, error: jErr } = await supabase.from('students')
+      .select('id, name, notes, photo_seq_number, authorization_date, tk:avulso_tickets(code)').eq('class_id', classId);
     if (jErr) throw jErr;
-    const existentes = new Set((jaTem || []).map(x => normalizarNome(x.name)));
+    const porNome = {};
+    (jaTem || []).forEach(x => { porNome[normalizarNome(x.name)] = x; });
     const vistos = new Set();
-    const novos = [], repetidos = [];
+    const novos = [], reimprimir = [], repetidos = [];
     nomes.forEach(n => {
       const k = normalizarNome(n);
-      if (existentes.has(k) || vistos.has(k)) repetidos.push(n); else { vistos.add(k); novos.push(n); }
+      if (vistos.has(k)) return;
+      vistos.add(k);
+      const ex = porNome[k];
+      if (!ex) novos.push(n);
+      else if ((ex.tk && ex.tk.length) || /^Ficha avulsa/.test(ex.notes || '')) reimprimir.push(ex);
+      else repetidos.push(n);   // aluno comum com o mesmo nome: nao mexe
     });
-    if (!novos.length) { toast('Todos esses nomes já existem nessa turma — nada a criar.', 'warn'); return; }
+    if (!novos.length && !reimprimir.length) { toast('Todos esses nomes já existem nessa turma como alunos comuns — nada a fazer.', 'warn'); return; }
     const NL = String.fromCharCode(10);
-    const msg = 'Cadastrar ' + novos.length + ' aluno(s) em ' + anoNome + ' — Turma ' + turmaNome + ', gerar um código novo para cada um e imprimir as fichas?' +
-      (repetidos.length ? NL + NL + 'Ficam de fora (já existem na turma): ' + repetidos.slice(0, 8).join(', ') + (repetidos.length > 8 ? '…' : '') : '');
+    const msg = (novos.length ? 'Cadastrar ' + novos.length + ' aluno(s) novo(s) em ' + anoNome + ' — Turma ' + turmaNome + ' e gerar um código para cada um.' + NL : '') +
+      (reimprimir.length ? 'REIMPRIMIR a ficha de ' + reimprimir.length + ' aluno(s) que já foram cadastrados por aqui.' + NL : '') +
+      NL + 'Imprimir agora?' +
+      (repetidos.length ? NL + NL + 'Ficam de fora (já são alunos comuns da turma): ' + repetidos.slice(0, 8).join(', ') + (repetidos.length > 8 ? '…' : '') : '');
     if (!confirm(msg)) return;
 
     btn.innerHTML = '<span class="spinner"></span> Cadastrando…';
@@ -13125,6 +13142,8 @@ window.faLoteCriarEImprimir = async function () {
         falhas.push(nome + ': ' + e.message);
       }
     }
+    reimprimir.forEach(x => criados.push({ id: x.id, name: x.name, seq: x.photo_seq_number,
+      codigo: (x.tk && x.tk[0] && x.tk[0].code) || '', authorization_date: x.authorization_date, reimpressa: true }));
     if (criados.length) {
       const qrPayloads = {};
       const html = criados.map(c => {
@@ -13134,9 +13153,11 @@ window.faLoteCriarEImprimir = async function () {
         qrPayloads[c.id] = r.qrPayload;
         return r.html;
       }).join('');
-      abrirJanelaFichas(html, qrPayloads, criados.length);
+      abrirJanelaFichas(html, qrPayloads, criados.length, janela);
+      impressa = true;
       gravarFichasImpressasDosAlunos(criados.map(c => c.id));
-      toast(criados.length + ' aluno(s) cadastrado(s) e fichas geradas!', 'ok');
+      const nNovos = criados.filter(c => !c.reimpressa).length;
+      toast((nNovos ? nNovos + ' aluno(s) cadastrado(s). ' : '') + criados.length + ' ficha(s) geradas!', 'ok');
       if (typeof loadAlunos === 'function') loadAlunos();
       faLoteCarregar();   // atualiza o estoque de codigos
     }
@@ -13144,6 +13165,7 @@ window.faLoteCriarEImprimir = async function () {
   } catch (err) {
     toast('Erro: ' + err.message, 'error');
   } finally {
+    if (!impressa) { try { janela.close(); } catch (e) {} }   // nao deixa janela em branco aberta
     btn.disabled = false; btn.innerHTML = orig;
   }
 };
