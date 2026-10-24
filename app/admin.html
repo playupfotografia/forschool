@@ -1322,7 +1322,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
             <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Margem superior (mm)</label><input class="form-input" type="number" step="0.1" id="ent-cal-top" value="15" style="width:110px"></div>
             <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Margem esquerda (mm)</label><input class="form-input" type="number" step="0.1" id="ent-cal-left" value="15" style="width:110px"></div>
-            <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Espaço entre colunas (mm)</label><input class="form-input" type="number" step="0.1" id="ent-cal-gx" value="3.7" style="width:110px"></div>
+            <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Espaço entre colunas (mm)</label><input class="form-input" type="number" step="0.1" id="ent-cal-gx" value="2.7" style="width:110px"></div>
             <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Espaço entre linhas (mm)</label><input class="form-input" type="number" step="0.1" id="ent-cal-gy" value="0" style="width:110px"></div>
           </div>
         </div>
@@ -12057,7 +12057,7 @@ window.addEventListener('load', ajustarNomes);
 // ajustaveis (cada impressora desloca um pouco — por isso existe a folha de
 // teste). A geometria padrao e' a da familia 6089/Pimaco; conferir no teste.
 // ---------------------------------------------------------------------------
-const ETQ = { colunas: 4, linhas: 15, w: 43.7, h: 16.93, porFolha: 60, pagW: 215.9, pagH: 279.4 };
+const ETQ = { colunas: 4, linhas: 15, w: 44.45, h: 16.93, porFolha: 60, pagW: 215.9, pagH: 279.4 };
 
 function entregaImprimirEtiquetas(teste) {
   let lista = [];
@@ -12069,7 +12069,7 @@ function entregaImprimirEtiquetas(teste) {
   const num = (id, pad) => { const v = parseFloat(document.getElementById(id).value); return Number.isFinite(v) ? v : pad; };
   const qtd = Math.max(1, Math.min(20, parseInt(document.getElementById('ent-etq-qtd').value, 10) || 1));
   const ini = Math.max(1, Math.min(ETQ.porFolha, parseInt(document.getElementById('ent-etq-ini').value, 10) || 1));
-  const top = num('ent-cal-top', 15), left = num('ent-cal-left', 15), gx = num('ent-cal-gx', 3.7), gy = num('ent-cal-gy', 0);
+  const top = num('ent-cal-top', 15), left = num('ent-cal-left', 15), gx = num('ent-cal-gx', 2.7), gy = num('ent-cal-gy', 0);
 
   // sequencia de etiquetas: [vazias ate' a posicao inicial] + cada aluno x qtd
   const seq = [];
