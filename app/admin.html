@@ -1320,9 +1320,9 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
             Na impressão: papel <b>Carta</b>, escala <b>100%</b> (nada de "ajustar à página") e margens "Nenhuma".
           </div>
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
-            <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Margem superior (mm)</label><input class="form-input" type="number" step="0.1" id="ent-cal-top" value="12.7" style="width:110px"></div>
-            <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Margem esquerda (mm)</label><input class="form-input" type="number" step="0.1" id="ent-cal-left" value="7.2" style="width:110px"></div>
-            <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Espaço entre colunas (mm)</label><input class="form-input" type="number" step="0.1" id="ent-cal-gx" value="7.85" style="width:110px"></div>
+            <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Margem superior (mm)</label><input class="form-input" type="number" step="0.1" id="ent-cal-top" value="15" style="width:110px"></div>
+            <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Margem esquerda (mm)</label><input class="form-input" type="number" step="0.1" id="ent-cal-left" value="15" style="width:110px"></div>
+            <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Espaço entre colunas (mm)</label><input class="form-input" type="number" step="0.1" id="ent-cal-gx" value="2.7" style="width:110px"></div>
             <div class="form-group" style="margin:0"><label class="form-label" style="font-size:11px">Espaço entre linhas (mm)</label><input class="form-input" type="number" step="0.1" id="ent-cal-gy" value="0" style="width:110px"></div>
           </div>
         </div>
@@ -12069,7 +12069,7 @@ function entregaImprimirEtiquetas(teste) {
   const num = (id, pad) => { const v = parseFloat(document.getElementById(id).value); return Number.isFinite(v) ? v : pad; };
   const qtd = Math.max(1, Math.min(20, parseInt(document.getElementById('ent-etq-qtd').value, 10) || 1));
   const ini = Math.max(1, Math.min(ETQ.porFolha, parseInt(document.getElementById('ent-etq-ini').value, 10) || 1));
-  const top = num('ent-cal-top', 12.7), left = num('ent-cal-left', 7.2), gx = num('ent-cal-gx', 7.85), gy = num('ent-cal-gy', 0);
+  const top = num('ent-cal-top', 15), left = num('ent-cal-left', 15), gx = num('ent-cal-gx', 2.7), gy = num('ent-cal-gy', 0);
 
   // sequencia de etiquetas: [vazias ate' a posicao inicial] + cada aluno x qtd
   const seq = [];
@@ -12100,12 +12100,13 @@ function entregaImprimirEtiquetas(teste) {
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',Arial,sans-serif;background:#fff;color:#000}
 @page{size:${ETQ.pagW}mm ${ETQ.pagH}mm;margin:0}
+.btn-row,.aviso{display:none}
 @media screen{body{background:#9CA3AF;padding:16px}
   .btn-row{display:flex;gap:12px;justify-content:center;margin-bottom:12px;flex-wrap:wrap}
   .btn-row button{padding:9px 18px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;background:#4B6BFB;color:#fff}
-  .aviso{font-size:12px;color:#fff;text-align:center;margin-bottom:12px;line-height:1.5}
+  .aviso{display:block;font-size:12px;color:#fff;text-align:center;margin-bottom:12px;line-height:1.5}
   .folha{box-shadow:0 2px 10px rgba(0,0,0,.35);margin:0 auto 16px}}
-@media print{.btn-row,.aviso{display:none}.folha{break-after:page}}
+@media print{.btn-row,.aviso{display:none!important}body{margin:0;padding:0;background:#fff}.folha{break-after:page;margin:0;box-shadow:none}}
 .folha{position:relative;width:${ETQ.pagW}mm;height:${ETQ.pagH}mm;background:#fff;overflow:hidden}
 .etq{position:absolute;width:${ETQ.w}mm;height:${ETQ.h}mm;padding:1mm 1.8mm;display:flex;flex-direction:column;justify-content:center;overflow:hidden}
 .etq .n{font-weight:800;line-height:1.08;font-size:10pt;height:7.4mm;overflow:hidden;display:flex;align-items:center}
