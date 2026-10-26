@@ -10723,22 +10723,45 @@ async function salvarPresenca(studentId, status, nota) {
 // a mensagem e' de confirmacao/aviso, nao de cobranca). Em todos, "✓ dd/mm"
 // mostra quando foi enviado.
 // ---------------------------------------------------------------------------
+// Qual mensagem de WhatsApp cabe a este aluno (null = nenhuma).
+// Falta de autorizacao vem antes de qualquer conversa sobre compra: sem ela
+// nao ha' foto, mesmo pra quem ja' pagou. Quem RECUSOU nao recebe botao
+// nenhum: nao vai ser fotografado, entao oferecer pacote e' oferecer o que
+// ele nao pode comprar.
+function tipoContatoDe(a) {
+  return a.autorizacao === 'recusou'  ? null
+       : a.autorizacao === 'pendente' ? 'sem_autorizacao'
+       : !a.order ? 'sem_pedido'
+       // PIX parcelado com parcela ja' paga: ele ESTA pagando — mandar "o pagamento
+       // ainda nao chegou" seria errado (e chato). Sem botao de cobranca.
+       : (a.order.payment_status === 'pending' ? (a.order.parcelasResumo?.pagas > 0 ? null : 'pendente')
+       // Pedido PAGO tambem ganha botao (tipo 'pago'): pra confirmar o pagamento,
+       // avisar da entrega, pedir endereco etc. Cancelado/estornado continua sem.
+       : (a.order.payment_status === 'paid' ? 'pago' : null));
+}
+
+// Filhos do MESMO responsavel, neste projeto, que cairiam na mesma mensagem
+// (mesmo tipo e mesmo telefone). Sempre inclui o proprio aluno, na frente.
+// E' o que permite mandar UM texto so' pra quem tem mais de um filho.
+function filhosDaMesmaMensagem(a, tipo) {
+  const base = tipo === 'sessao_hoje' ? 'sem_autorizacao' : tipo;
+  if (!a.user_id) return [a];
+  const fone = apenasDigitosWpp(a.responsible_phone);
+  const outros = drillAlunosData.filter(x =>
+    x.id !== a.id && x.user_id === a.user_id &&
+    tipoContatoDe(x) === base && apenasDigitosWpp(x.responsible_phone) === fone);
+  return [a, ...outros];
+}
+
+// "Ana", "Ana e Pedro", "Ana, Pedro e Maria"
+function juntarNomes(nomes) {
+  if (nomes.length <= 1) return nomes[0] || '';
+  return nomes.slice(0, -1).join(', ') + ' e ' + nomes[nomes.length - 1];
+}
+
 function celulaContato(a) {
   const pago = a.order?.payment_status === 'paid';
-  // Falta de autorizacao vem antes de qualquer conversa sobre compra: sem ela
-  // nao ha' foto, mesmo pra quem ja' pagou. Quem RECUSOU nao entra — ja'
-  // respondeu que nao quer, insistir seria constrangimento.
-  // Quem RECUSOU nao recebe botao nenhum: nao vai ser fotografado, entao
-  // oferecer pacote e' oferecer o que ele nao pode comprar.
-  const tipo = a.autorizacao === 'recusou'  ? null
-             : a.autorizacao === 'pendente' ? 'sem_autorizacao'
-             : !a.order ? 'sem_pedido'
-             // PIX parcelado com parcela ja' paga: ele ESTA pagando — mandar "o pagamento
-             // ainda nao chegou" seria errado (e chato). Sem botao de cobranca.
-             : (a.order.payment_status === 'pending' ? (a.order.parcelasResumo?.pagas > 0 ? null : 'pendente')
-             // Pedido PAGO tambem ganha botao (tipo 'pago'): pra confirmar o pagamento,
-             // avisar da entrega, pedir endereco etc. Cancelado/estornado continua sem.
-             : (a.order.payment_status === 'paid' ? 'pago' : null));
+  const tipo = tipoContatoDe(a);
 
   // Nota livre sobre a resposta do pai (ex: "disse que compra dia 30") —
   // so' faz sentido depois que ja existe um contato pra pendurar nele.
@@ -10785,9 +10808,12 @@ function celulaContato(a) {
           onclick="contatarResponsavel('${a.id}','sessao_hoje')"
           title="Lembrete urgente: a sessão de fotos deste aluno é hoje">📸 Hoje</button>`
     : '';
+  const nFilhos = filhosDaMesmaMensagem(a, tipo).length;
+  const rotuloFilhos = nFilhos > 1 ? ` (${nFilhos} filhos)` : '';
+  const dicaFilhos = nFilhos > 1 ? ' — uma mensagem só, com o nome dos ' + nFilhos + ' filhos' : '';
   return `<button class="btn btn-sm" style="border:none;cursor:pointer;font-weight:600;background:${jaFoi ? 'var(--gray-100)' : '#25D366'};color:${jaFoi ? 'var(--gray-500)' : '#fff'}"
             onclick="contatarResponsavel('${a.id}','${tipo}')"
-            title="${jaFoi ? 'Já contatado — clique para falar de novo' : (tipo === 'pago' ? 'Pedido pago — enviar mensagem pelo WhatsApp' : 'Abrir conversa no WhatsApp')}">💬 WhatsApp</button>${btnHoje}${jaFoi || tipo !== 'pago' ? quando : ''}`;
+            title="${jaFoi ? 'Já contatado — clique para falar de novo' : (tipo === 'pago' ? 'Pedido pago — enviar mensagem pelo WhatsApp' : 'Abrir conversa no WhatsApp')}${dicaFilhos}">💬 WhatsApp${rotuloFilhos}</button>${btnHoje}${jaFoi || tipo !== 'pago' ? quando : ''}`;
 }
 
 // Data local (nao UTC) em "YYYY-MM-DD", pra comparar com photo_date sem risco
@@ -11000,17 +11026,22 @@ window.contatarResponsavel = async function (studentId, tipo) {
       : 'https://forschool.playupfotografia.com.br';
 
     const sessao = sessaoPorTurma[a.class_id] || null;
-    const acrescimoParc = a.order
-      ? await acrescimoParcelamentoDoPedido(a.order.id, drillProjeto?.id)
-      : 0;
+
+    // Mais de um filho do mesmo responsavel na mesma situacao = UMA mensagem,
+    // com os nomes juntos, pedidos juntos e valores somados.
+    const filhos = filhosDaMesmaMensagem(a, tipo);
+    const comPedido = filhos.filter(f => f.order);
+    let acrescimoParc = 0;
+    for (const f of comPedido) acrescimoParc += await acrescimoParcelamentoDoPedido(f.order.id, drillProjeto?.id);
+    const totalPedidos = comPedido.reduce((s, f) => s + Number(f.order.total_amount || 0), 0);
 
     const texto = modelo
       .replaceAll('{responsavel}', primeiroNome(a.responsible_name))
-      .replaceAll('{aluno}', primeiroNome(a.name))
+      .replaceAll('{aluno}', juntarNomes(filhos.map(f => primeiroNome(f.name))))
       .replaceAll('{escola}', drillProjeto?.school?.name || '')
       .replaceAll('{projeto}', drillProjeto?.name || '')
-      .replaceAll('{pedido}', a.order?.order_number || '')
-      .replaceAll('{valor}', a.order ? fmtMoney(Number(a.order.total_amount || 0)) : '')
+      .replaceAll('{pedido}', comPedido.map(f => f.order.order_number).join(' e '))
+      .replaceAll('{valor}', comPedido.length ? fmtMoney(totalPedidos) : '')
       .replaceAll('{turma}', a.class_name !== '—' ? a.class_name : '')
       .replaceAll('{ano}', a.year_name !== '—' ? a.year_name : '')
       .replaceAll('{data_foto}', sessao ? dataPorExtenso(sessao.photo_date) : '')
@@ -11018,7 +11049,7 @@ window.contatarResponsavel = async function (studentId, tipo) {
       // Chave PIX na propria mensagem: no fluxo manual e' o que faz o pai
       // pagar sem ter que voltar ao portal procurar.
       .replaceAll('{chave_pix}', contatoMsgCache.pix_key || '')
-      .replaceAll('{opcoes_cartao}', a.order ? frasesCartao(Number(a.order.total_amount || 0) + acrescimoParc, contatoMsgCache, drillProjeto) : '')
+      .replaceAll('{opcoes_cartao}', comPedido.length ? frasesCartao(totalPedidos + acrescimoParc, contatoMsgCache, drillProjeto) : '')
       .replaceAll('{link}', link);
 
     // Frase com variavel vazia vira "as fotos sao dia ." — melhor avisar antes
@@ -11038,16 +11069,24 @@ window.contatarResponsavel = async function (studentId, tipo) {
     window.open(`https://wa.me/${fone}?text=${encodeURIComponent(texto)}`, '_blank');
 
     const { data: sess } = await supabase.auth.getUser();
-    const { data: novoContato, error: cErr } = await supabase.from('student_contacts').insert({
-      student_id: studentId,
-      project_id: drillProjetoId,
-      kind: tipo === 'pago' ? 'outro' : tipo,   // 'pago' nao existe na constraint; 'outro' existe
-      channel: 'whatsapp',
-      contacted_by: sess?.user?.id || null,
-    }).select('id, contacted_at').single();
+    // Um registro de contato por filho: assim os outros irmaos tambem ficam
+    // marcados como "ja' contatado" e ninguem manda a mesma mensagem de novo.
+    const kindGravado = tipo === 'pago' ? 'outro' : tipo;   // 'pago' nao existe na constraint; 'outro' existe
+    const { data: novos, error: cErr } = await supabase.from('student_contacts').insert(
+      filhos.map(f => ({
+        student_id: f.id,
+        project_id: drillProjetoId,
+        kind: kindGravado,
+        channel: 'whatsapp',
+        contacted_by: sess?.user?.id || null,
+      }))
+    ).select('id, student_id, contacted_at');
     if (cErr) throw cErr;
 
-    a.contato = { id: novoContato.id, kind: tipo === 'pago' ? 'outro' : tipo, contacted_at: novoContato.contacted_at, notes: null, follow_up_date: null };
+    for (const n of (novos || [])) {
+      const f = filhos.find(x => x.id === n.student_id);
+      if (f) f.contato = { id: n.id, kind: kindGravado, contacted_at: n.contacted_at, notes: null, follow_up_date: null };
+    }
     filtrarDrillAlunos();
   } catch (e) {
     handleError(e, 'contatarResponsavel');
