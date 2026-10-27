@@ -458,9 +458,261 @@ class App(tk.Tk):
         self.tab2 = tk.Frame(self.nb, bg=COR_BG)
         self.nb.add(self.tab1, text='  1 · Organizar por aluno  ')
         self.nb.add(self.tab2, text='  2 · Montar produtos  ')
+        self.tab3 = tk.Frame(self.nb, bg=COR_BG)
+        self.nb.add(self.tab3, text='  3 · Atualizar  ')
 
         self._build_tab1()
         self._build_tab2()
+        self._build_tab3()
+        self._build_menu()
+
+    # ── Barra de menus (Arquivo / Ferramentas / Ajuda) ────────────────────────
+
+    ARQ_RECENTES = Path(__file__).parent / '_recentes.json'
+
+    def _build_menu(self):
+        barra = tk.Menu(self, tearoff=0)
+        arq = tk.Menu(barra, tearoff=0)
+        arq.add_command(label='📁  Abrir pasta já organizada…', accelerator='Ctrl+O',
+                        command=self._menu_abrir)
+        self._menu_recentes = tk.Menu(arq, tearoff=0, postcommand=self._montar_menu_recentes)
+        arq.add_cascade(label='🕘  Abrir recente', menu=self._menu_recentes)
+        arq.add_separator()
+        arq.add_command(label='💾  Salvar escolhas', accelerator='Ctrl+S', command=self._menu_salvar)
+        arq.add_command(label='💾  Salvar escolhas como…', accelerator='Ctrl+Shift+S',
+                        command=self._menu_salvar_como)
+        arq.add_command(label='📥  Abrir escolhas de um arquivo…', command=self._menu_abrir_escolhas)
+        arq.add_command(label='📄  Exportar lista de escolhas (Excel/CSV)…', command=self._menu_exportar_csv)
+        arq.add_separator()
+        arq.add_command(label='🗂  Abrir a pasta organizada no Explorador', command=self._menu_abrir_explorador)
+        arq.add_command(label='📂  Abrir pasta das tratadas', command=self._abrir_tratadas)
+        arq.add_separator()
+        arq.add_command(label='Sair', accelerator='Alt+F4', command=self.destroy)
+        barra.add_cascade(label='Arquivo', menu=arq)
+
+        fer = tk.Menu(barra, tearoff=0)
+        fer.add_command(label='⚙  Temas…', command=self._editar_temas)
+        fer.add_command(label='📤  Exportar escolhidas p/ Lightroom', command=self._exportar_lightroom)
+        fer.add_command(label='✅  Montar e salvar tudo', command=self._montar_tudo)
+        fer.add_command(label='🖼  Enviar miniaturas (entrega)', command=self._enviar_miniaturas)
+        barra.add_cascade(label='Ferramentas', menu=fer)
+
+        aj = tk.Menu(barra, tearoff=0)
+        aj.add_command(label='🔄  Atualizar o programa…', command=lambda: self.nb.select(self.tab3))
+        aj.add_command(label='Sobre', command=self._menu_sobre)
+        barra.add_cascade(label='Ajuda', menu=aj)
+        self.config(menu=barra)
+
+        self.bind('<Control-o>', lambda e: self._menu_abrir())
+        self.bind('<Control-s>', lambda e: self._menu_salvar())
+        self.bind('<Control-S>', lambda e: self._menu_salvar_como())
+
+    def _aviso_titulo(self, msg):
+        """Mostra um aviso rapido no titulo da janela (sem popup que atrapalhe)."""
+        base = 'For School — Organizador de Fotos'
+        self.title(f'{base}  ·  {msg}')
+        self.after(3500, lambda: self.title(base))
+
+    def _tem_pasta(self):
+        if not getattr(self, '_pasta_organizada', None) or not hasattr(self, '_escolhas_salvas'):
+            messagebox.showwarning('Atenção', 'Abra uma pasta organizada primeiro (Arquivo > Abrir pasta já organizada).')
+            return False
+        return True
+
+    def _menu_abrir(self):
+        self.nb.select(self.tab2)
+        self._abrir_organizada()
+
+    def _menu_salvar(self):
+        if not self._tem_pasta():
+            return
+        self._salvar_escolhas()
+        self._aviso_titulo('✅ escolhas salvas')
+
+    def _menu_salvar_como(self):
+        if not self._tem_pasta():
+            return
+        nome = f'escolhas_{datetime.now():%Y-%m-%d_%H-%M}.json'
+        destino = filedialog.asksaveasfilename(
+            title='Salvar escolhas como', defaultextension='.json', initialfile=nome,
+            initialdir=str(self._pasta_organizada), filetypes=[('Escolhas (JSON)', '*.json')])
+        if not destino:
+            return
+        try:
+            with open(destino, 'w', encoding='utf-8') as f:
+                json.dump(self._escolhas_salvas, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            messagebox.showerror('Salvar como', f'Não consegui salvar:\n{e}')
+            return
+        self._aviso_titulo('✅ cópia das escolhas salva')
+
+    def _menu_abrir_escolhas(self):
+        if not self._tem_pasta():
+            return
+        origem = filedialog.askopenfilename(
+            title='Abrir escolhas de um arquivo', initialdir=str(self._pasta_organizada),
+            filetypes=[('Escolhas (JSON)', '*.json'), ('Todos', '*.*')])
+        if not origem:
+            return
+        try:
+            with open(origem, encoding='utf-8') as f:
+                novas = json.load(f)
+            if not isinstance(novas, dict):
+                raise ValueError('formato inesperado')
+        except Exception as e:
+            messagebox.showerror('Abrir escolhas', f'Arquivo inválido:\n{e}')
+            return
+        if not messagebox.askyesno(
+                'Abrir escolhas',
+                f'Isto vai SUBSTITUIR as escolhas atuais ({len(self._escolhas_salvas)} aluno(s)) '
+                f'pelas do arquivo ({len(novas)} aluno(s)).\n\nContinuar?'):
+            return
+        self._escolhas_salvas = novas
+        self._salvar_escolhas()
+        self._carregar_aba2(self._pasta_organizada, self.alunos_info)
+        self._aviso_titulo('✅ escolhas carregadas do arquivo')
+
+    def _menu_exportar_csv(self):
+        if not self._tem_pasta():
+            return
+        destino = filedialog.asksaveasfilename(
+            title='Exportar lista de escolhas', defaultextension='.csv',
+            initialfile='escolhas.csv', initialdir=str(self._pasta_organizada),
+            filetypes=[('Planilha CSV', '*.csv')])
+        if not destino:
+            return
+        import csv
+        try:
+            with open(destino, 'w', newline='', encoding='utf-8-sig') as f:
+                w = csv.writer(f, delimiter=';')
+                w.writerow(['Aluno', 'Tema', 'Foto escolhida'])
+                for aluno in sorted(self._escolhas_salvas, key=_chave_ordem):
+                    for tema, foto in self._escolhas_salvas[aluno].items():
+                        w.writerow([aluno, tema or 'Uniforme', foto])
+        except Exception as e:
+            messagebox.showerror('Exportar', f'Não consegui salvar:\n{e}')
+            return
+        self._aviso_titulo('✅ lista exportada')
+
+    def _menu_abrir_explorador(self):
+        if not self._tem_pasta():
+            return
+        try:
+            os.startfile(str(self._pasta_organizada))
+        except Exception as e:
+            messagebox.showinfo('Pasta', f'{self._pasta_organizada}\n\n(não consegui abrir: {e})')
+
+    def _ler_recentes(self):
+        try:
+            with open(self.ARQ_RECENTES, encoding='utf-8') as f:
+                return [p for p in json.load(f) if isinstance(p, str)]
+        except Exception:
+            return []
+
+    def _lembrar_recente(self, pasta):
+        lista = [str(pasta)] + [p for p in self._ler_recentes() if p != str(pasta)]
+        try:
+            with open(self.ARQ_RECENTES, 'w', encoding='utf-8') as f:
+                json.dump(lista[:8], f, ensure_ascii=False)
+        except Exception:
+            pass
+
+    def _montar_menu_recentes(self):
+        m = self._menu_recentes
+        m.delete(0, 'end')
+        lista = [p for p in self._ler_recentes() if Path(p).exists()]
+        if not lista:
+            m.add_command(label='(nenhuma ainda)', state='disabled')
+            return
+        for p in lista:
+            m.add_command(label=p, command=lambda p=p: (self.nb.select(self.tab2), self._abrir_organizada(p)))
+
+    def _menu_sobre(self):
+        messagebox.showinfo('Sobre', 'For School — Organizador de Fotos\nPlay Up Fotografia\n\n'
+                            f'Pasta do programa:\n{Path(__file__).parent}')
+
+    # ── Aba 3: Atualizar ──────────────────────────────────────────────────────
+
+    def _build_tab3(self):
+        p = self.tab3
+        tk.Label(p, text='Atualizar o programa', bg=COR_BG, fg=COR_TEXTO,
+                 font=('Segoe UI', 12, 'bold')).pack(anchor='w', padx=14, pady=(14, 2))
+        tk.Label(p, text='Baixa da internet a versão mais nova do programa (precisa de internet). '
+                         'Suas fotos, temas e o arquivo supabase.local.env não são alterados.',
+                 bg=COR_BG, fg=COR_CINZA, font=('Segoe UI', 9), wraplength=820,
+                 justify='left').pack(anchor='w', padx=14)
+
+        try:
+            quando = datetime.fromtimestamp(Path(__file__).stat().st_mtime).strftime('%d/%m/%Y %H:%M')
+        except Exception:
+            quando = '?'
+        tk.Label(p, text=f'Versão instalada: arquivo de {quando}  ·  pasta: {Path(__file__).parent}',
+                 bg=COR_BG, fg=COR_TEXTO, font=('Segoe UI', 9), wraplength=820,
+                 justify='left').pack(anchor='w', padx=14, pady=(10, 6))
+
+        barra = tk.Frame(p, bg=COR_BG)
+        barra.pack(fill='x', padx=14, pady=4)
+        self._btn_atualizar = self._btn(barra, '🔄 Verificar e atualizar agora', self._atualizar_agora,
+                                        cor=COR_VERDE)
+        self._btn_atualizar.pack(side='left')
+        self._btn_reiniciar = self._btn(barra, '↻ Reiniciar o programa', self._reiniciar_programa,
+                                        cor=COR_AZUL)
+        # só aparece depois de baixar algo novo
+
+        self._log3 = scrolledtext.ScrolledText(p, height=14, font=('Consolas', 10),
+                                               bg='#1e1e2e', fg='#cdd6f4', relief='flat')
+        self._log3.pack(fill='both', expand=True, padx=14, pady=(8, 14))
+
+    def _log_atualizar(self, msg):
+        def _w():
+            self._log3.insert('end', msg + '\n')
+            self._log3.see('end')
+        self.after(0, _w)
+
+    def _atualizar_agora(self):
+        self._btn_atualizar.config(state='disabled')
+        self._btn_reiniciar.pack_forget()
+        self._log3.delete('1.0', 'end')
+        self._log_atualizar('Verificando atualizações na internet...')
+
+        def trabalho():
+            try:
+                import importlib.util
+                arq = Path(__file__).parent / 'atualizar.py'
+                spec = importlib.util.spec_from_file_location('atualizar_pasta', str(arq))
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                mod.PASTA = Path(__file__).parent
+                mod.MANIFESTO = mod.PASTA / '_versao_kit.json'
+                if not hasattr(mod, 'executar'):
+                    raise RuntimeError('o atualizar.py desta pasta é antigo; copie o novo e tente de novo')
+                atualizados, erro = mod.executar(self._log_atualizar)
+            except Exception as e:
+                atualizados, erro = [], f'Erro ao atualizar: {e}'
+            if erro:
+                self._log_atualizar(f'\n❌ {erro}')
+            elif atualizados:
+                self._log_atualizar(f'\n✅ {len(atualizados)} arquivo(s) atualizado(s). '
+                                    'Clique em "Reiniciar o programa" para usar a versão nova.')
+                self.after(0, lambda: self._btn_reiniciar.pack(side='left', padx=(10, 0)))
+            else:
+                self._log_atualizar('\n✅ Já está na versão mais recente.')
+            self.after(0, lambda: self._btn_atualizar.config(state='normal'))
+
+        threading.Thread(target=trabalho, daemon=True).start()
+
+    def _reiniciar_programa(self):
+        import subprocess
+        try:
+            if getattr(sys, 'frozen', False):
+                cmd = [sys.executable]
+            else:
+                cmd = [sys.executable, str(Path(__file__))]
+            subprocess.Popen(cmd, cwd=str(Path(__file__).parent))
+        except Exception as e:
+            messagebox.showerror('Reiniciar', f'Não consegui reiniciar: {e}\nFeche e abra o programa.')
+            return
+        self.destroy()
 
     def _card(self, parent, titulo):
         frm = tk.LabelFrame(parent, text=f'  {titulo}  ',
@@ -824,8 +1076,8 @@ class App(tk.Tk):
         self.log2.see('end')
         self.log2.configure(state='disabled')
 
-    def _abrir_organizada(self):
-        d = filedialog.askdirectory(title='Selecione a pasta organizada (resultado do Passo 1)')
+    def _abrir_organizada(self, d=None):
+        d = d or filedialog.askdirectory(title='Selecione a pasta organizada (resultado do Passo 1)')
         if not d:
             return
         pasta = Path(d)
@@ -865,6 +1117,7 @@ class App(tk.Tk):
             messagebox.showinfo('Alunos recuperados', msg)
         self.alunos_info = alunos_info
         self._pasta_organizada = pasta
+        self._lembrar_recente(pasta)
         self._carregar_aba2(pasta, alunos_info)
         self.nb.select(1)
 
