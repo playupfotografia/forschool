@@ -1423,7 +1423,9 @@ class App(tk.Tk):
                     x.config(state='normal')
                 elif esc in nomes:
                     num = Path(esc).stem.rsplit(' - ', 1)[-1]
-                    b.config(text=f'{n}  ·  {rot}\nescolhida: foto {num}', bg='#2d2d4e')
+                    # Ja' escolhido pra este aluno (em outra foto): continua verde,
+                    # mais escuro, ate trocar de aluno.
+                    b.config(text=f'{n}  ·  {rot}\n✔ escolhida: foto {num}', bg='#1e7a45')
                     x.config(state='normal')
                 else:
                     b.config(text=f'{n}  ·  {rot}\n— não escolhida', bg='#2d2d4e')
