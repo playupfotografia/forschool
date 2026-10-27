@@ -42,3 +42,11 @@ PRECISA DE INTERNET?
 ----------------------
 Fase 1 (ler QR, separar por aluno): funciona sem internet.
 Fase 2 (buscar o pedido de cada aluno no banco): precisa de internet.
+
+ATUALIZACOES AUTOMATICAS
+-------------------------
+Toda vez que voce abre o programa pelo ABRIR_PROGRAMA.bat, ele confere
+a internet e baixa sozinho as versoes novas dos arquivos. Sem internet,
+abre normalmente com a versao que ja tem. Para receber as atualizacoes,
+abra SEMPRE pelo ABRIR_PROGRAMA.bat. Se aparecer uma janela preta por
+alguns segundos antes do programa, e' normal (e' a verificacao).
