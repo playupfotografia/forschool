@@ -40,18 +40,32 @@ SUPABASE_URL = _CRED.get('SUPABASE_URL', '')
 SUPABASE_KEY = _CRED.get('SUPABASE_SERVICE_KEY', '')
 
 if not SUPABASE_URL or not SUPABASE_KEY:
+    # Primeiro uso (ou computador novo): em vez de so' reclamar, deixa a pessoa
+    # apontar o arquivo agora; ele e' copiado pra pasta do programa.
     import tkinter.messagebox as _mb
+    from tkinter import filedialog as _fd
     _raiz = tk.Tk(); _raiz.withdraw()
-    _mb.showerror(
-        'Falta o arquivo de credenciais',
-        'Nao encontrei o arquivo supabase.local.env na pasta do programa.\n\n'
-        'Ele guarda o endereco e a chave do banco, e fica de fora do programa\n'
-        'de proposito, por seguranca.\n\n'
-        'Se voce trocou de computador ou reinstalou, peca uma copia do arquivo\n'
-        'ou gere uma chave nova no painel do Supabase\n'
-        '(Settings > API > service_role).'
-    )
-    sys.exit(1)
+    if _mb.askyesno(
+        'Primeiro uso — falta a chave de acesso',
+        'Não encontrei o arquivo supabase.local.env na pasta do programa.\n\n'
+        'Ele guarda o endereço e a chave do seu banco e fica de fora do programa '
+        'de propósito, por segurança.\n\n'
+        'Deseja selecionar o arquivo agora? (ele será copiado para a pasta do programa)\n\n'
+        'Se não tiver, peça uma cópia a quem forneceu o programa.'
+    ):
+        _arq = _fd.askopenfilename(title='Selecione o arquivo supabase.local.env',
+                                   filetypes=[('Arquivo ENV', '*.env'), ('Todos', '*.*')])
+        if _arq:
+            try:
+                shutil.copyfile(_arq, Path(__file__).parent / 'supabase.local.env')
+            except Exception as _e:
+                _mb.showerror('Chave de acesso', f'Não consegui copiar o arquivo:\n{_e}')
+            _CRED = _ler_credenciais()
+            SUPABASE_URL = _CRED.get('SUPABASE_URL', '')
+            SUPABASE_KEY = _CRED.get('SUPABASE_SERVICE_KEY', '')
+    _raiz.destroy()
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        sys.exit(1)
 
 HEADERS = {
     'apikey': SUPABASE_KEY,
@@ -62,12 +76,19 @@ EXTENSOES = {'.jpg','.jpeg','.JPG','.JPEG','.png','.PNG',
              '.cr2','.CR2','.cr3','.CR3','.nef','.NEF',
              '.arw','.ARW','.orf','.ORF','.rw2','.RW2'}
 
-COR_BG     = '#F4F6FB'
-COR_AZUL   = '#4B6BFB'
-COR_VERDE  = '#27AE60'
-COR_LARANJA= '#E3815A'
+COR_BG     = '#F7F8FC'
+COR_AZUL   = '#2F55F5'
+COR_VERDE  = '#22A559'
+COR_LARANJA= '#F28C4B'
 COR_TEXTO  = '#1E293B'
 COR_CINZA  = '#64748B'
+
+# Visual moderno (menu lateral, Início, Ajuda) mora em interface_moderna.py.
+# Se o arquivo faltar, o programa abre no visual classico em vez de quebrar.
+try:
+    import interface_moderna as IM
+except Exception:
+    IM = None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -435,6 +456,73 @@ class App(tk.Tk):
     # ── Layout ────────────────────────────────────────────────────────────────
 
     def _build_ui(self):
+        if IM is None:
+            return self._build_ui_classico()
+        self.geometry('1180x760')
+        self.minsize(960, 620)
+        IM.montar_casca(self)
+
+        self.tab0 = tk.Frame(self.nb, bg=COR_BG)
+        self.tab1 = tk.Frame(self.nb, bg=COR_BG)
+        self.tab2 = tk.Frame(self.nb, bg=COR_BG)
+        self.tab3 = tk.Frame(self.nb, bg=COR_BG)
+        self.tab4 = tk.Frame(self.nb, bg=COR_BG)
+        for t in (self.tab0, self.tab1, self.tab2, self.tab3, self.tab4):
+            self.nb.add(t)
+
+        self._build_tab1()
+        self._build_tab2()
+        self._build_tab3()
+        self._build_menu()
+        IM.montar_ajuda(self, self.tab4)
+        self._atualizar_inicio()
+
+        IM.registrar_paginas(self, [
+            (self.tab0, '🏠', 'Início', 'Início',
+             'Seu painel de trabalho: comece uma etapa ou continue de onde parou.', False),
+            (self.tab1, '📷', '1 · Organizar fotos', 'Etapa 1 · Organizar por aluno',
+             'Separa as fotos do cartão de memória em uma pasta por aluno, lendo o QR de cada ficha.', False),
+            (self.tab2, '🖼', '2 · Escolher e montar', 'Etapa 2 · Escolher as fotos e montar os produtos',
+             'Escolha a melhor foto de cada tema para cada aluno e gere os produtos.', False),
+            (self.tab4, '❓', 'Ajuda e tutorial', 'Ajuda e tutorial',
+             'Passo a passo, atalhos do teclado e respostas para as dúvidas mais comuns.', True),
+            (self.tab3, '🔄', 'Atualizar', 'Atualizar o programa',
+             'Baixe a versão mais nova do programa pela internet.', False),
+        ])
+        IM.rodape_menu(self, True, self._texto_versao())
+        self.nb.select(self.tab0)
+
+    def _texto_versao(self):
+        try:
+            quando = datetime.fromtimestamp(Path(__file__).stat().st_mtime).strftime('%d/%m/%Y %H:%M')
+        except Exception:
+            quando = '?'
+        return f'Versão de {quando}'
+
+    def _ao_mudar_pagina(self, atual):
+        # a roda do mouse rola a Ajuda quando ela esta' aberta
+        self._canvas_ativo = getattr(self, '_canvas_ajuda', None) if atual == str(self.tab4) else None
+        if atual == str(self.tab0):
+            self._atualizar_inicio()
+
+    def _atualizar_inicio(self):
+        if IM is None:
+            return
+        recentes = [p for p in self._ler_recentes() if Path(p).exists()]
+        IM.montar_inicio(self, self.tab0, recentes, self._abrir_recente)
+
+    def _abrir_recente(self, pasta):
+        self.nb.select(self.tab2)
+        self._abrir_organizada(pasta)
+
+    def _rolar_roda(self, e):
+        alvo = getattr(self, '_canvas_ativo', None) or self.canvas_alunos
+        try:
+            alvo.yview_scroll(int(-1 * (e.delta / 120)), 'units')
+        except Exception:
+            pass
+
+    def _build_ui_classico(self):
         # Header
         hdr = tk.Frame(self, bg=COR_AZUL, height=56)
         hdr.pack(fill='x')
@@ -492,12 +580,14 @@ class App(tk.Tk):
 
         fer = tk.Menu(barra, tearoff=0)
         fer.add_command(label='⚙  Temas…', command=self._editar_temas)
-        fer.add_command(label='📤  Exportar escolhidas p/ Lightroom', command=self._exportar_lightroom)
+        fer.add_command(label='📤  Exportar p/ Lightroom', command=self._exportar_lightroom)
         fer.add_command(label='✅  Montar e salvar tudo', command=self._montar_tudo)
         fer.add_command(label='🖼  Enviar miniaturas (entrega)', command=self._enviar_miniaturas)
         barra.add_cascade(label='Ferramentas', menu=fer)
 
         aj = tk.Menu(barra, tearoff=0)
+        if hasattr(self, 'tab4'):
+            aj.add_command(label='❓  Tutorial e perguntas frequentes', command=lambda: self.nb.select(self.tab4))
         aj.add_command(label='🔄  Atualizar o programa…', command=lambda: self.nb.select(self.tab3))
         aj.add_command(label='Sobre', command=self._menu_sobre)
         barra.add_cascade(label='Ajuda', menu=aj)
@@ -718,16 +808,20 @@ class App(tk.Tk):
         frm = tk.LabelFrame(parent, text=f'  {titulo}  ',
                             bg=COR_BG, fg=COR_AZUL,
                             font=('Segoe UI', 10, 'bold'),
-                            relief='groove', bd=1)
-        frm.pack(fill='x', padx=8, pady=6)
+                            relief='flat', bd=0,
+                            highlightbackground='#DDE3F0', highlightthickness=1)
+        frm.pack(fill='x', padx=4, pady=6)
         return frm
 
     def _btn(self, parent, texto, cmd, cor=COR_AZUL, fg='white'):
         b = tk.Button(parent, text=texto, command=cmd,
-                      bg=cor, fg=fg, relief='flat',
+                      bg=cor, fg=fg, relief='flat', bd=0,
                       font=('Segoe UI', 10, 'bold'),
                       padx=18, pady=8, cursor='hand2',
-                      activebackground=COR_CINZA, activeforeground='white')
+                      activebackground=cor, activeforeground=fg)
+        if IM is not None:
+            b.config(activebackground=IM.escurecer(cor), activeforeground=fg)
+            IM.botao_hover(b, cor)
         return b
 
     # ── Aba 1: Organizar ──────────────────────────────────────────────────────
@@ -739,7 +833,8 @@ class App(tk.Tk):
         row = tk.Frame(c1, bg=COR_BG)
         row.pack(fill='x', padx=10, pady=10)
         tk.Entry(row, textvariable=self.pasta_origem, font=('Segoe UI', 10),
-                 relief='solid', bd=1).pack(side='left', fill='x', expand=True, ipady=6)
+                 relief='flat', highlightthickness=1, highlightbackground='#CBD5E1',
+                 highlightcolor=COR_AZUL).pack(side='left', fill='x', expand=True, ipady=6)
         self._btn(row, '📁 Escolher pasta', self._escolher_origem,
                   cor='#E8EEFF', fg=COR_AZUL).pack(side='left', padx=(8,0))
 
@@ -747,7 +842,8 @@ class App(tk.Tk):
         row2 = tk.Frame(c2, bg=COR_BG)
         row2.pack(fill='x', padx=10, pady=10)
         tk.Entry(row2, textvariable=self.pasta_saida, font=('Segoe UI', 10),
-                 relief='solid', bd=1).pack(side='left', fill='x', expand=True, ipady=6)
+                 relief='flat', highlightthickness=1, highlightbackground='#CBD5E1',
+                 highlightcolor=COR_AZUL).pack(side='left', fill='x', expand=True, ipady=6)
         self._btn(row2, '📁 Escolher pasta', self._escolher_saida,
                   cor='#E8EEFF', fg=COR_AZUL).pack(side='left', padx=(8,0))
         tk.Label(c2, text='(deixe vazio para criar automaticamente ao lado da origem)',
@@ -1039,8 +1135,7 @@ class App(tk.Tk):
         scrollbar.pack(side='right', fill='y')
 
         # Bind scroll do mouse
-        self.canvas_alunos.bind_all('<MouseWheel>',
-            lambda e: self.canvas_alunos.yview_scroll(int(-1*(e.delta/120)), 'units'))
+        self.canvas_alunos.bind_all('<MouseWheel>', self._rolar_roda)
 
         tk.Label(self.frame_alunos,
                  text='Execute o Passo 1 ou abra uma pasta já organizada.',
@@ -1052,12 +1147,12 @@ class App(tk.Tk):
         self._btn(rodape, '✅  Montar e salvar tudo', self._montar_tudo,
                   cor=COR_VERDE).pack(side='right')
         # Fluxo Lightroom: exporta so' as escolhidas -> trata -> devolve em _TRATADAS -> Montar
-        self._btn(rodape, '📤  Exportar escolhidas p/ Lightroom', self._exportar_lightroom,
+        self._btn(rodape, '📤  Exportar p/ Lightroom', self._exportar_lightroom,
                   cor=COR_LARANJA).pack(side='left')
-        self._btn(rodape, '📂  Abrir pasta das tratadas', self._abrir_tratadas,
+        self._btn(rodape, '📂  Pasta das tratadas', self._abrir_tratadas,
                   cor=COR_CINZA).pack(side='left', padx=(8, 0))
         # Miniaturas 3x4 pro admin (Entrega / Conferencia -> tiras com a foto do aluno)
-        self._btn(rodape, '🖼  Enviar miniaturas (entrega)', self._enviar_miniaturas,
+        self._btn(rodape, '🖼  Miniaturas (entrega)', self._enviar_miniaturas,
                   cor=COR_AZUL).pack(side='left', padx=(8, 0))
 
         self.log2 = scrolledtext.ScrolledText(p, height=6, font=('Consolas', 9),
