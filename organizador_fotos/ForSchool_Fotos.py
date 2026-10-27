@@ -256,6 +256,43 @@ def buscar_temas_ativos():
     return sorted(temas)
 
 
+# ── Temas personalizados ─────────────────────────────────────────────────────
+# Lista de temas (Natal, Pequenos Artistas...) que o fotografo monta na mao,
+# em qualquer quantidade. Fica ao lado do programa, vale pra todas as pastas.
+# O nome do tema tem que ser igual ao "Tema da foto" do produto no admin pra a
+# montagem usar a foto certa; tema sem produto so' separa/guarda a escolha.
+ARQ_TEMAS = Path(__file__).parent / 'temas_personalizados.json'
+
+
+def carregar_config_temas():
+    """{'temas': [...], 'incluir_admin': bool}. Sem arquivo: so' os do admin."""
+    try:
+        with open(ARQ_TEMAS, encoding='utf-8') as f:
+            d = json.load(f)
+        temas = [str(t).strip() for t in d.get('temas', []) if str(t).strip()]
+        return {'temas': temas, 'incluir_admin': bool(d.get('incluir_admin', True))}
+    except Exception:
+        return {'temas': [], 'incluir_admin': True}
+
+
+def salvar_config_temas(cfg):
+    with open(ARQ_TEMAS, 'w', encoding='utf-8') as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+
+
+def montar_lista_temas():
+    """Temas do fotografo (na ordem dele) + os do admin que faltarem, se ligado."""
+    cfg = carregar_config_temas()
+    vistos, lista = set(), []
+    extras = buscar_temas_ativos() if cfg['incluir_admin'] else []
+    for t in cfg['temas'] + extras:
+        k = _chave_ordem(t)
+        if k and k not in vistos and k != 'uniforme':
+            vistos.add(k)
+            lista.append(t)
+    return lista
+
+
 def buscar_pedido_debug(aluno_id):
     """Igual a buscar_pedido mas retorna logs de diagnóstico."""
     debug = []
@@ -719,6 +756,8 @@ class App(tk.Tk):
                   cor='#E8EEFF', fg=COR_AZUL).pack(side='left')
         tk.Label(topo, text='(se já rodou o Passo 1 antes)',
                  bg=COR_BG, fg=COR_CINZA, font=('Segoe UI', 9)).pack(side='left', padx=10)
+        self._btn(topo, '⚙ Temas', self._editar_temas,
+                  cor='#E8EEFF', fg=COR_AZUL).pack(side='left', padx=(0, 10))
 
         # Busca por nome: sem acento, sem maiuscula e perdoa 1 letra errada.
         self._busca_var = tk.StringVar()
@@ -895,6 +934,98 @@ class App(tk.Tk):
             rows = [r for r in rows if bate(r)]
         return rows[0]['id'] if len(rows) == 1 else ''
 
+    def _editar_temas(self):
+        """Janela pra montar a lista de temas (botoes de escolha de foto)."""
+        cfg = carregar_config_temas()
+        win = tk.Toplevel(self)
+        win.title('Temas das fotos')
+        win.configure(bg=COR_BG)
+        win.geometry('460x520')
+        win.transient(self)
+
+        tk.Label(win, text='Temas que aparecem para escolher a foto de cada aluno',
+                 bg=COR_BG, fg=COR_TEXTO, font=('Segoe UI', 10, 'bold'),
+                 wraplength=420, justify='left').pack(anchor='w', padx=14, pady=(14, 2))
+        tk.Label(win, text='"Uniforme" é sempre o primeiro (foto padrão) e não precisa ser '
+                           'adicionado. Para a montagem automática, o nome do tema deve ser '
+                           'igual ao "Tema da foto" do produto no admin.',
+                 bg=COR_BG, fg=COR_CINZA, font=('Segoe UI', 9),
+                 wraplength=420, justify='left').pack(anchor='w', padx=14, pady=(0, 8))
+
+        meio = tk.Frame(win, bg=COR_BG)
+        meio.pack(fill='both', expand=True, padx=14)
+        lb = tk.Listbox(meio, font=('Segoe UI', 11), activestyle='none', exportselection=False)
+        lb.pack(side='left', fill='both', expand=True)
+        lateral = tk.Frame(meio, bg=COR_BG)
+        lateral.pack(side='left', fill='y', padx=(8, 0))
+        for t in cfg['temas']:
+            lb.insert('end', t)
+
+        def mover(d):
+            sel = lb.curselection()
+            if not sel:
+                return
+            i, j = sel[0], sel[0] + d
+            if j < 0 or j >= lb.size():
+                return
+            txt = lb.get(i)
+            lb.delete(i)
+            lb.insert(j, txt)
+            lb.selection_set(j)
+
+        def remover():
+            for i in reversed(lb.curselection()):
+                lb.delete(i)
+
+        for txt, cmd in (('▲ Subir', lambda: mover(-1)), ('▼ Descer', lambda: mover(1)),
+                         ('🗑 Remover', remover)):
+            tk.Button(lateral, text=txt, command=cmd, font=('Segoe UI', 9, 'bold'),
+                      relief='flat', bg='#E8EEFF', fg=COR_AZUL, padx=8, pady=4,
+                      cursor='hand2').pack(fill='x', pady=2)
+
+        add = tk.Frame(win, bg=COR_BG)
+        add.pack(fill='x', padx=14, pady=(8, 0))
+        ent = tk.Entry(add, font=('Segoe UI', 11))
+        ent.pack(side='left', fill='x', expand=True)
+
+        def adicionar(_e=None):
+            t = ent.get().strip()
+            if not t:
+                return
+            existentes = [_chave_ordem(x) for x in lb.get(0, 'end')] + ['uniforme']
+            if _chave_ordem(t) in existentes:
+                messagebox.showinfo('Tema', 'Esse tema já está na lista.', parent=win)
+                return
+            lb.insert('end', t)
+            ent.delete(0, 'end')
+        ent.bind('<Return>', adicionar)
+        tk.Button(add, text='➕ Adicionar', command=adicionar, font=('Segoe UI', 9, 'bold'),
+                  relief='flat', bg=COR_VERDE, fg='white', padx=10, pady=3,
+                  cursor='hand2').pack(side='left', padx=(6, 0))
+
+        var_admin = tk.BooleanVar(value=cfg['incluir_admin'])
+        tk.Checkbutton(win, text='Também incluir os temas cadastrados nos produtos do admin',
+                       variable=var_admin, bg=COR_BG, fg=COR_TEXTO,
+                       font=('Segoe UI', 9), activebackground=COR_BG).pack(anchor='w', padx=14, pady=8)
+
+        def salvar():
+            novo = {'temas': list(lb.get(0, 'end')), 'incluir_admin': bool(var_admin.get())}
+            try:
+                salvar_config_temas(novo)
+            except Exception as e:
+                messagebox.showerror('Temas', f'Não consegui salvar: {e}', parent=win)
+                return
+            win.destroy()
+            # Reconstroi a lista da Aba 2 com os temas novos (escolhas ficam no disco).
+            if getattr(self, '_pasta_organizada', None) and getattr(self, 'alunos_info', None):
+                self._carregar_aba2(self._pasta_organizada, self.alunos_info)
+            else:
+                self.temas = montar_lista_temas()
+
+        tk.Button(win, text='💾 Salvar', command=salvar, font=('Segoe UI', 10, 'bold'),
+                  relief='flat', bg=COR_AZUL, fg='white', padx=16, pady=7,
+                  cursor='hand2').pack(pady=(0, 14))
+
     def _carregar_aba2(self, pasta_saida, alunos_info):
         # Limpa frame
         for w in self.frame_alunos.winfo_children():
@@ -937,7 +1068,7 @@ class App(tk.Tk):
         # Cada tema e' uma troca de roupa: o aluno posa de uniforme, depois de
         # Natal, depois de Pequeno Artista. Uma foto escolhida so' nao serve —
         # o produto de Natal precisa da foto de Natal.
-        self.temas = buscar_temas_ativos()
+        self.temas = montar_lista_temas()
 
         texto = 'Selecione a melhor foto de cada aluno:' if not self.temas \
             else 'Selecione a melhor foto de cada aluno, por tema:'
@@ -1177,7 +1308,7 @@ class App(tk.Tk):
         from PIL import Image, ImageTk, ImageOps
 
         modo_turma = nome_pasta.startswith('TURMA::')
-        temas_ordem = [''] if modo_turma else [''] + list(getattr(self, 'temas', []))[:8]
+        temas_ordem = [''] if modo_turma else [''] + list(getattr(self, 'temas', []))
         tema_real = '' if tema == 'Uniforme' else tema
 
         def ordem():
@@ -1267,7 +1398,7 @@ class App(tk.Tk):
             linha.pack(fill='x', pady=4)
             b = tk.Button(linha, text='', font=('Segoe UI', 12, 'bold'), relief='flat',
                           fg='white', bg='#2d2d4e', justify='left', anchor='w',
-                          padx=12, pady=8, cursor='hand2',
+                          padx=12, pady=(8 if len(temas_ordem) <= 6 else 3), cursor='hand2',
                           command=lambda t=t: escolher_tema(t))
             b.pack(side='left', fill='x', expand=True)
             x = tk.Button(linha, text='✕', font=('Segoe UI', 11, 'bold'), relief='flat',
