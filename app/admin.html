@@ -165,6 +165,7 @@ td{padding:10px 13px;font-size:13px;color:var(--gray-700);border-bottom:1px soli
    (vermelho), refazer e' producao pendente (amarelo/ambar), fotografado e'
    "resolvido, pode seguir" (verde). */
 .drill-tbl tr.row-cancelado{background:var(--red-light)}
+.drill-tbl tr.row-extra{background:var(--gray-50)}
 .drill-tbl tr.row-cancelado:hover{background:#fbdcda}
 .drill-tbl tr.row-cancelado td{color:#9B1C1C}
 .drill-tbl tr.row-refazer{background:#FDE68A}
@@ -4020,7 +4021,7 @@ function celulaConferencia(p) {
 // de uma vez — e evita id repetido no documento.
 function pedidoPorId(orderId) {
   return pedidosCache.find(x => x.id === orderId)
-      || drillAlunosData.find(a => a.order?.id === orderId)?.order
+      || drillTodasLinhas().find(a => a.order?.id === orderId)?.order
       || null;
 }
 
@@ -4262,7 +4263,7 @@ async function salvarMetodoPagamento(orderId, metodo) {
     const p = (arr || []).find(x => x.id === orderId);
     if (p) p.payment_method = metodo || null;
   });
-  const a = (drillAlunosData || []).find(x => x.order?.id === orderId);
+  const a = drillTodasLinhas().find(x => x.order?.id === orderId);
   if (a?.order) a.order.payment_method = metodo || null;
   if (pedModalAtual?.id === orderId) pedModalAtual.payment_method = metodo || null;
   toast('Forma de pagamento salva.', 'ok');
@@ -9038,6 +9039,11 @@ let drillProjetoId = null;
 let drillProjeto = null;    // projeto aberto — nome, slug e escola pras mensagens
 let sessaoPorTurma = {};    // class_id -> { photo_date, period } da 1a sessao
 let drillAlunosData = [];   // [{id, name, class_name, year_name, user_id, responsible_name, order, sibling}]
+// Alunos com MAIS DE UM pedido ativo no projeto: cada pedido alem do principal vira uma linha extra aqui
+// (copia do aluno com order = o outro pedido, extra:true). Fica fora de drillAlunosData de proposito, pra
+// contagens e rotinas por aluno nao contarem a mesma crianca duas vezes. So' a lista e as rotinas por pedido usam.
+let drillExtrasData = [];
+function drillTodasLinhas() { return drillAlunosData.concat(drillExtrasData); }
 let drillPedidosData = [];  // [{id, order_number, student_name, kit_type, items, total_amount, payment_status, payment_proof_url}]
 let drillAutoRefreshTimer = null;
 
@@ -9310,7 +9316,7 @@ async function abrirDrillProjeto(projectId, opts = {}) {
   if (silent && drillRefreshando) return;   // ja ha uma atualizacao em andamento
   drillRefreshando = true;
   drillProjetoId = projectId;
-  if (!silent) { drillAlunosData = []; drillPedidosData = []; drillSnap = null; }
+  if (!silent) { drillAlunosData = []; drillExtrasData = []; drillPedidosData = []; drillSnap = null; }
   try { localStorage.setItem('drillUltimoProjeto', projectId); } catch {}
 
   // Reset UI — pulado no modo silencioso pra nao apagar busca/turma/status
@@ -9443,8 +9449,10 @@ async function abrirDrillProjeto(projectId, opts = {}) {
     const inativo = p => p.payment_status === 'cancelled' || p.payment_status === 'refunded';
     const pedidosPorAluno = {};
     const canceladosPorAluno = {};
+    const ativosPorAluno = {};   // TODOS os pedidos ativos do aluno (ele pode ter mais de um)
     pedidosRaw.forEach(p => {
       if (inativo(p)) (canceladosPorAluno[p.student_id] = canceladosPorAluno[p.student_id] || []).push(p);
+      else (ativosPorAluno[p.student_id] = ativosPorAluno[p.student_id] || []).push(p);
       const atual = pedidosPorAluno[p.student_id];
       if (!atual || (inativo(atual) && !inativo(p))) pedidosPorAluno[p.student_id] = p;
     });
@@ -9624,7 +9632,18 @@ async function abrirDrillProjeto(projectId, opts = {}) {
       fotoStatus: fotoPorAluno[a.id]?.status || null,   // 'foto' | 'faltou' | 'refazer' | null
       fotoNota:   fotoPorAluno[a.id]?.nota || null,     // o que falta refazer (so' com status 'refazer')
       duplicadoPago: duplicadoPagoPorAluno[a.id] || null,
+      // Outros pedidos ATIVOS alem do que esta' na linha (ex: kit + um adicional feito depois).
+      // Antes ficavam escondidos: a linha mostrava so' um e a mae tinha pago os dois.
+      pedidosExtras: (ativosPorAluno[a.id] || []).filter(p => p.id !== pedidosPorAluno[a.id]?.id),
       };
+    });
+
+    // Uma linha extra por pedido ativo alem do principal (copia do aluno, so' o pedido muda).
+    drillExtrasData = [];
+    drillAlunosData.forEach(a => {
+      (a.pedidosExtras || []).forEach(p => {
+        drillExtrasData.push({ ...a, order: p, extra: true, cancelados: [], outroProjeto: [], contato: null, duplicadoPago: null, pedidosExtras: [] });
+      });
     });
 
     // 6. Montar drillPedidosData (adiciona nome do aluno)
@@ -10105,7 +10124,7 @@ window.marcarFichasImpressasDrill = marcarFichasImpressasDrill;
 function fichaStatusDe(a) {
   if (a.autorizacao === 'recusou') return null;
   if (!a.fichaEm) return 'nunca';
-  const mexido = a.order?.updated_at;
+  const mexido = [a.order, ...(a.pedidosExtras || [])].map(o => o?.updated_at).filter(Boolean).sort().pop();
   return mexido && mexido > a.fichaEm ? 'desatualizada' : 'ok';
 }
 
@@ -10139,7 +10158,7 @@ function filtrarDrillAlunos() {
   const ftur  = document.getElementById('drill-al-ftur').value;
   const fst   = document.getElementById('drill-al-fst').value;
 
-  let lista = drillAlunosData;
+  let lista = drillTodasLinhas();
   // Mesma caixa busca nome do aluno, nome do responsavel OU numero do pedido
   // (ex: "P0038") — separar em campos diferentes so' pra isso seria mais coisa
   // pra caber na barra, e o Daniel raramente confunde uma coisa com a outra
@@ -10201,8 +10220,19 @@ function filtrarDrillAlunos() {
     return a.name.localeCompare(b.name, 'pt-BR');
   });
 
+  // Linha extra (2o pedido do mesmo aluno) fica logo abaixo da linha principal dele.
+  if (lista.some(a => a.extra)) {
+    const ordenada = [];
+    lista.forEach(a => {
+      if (a.extra && lista.some(b => !b.extra && b.id === a.id)) return;   // ja entra junto do principal
+      ordenada.push(a);
+      if (!a.extra) lista.filter(e => e.extra && e.id === a.id).forEach(e => ordenada.push(e));
+    });
+    lista = ordenada;
+  }
+
   drillListaFiltrada = lista;   // o que esta' na tela agora — usado pelo exportar Excel
-  document.getElementById('drill-al-count').textContent = lista.length + ' aluno(s)';
+  document.getElementById('drill-al-count').textContent = new Set(lista.map(a => a.id)).size + ' aluno(s)';
   renderDrillAvulsasBox(busca);
   renderDrillSomaPagamentos(lista);
 
@@ -10338,7 +10368,7 @@ function filtrarDrillAlunos() {
     // Sem autorizacao o aluno nao e' fotografado — precisa saltar aos olhos na
     // linha, nao so' quando o filtro esta ligado. Quem autorizou nao mostra
     // nada: e' o normal, e marcar todo mundo viraria ruido.
-    const avisoAut = a.autorizacao === 'ok' ? '' :
+    const avisoAut = (a.extra || a.autorizacao === 'ok') ? '' :
       `<div style="font-size:11px;font-weight:600;color:var(--red);margin-top:2px">
          ${a.autorizacao === 'recusou' ? '✖ Recusou a autorização' : '⏳ Sem autorização'}
        </div>`;
@@ -10351,8 +10381,29 @@ function filtrarDrillAlunos() {
     // (resolvido). "Faltou" fica de propositO sem cor de linha — so' o F
     // vermelho no botao — e' um caso ja' encerrado, nao precisa gritar na tela.
     const rowCls = a.order?.payment_status === 'cancelled' ? ' class="row-cancelado"'
+      : a.extra ? ' class="row-extra"'
       : a.fotoStatus === 'refazer' ? ' class="row-refazer"'
       : a.fotoStatus === 'foto' ? ' class="row-foto"' : '';
+    // Linha EXTRA = outro pedido ativo do mesmo aluno: so' as colunas do pedido aparecem; o que e'
+    // do aluno (marcar, foto, irmaos, contato) fica na linha principal, pra nao duplicar controle.
+    if (a.extra) {
+      return `<tr${rowCls} style="cursor:pointer" onclick="editarAluno('${a.id}')">
+      <td></td>
+      <td style="font-size:12px;color:var(--gray-500);padding-left:18px" title="Este aluno tem mais de um pedido ativo">↳ ${escapeHtml(a.name)} <span class="badge badge-blue" style="font-size:10px">outro pedido</span></td>
+      <td></td>
+      <td>${escapeHtml(a.year_name && a.year_name !== '—' ? a.year_name + ' — ' + a.class_name : a.class_name)}</td>
+      <td style="font-size:13px">${escapeHtml(a.responsible_name)}</td>
+      <td></td>
+      <td>${numCell}</td>
+      <td style="white-space:nowrap">${quandoCell}</td>
+      <td>${pedCell}</td>
+      <td>${totCell}</td>
+      <td style="white-space:nowrap">${formaCell}</td>
+      <td style="white-space:nowrap" onclick="event.stopPropagation()">${stCell}</td>
+      <td class="conf-td" data-conf-order="${a.order.id}" onclick="event.stopPropagation()">${celulaConferencia(a.order)}</td>
+      <td></td>
+    </tr>`;
+    }
     return `<tr${rowCls} style="cursor:pointer" onclick="editarAluno('${a.id}')">
       <td onclick="event.stopPropagation()"><input type="checkbox" class="drill-ficha-chk" data-id="${a.id}" ${drillFichaSel.has(a.id) ? 'checked' : ''} onchange="toggleFichaSelDrill('${a.id}', this.checked)"></td>
       <td id="nome-td-${a.id}" style="font-weight:500">${celulaNomeAluno(a)}${avisoAut}${avisoFicha(a)}</td>
@@ -10536,7 +10587,12 @@ async function imprimirFichasSelecionadasDrill() {
     if (pedErr) throw pedErr;
 
     const pedidoMap = {};
-    (pedidos || []).forEach(p => { if (!pedidoMap[p.student_id]) pedidoMap[p.student_id] = p; });
+    // Aluno com mais de um pedido ativo: a ficha junta os produtos de TODOS (antes saia so' o mais recente).
+    (pedidos || []).forEach(p => {
+      const m = pedidoMap[p.student_id];
+      if (!m) pedidoMap[p.student_id] = { ...p, items: [...(p.items || [])], kits: [...(p.kits || [])] };
+      else { m.items.push(...(p.items || [])); m.kits.push(...(p.kits || [])); }
+    });
 
     const qrPayloads = {};
     const fichasHtml = (alunos || []).map(a => {
@@ -11100,11 +11156,11 @@ async function drillMarcarPago(orderId) {
   if (error) { toast('Erro ao marcar pago', 'error'); return; }
   const idx = drillPedidosData.findIndex(p => p.id === orderId);
   if (idx !== -1) { drillPedidosData[idx].payment_status = 'paid'; drillPedidosData[idx].paid_at = new Date().toISOString(); }
-  const aidx = drillAlunosData.findIndex(a => a.order?.id === orderId);
-  if (aidx !== -1 && drillAlunosData[aidx].order) {
-    drillAlunosData[aidx].order.payment_status = 'paid';
-    drillAlunosData[aidx].order.paid_at = new Date().toISOString();
-    drillAlunosData[aidx].order.updated_at = new Date().toISOString();
+  const aidx = drillTodasLinhas().findIndex(a => a.order?.id === orderId);
+  if (aidx !== -1 && drillTodasLinhas()[aidx].order) {
+    drillTodasLinhas()[aidx].order.payment_status = 'paid';
+    drillTodasLinhas()[aidx].order.paid_at = new Date().toISOString();
+    drillTodasLinhas()[aidx].order.updated_at = new Date().toISOString();
   }
   toast('Pedido marcado como pago!', 'success');
   renderDrillStats();
@@ -11116,11 +11172,11 @@ async function drillMarcarPendente(orderId) {
   if (error) { toast('Erro ao reverter', 'error'); return; }
   const idx = drillPedidosData.findIndex(p => p.id === orderId);
   if (idx !== -1) { drillPedidosData[idx].payment_status = 'pending'; drillPedidosData[idx].paid_at = null; }
-  const aidx = drillAlunosData.findIndex(a => a.order?.id === orderId);
-  if (aidx !== -1 && drillAlunosData[aidx].order) {
-    drillAlunosData[aidx].order.payment_status = 'pending';
-    drillAlunosData[aidx].order.paid_at = null;
-    drillAlunosData[aidx].order.updated_at = new Date().toISOString();
+  const aidx = drillTodasLinhas().findIndex(a => a.order?.id === orderId);
+  if (aidx !== -1 && drillTodasLinhas()[aidx].order) {
+    drillTodasLinhas()[aidx].order.payment_status = 'pending';
+    drillTodasLinhas()[aidx].order.paid_at = null;
+    drillTodasLinhas()[aidx].order.updated_at = new Date().toISOString();
   }
   toast('Pedido revertido para pendente.', 'success');
   renderDrillStats();
@@ -11167,9 +11223,9 @@ window.drillCancelarPedido = async function (orderId) {
     const agora = new Date().toISOString();
     const idx = drillPedidosData.findIndex(p => p.id === orderId);
     if (idx !== -1) Object.assign(drillPedidosData[idx], { payment_status: 'cancelled', cancelled_at: agora, cancelled_by: 'admin' });
-    const aidx = drillAlunosData.findIndex(a => a.order?.id === orderId);
-    if (aidx !== -1 && drillAlunosData[aidx].order) {
-      Object.assign(drillAlunosData[aidx].order, { payment_status: 'cancelled', cancelled_at: agora, cancelled_by: 'admin', updated_at: agora });
+    const aidx = drillTodasLinhas().findIndex(a => a.order?.id === orderId);
+    if (aidx !== -1 && drillTodasLinhas()[aidx].order) {
+      Object.assign(drillTodasLinhas()[aidx].order, { payment_status: 'cancelled', cancelled_at: agora, cancelled_by: 'admin', updated_at: agora });
     }
     toast('Pedido cancelado.', 'success');
     renderDrillStats();
@@ -11192,9 +11248,9 @@ window.drillReativarPedido = async function (orderId) {
   if (error) { toast('Erro ao reativar: ' + error.message, 'error'); return; }
   const idx = drillPedidosData.findIndex(p => p.id === orderId);
   if (idx !== -1) Object.assign(drillPedidosData[idx], { payment_status: 'pending', cancelled_at: null, cancelled_by: null });
-  const aidx = drillAlunosData.findIndex(a => a.order?.id === orderId);
-  if (aidx !== -1 && drillAlunosData[aidx].order) {
-    Object.assign(drillAlunosData[aidx].order, {
+  const aidx = drillTodasLinhas().findIndex(a => a.order?.id === orderId);
+  if (aidx !== -1 && drillTodasLinhas()[aidx].order) {
+    Object.assign(drillTodasLinhas()[aidx].order, {
       payment_status: 'pending', cancelled_at: null, cancelled_by: null, updated_at: new Date().toISOString(),
     });
   }
@@ -11469,7 +11525,7 @@ function montarFichaCard(a, ped, extra = {}) {
 // quantidade do kit). Por padrao so' pedidos PAGOS; a folha tem uma caixinha pra
 // incluir os pendentes (e os totais se recalculam). Cancelado/estornado nunca entra.
 async function imprimirRelatorioProdutos() {
-  const comPedido = drillAlunosData.filter(a => a.order && !['cancelled', 'refunded'].includes(a.order.payment_status));
+  const comPedido = drillTodasLinhas().filter(a => a.order && !['cancelled', 'refunded'].includes(a.order.payment_status));
   if (!comPedido.length) { toast('Nenhum pedido neste projeto ainda.', 'warn'); return; }
 
   const porId = {};
@@ -11598,7 +11654,7 @@ window.imprimirRelatorioProdutos = imprimirRelatorioProdutos;
 // janela. Mesma abertura de kit do relatorio "Produtos e compradores".
 // ---------------------------------------------------------------------------
 async function imprimirListaSeparar() {
-  const comPedido = drillAlunosData.filter(a => a.order && !['cancelled', 'refunded'].includes(a.order.payment_status));
+  const comPedido = drillTodasLinhas().filter(a => a.order && !['cancelled', 'refunded'].includes(a.order.payment_status));
   if (!comPedido.length) { toast('Nenhum pedido neste projeto ainda.', 'warn'); return; }
 
   const porId = {};
@@ -12498,7 +12554,12 @@ async function imprimirFichasSelecionadas() {
     if (pedErr) throw pedErr;
 
     const pedidoMap = {};
-    (pedidos || []).forEach(p => { if (!pedidoMap[p.student_id]) pedidoMap[p.student_id] = p; });
+    // Aluno com mais de um pedido ativo: a ficha junta os produtos de TODOS (antes saia so' o mais recente).
+    (pedidos || []).forEach(p => {
+      const m = pedidoMap[p.student_id];
+      if (!m) pedidoMap[p.student_id] = { ...p, items: [...(p.items || [])], kits: [...(p.kits || [])] };
+      else { m.items.push(...(p.items || [])); m.kits.push(...(p.kits || [])); }
+    });
 
     const qrPayloads = {};
     const fichasHtml = alunos.map(a => {
@@ -13916,7 +13977,12 @@ async function imprimirFichasSessao() {
       .order('created_at', { ascending: false });
 
     const pedidoMap = {};
-    (pedidos || []).forEach(p => { if (!pedidoMap[p.student_id]) pedidoMap[p.student_id] = p; });
+    // Aluno com mais de um pedido ativo: a ficha junta os produtos de TODOS (antes saia so' o mais recente).
+    (pedidos || []).forEach(p => {
+      const m = pedidoMap[p.student_id];
+      if (!m) pedidoMap[p.student_id] = { ...p, items: [...(p.items || [])], kits: [...(p.kits || [])] };
+      else { m.items.push(...(p.items || [])); m.kits.push(...(p.kits || [])); }
+    });
 
     // 4. Monta fichas (mesmo layout/QR usado em "Imprimir fichas")
     const qrPayloads = {};
@@ -14368,10 +14434,10 @@ async function toggleStatusPedidoModal(orderId, newStatus) {
   if (error) { toast('Erro ao atualizar status', 'error'); return; }
 
   // Sincroniza drillAlunosData e drillPedidosData se o drill estiver aberto
-  const aidx = drillAlunosData.findIndex(a => a.order?.id === orderId);
-  if (aidx !== -1 && drillAlunosData[aidx].order) {
-    drillAlunosData[aidx].order.payment_status = newStatus;
-    drillAlunosData[aidx].order.paid_at = newStatus === 'paid' ? new Date().toISOString() : null;
+  const aidx = drillTodasLinhas().findIndex(a => a.order?.id === orderId);
+  if (aidx !== -1 && drillTodasLinhas()[aidx].order) {
+    drillTodasLinhas()[aidx].order.payment_status = newStatus;
+    drillTodasLinhas()[aidx].order.paid_at = newStatus === 'paid' ? new Date().toISOString() : null;
   }
   const pidx = drillPedidosData.findIndex(p => p.id === orderId);
   if (pidx !== -1) {
