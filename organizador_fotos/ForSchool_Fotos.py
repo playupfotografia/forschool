@@ -336,16 +336,19 @@ def buscar_pedido_debug(aluno_id):
     if not orders:
         return [], debug
 
-    escolhido = next((o for o in orders if o.get('payment_status') == 'paid'), orders[0])
-    order_id = escolhido['id']
-    status   = escolhido.get('payment_status', '?')
-    debug.append(f'order_id={order_id[:8]}... status={status}')
+    # Aluno com mais de um pedido (ex: P0210 + P0278): valem TODOS os pagos.
+    # Sem nenhum pago, vale so o mais recente em aberto (como antes).
+    pagos = [o for o in orders if o.get('payment_status') == 'paid']
+    escolhidos = pagos if pagos else [orders[0]]
+    ids_pedidos = ','.join(o['id'] for o in escolhidos)
+    for o in escolhidos:
+        debug.append(f"order_id={o['id'][:8]}... status={o.get('payment_status', '?')}")
 
     produtos = []
     vistos   = set()
 
     items = supabase_get('order_items', {
-        'order_id': f'eq.{order_id}',
+        'order_id': f'in.({ids_pedidos})',
         'select': 'quantity,product:products(id,name,photo_theme),variant:product_variants(photo_theme)',
     })
     debug.append(f'order_items: {len(items)} linha(s)')
@@ -357,13 +360,16 @@ def buscar_pedido_debug(aluno_id):
         # Tema da variacao ganha do tema do produto (mesma regra do admin):
         # "Caneca" pode existir em versao Natal e versao Pequenos Artistas.
         tema = (v.get('photo_theme') or p.get('photo_theme') or '').strip()
-        if nome and nome not in vistos:
-            vistos.add(nome)
-            produtos.append({'produto': nome, 'quantidade': qty, 'tema': tema})
+        if nome:
+            ex = next((x for x in produtos if x['produto'] == nome), None)
+            if ex:
+                ex['quantidade'] += qty
+            else:
+                produtos.append({'produto': nome, 'quantidade': qty, 'tema': tema})
             debug.append(f'  avulso: {nome} x{qty}' + (f' [{tema}]' if tema else ''))
 
     kits = supabase_get('order_kits', {
-        'order_id': f'eq.{order_id}',
+        'order_id': f'in.({ids_pedidos})',
         'select': 'quantity,kit:school_kits(name,items:school_kit_items(quantity,product:products(id,name,photo_theme)))',
     })
     debug.append(f'order_kits: {len(kits)} linha(s)')
@@ -386,6 +392,13 @@ def buscar_pedido_debug(aluno_id):
                 else:
                     produtos.append({'produto': nome, 'quantidade': total, 'tema': tema})
                 debug.append(f'    → {nome} x{total}' + (f' [{tema}]' if tema else ''))
+
+    # Sem nenhum pedido pago, o que veio e' de pedido em aberto: a montagem
+    # manda pra _PENDENTES em vez de _PRODUTOS, pra nao produzir o que nao foi pago.
+    if not pagos:
+        debug.append('  ⏳ pedido PENDENTE (nao pago)')
+        for pr in produtos:
+            pr['pendente'] = True
 
     return produtos, debug
 
@@ -2561,6 +2574,8 @@ class App(tk.Tk):
 
         relatorio  = {}
         sem_pedido = []
+        pendentes  = {}   # produto -> {aluno: qtd}  (pedido ainda nao pago)
+        pasta_pend = pasta_saida / '_PENDENTES'
 
         # Fotos tratadas no Lightroom (_TRATADAS): quando existe a versao tratada de
         # uma foto escolhida, ela e' usada no lugar da original.
@@ -2655,15 +2670,20 @@ class App(tk.Tk):
                 if tema and tema not in escolhas:
                     self._log2(f'   ⚠ {nome_prod}: sem foto escolhida de "{tema}" — usando a de uniforme')
 
-                pasta_p   = pasta_prod / sanitizar(nome_prod)
-                pasta_p.mkdir(exist_ok=True)
+                eh_pend = bool(item.get('pendente'))
+                pasta_p   = (pasta_pend if eh_pend else pasta_prod) / sanitizar(nome_prod)
+                pasta_p.mkdir(parents=True, exist_ok=True)
                 ext  = foto_item.suffix
                 base = sanitizar(nome)
                 for i in range(1, qty + 1):
                     suf = f'_{i}' if qty > 1 else ''
                     shutil.copy2(foto_item, pasta_p / f'{base}{suf}{ext}')
                 label = f'{qty}x' if qty > 1 else '1x'
-                self._log2(f'   ✓ {nome_prod}: {label}' + (f'  [{tema}: {foto_item.name}]' if tema else ''))
+                self._log2(f'   ✓ {nome_prod}: {label}' + ('  (PENDENTE)' if eh_pend else '') + (f'  [{tema}: {foto_item.name}]' if tema else ''))
+
+                if eh_pend:
+                    pendentes.setdefault(nome_prod, {})[nome] = qty
+                    continue
 
                 if nome_prod not in relatorio:
                     relatorio[nome_prod] = {'total': 0, 'alunos': {}}
@@ -2738,11 +2758,19 @@ class App(tk.Tk):
                 f.write('\n')
 
             f.write('─' * 55 + '\n')
+            if pendentes:
+                f.write('\n  PENDENTES (pedido ainda NAO pago) - pasta _PENDENTES, fora do total\n')
+                for prod, als in sorted(pendentes.items()):
+                    f.write(f'  {prod:<35} {sum(als.values()):>4} unidade(s)\n')
+                    for al, q in sorted(als.items()):
+                        f.write(f'       • {al:<30} {q}x\n')
             f.write(f'  TOTAL GERAL: {total_geral} arquivo(s)\n')
             f.write('=' * 55 + '\n')
 
         self._log2(f'\n✅ Concluído!')
         self._log2(f'📁 Produtos em: _PRODUTOS/')
+        if pendentes:
+            self._log2(f'⏳ Pedidos NÃO pagos: _PENDENTES/ ({sum(len(v) for v in pendentes.values())} produto(s)) — mova pra _PRODUTOS quando pagarem')
         if sem_pedido:
             self._log2(f'📷 Só autorizou ({len(sem_pedido)}): _SO_AUTORIZOU/')
             for n in sem_pedido:
