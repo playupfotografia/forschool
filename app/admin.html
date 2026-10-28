@@ -10578,7 +10578,7 @@ async function imprimirFichasSelecionadasDrill() {
 
     const { data: pedidos, error: pedErr } = await supabase
       .from('orders')
-      .select(`id, student_id,
+      .select(`id, student_id, payment_status,
         items:order_items(quantity, product:products(name, photo_theme), variant:product_variants(photo_theme)),
         kits:order_kits(quantity, kit:school_kits(name, kit_type, items:school_kit_items(quantity, product:products(name, photo_theme))))`)
       .in('student_id', ids)
@@ -10590,8 +10590,8 @@ async function imprimirFichasSelecionadasDrill() {
     // Aluno com mais de um pedido ativo: a ficha junta os produtos de TODOS (antes saia so' o mais recente).
     (pedidos || []).forEach(p => {
       const m = pedidoMap[p.student_id];
-      if (!m) pedidoMap[p.student_id] = { ...p, items: [...(p.items || [])], kits: [...(p.kits || [])] };
-      else { m.items.push(...(p.items || [])); m.kits.push(...(p.kits || [])); }
+      if (!m) pedidoMap[p.student_id] = { ...p, pago: p.payment_status === 'paid', items: [...(p.items || [])], kits: [...(p.kits || [])] };
+      else { m.items.push(...(p.items || [])); m.kits.push(...(p.kits || [])); if (p.payment_status === 'paid') m.pago = true; }
     });
 
     const qrPayloads = {};
@@ -11473,8 +11473,11 @@ function montarFichaCard(a, ped, extra = {}) {
   // Quem recusou nao chega aqui — e' filtrado antes de montar a ficha.
   const semAutorizacao = !a.authorization_date;
 
+  // "COMPROU" so' com pedido pago; pedido em aberto sai como pendente (mesmos produtos na ficha).
   const badge = comprou
-    ? `<div class="ficha-badge ficha-badge-comprou">✅ COMPROU</div>`
+    ? (ped && ped.pago === false
+        ? `<div class="ficha-badge ficha-badge-pendente">⏳ PEDIDO PENDENTE</div>`
+        : `<div class="ficha-badge ficha-badge-comprou">✅ COMPROU</div>`)
     : extra.carometro
       ? `<div class="ficha-badge ficha-badge-autorizou">📷 CARÔMETRO</div>`
       : `<div class="ficha-badge ficha-badge-autorizou">📷 SÓ AUTORIZOU</div>`;
@@ -12453,6 +12456,7 @@ body{font-family:'DM Sans',Arial,sans-serif;background:#fff;color:#111}
 .ficha-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;margin-bottom:2px;width:fit-content}
 .ficha-badge-comprou{background:#d1fae5;color:#065f46}
 .ficha-badge-autorizou{background:#fef3c7;color:#92400e}
+.ficha-badge-pendente{background:#fde68a;color:#92400e}
 .ficha-alerta{border:2px solid #dc2626}
 .ficha-sem-aut{background:#dc2626;color:#fff;font-size:11px;font-weight:700;letter-spacing:.3px;padding:3px 7px;border-radius:4px;align-self:flex-start;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .ficha-tema{display:inline-block;padding:3px 10px;border:2px solid #7c3aed;border-radius:6px;font-size:13px;font-weight:800;color:#5b21b6;margin-bottom:2px;width:fit-content}
@@ -12545,7 +12549,7 @@ async function imprimirFichasSelecionadas() {
     // Buscar pedidos + itens/kits para esses alunos (mesmo formato usado em "Fichas da sessão")
     const { data: pedidos, error: pedErr } = await supabase
       .from('orders')
-      .select(`id, student_id,
+      .select(`id, student_id, payment_status,
         items:order_items(quantity, product:products(name, photo_theme), variant:product_variants(photo_theme)),
         kits:order_kits(quantity, kit:school_kits(name, kit_type, items:school_kit_items(quantity, product:products(name, photo_theme))))`)
       .in('student_id', ids)
@@ -12557,8 +12561,8 @@ async function imprimirFichasSelecionadas() {
     // Aluno com mais de um pedido ativo: a ficha junta os produtos de TODOS (antes saia so' o mais recente).
     (pedidos || []).forEach(p => {
       const m = pedidoMap[p.student_id];
-      if (!m) pedidoMap[p.student_id] = { ...p, items: [...(p.items || [])], kits: [...(p.kits || [])] };
-      else { m.items.push(...(p.items || [])); m.kits.push(...(p.kits || [])); }
+      if (!m) pedidoMap[p.student_id] = { ...p, pago: p.payment_status === 'paid', items: [...(p.items || [])], kits: [...(p.kits || [])] };
+      else { m.items.push(...(p.items || [])); m.kits.push(...(p.kits || [])); if (p.payment_status === 'paid') m.pago = true; }
     });
 
     const qrPayloads = {};
@@ -13969,7 +13973,7 @@ async function imprimirFichasSessao() {
     const alunoIds = autorizados.map(a => a.id);
     const { data: pedidos } = await supabase
       .from('orders')
-      .select(`id, student_id,
+      .select(`id, student_id, payment_status,
         items:order_items(quantity, product:products(name, photo_theme), variant:product_variants(photo_theme)),
         kits:order_kits(quantity, kit:school_kits(name, kit_type, items:school_kit_items(quantity, product:products(name, photo_theme))))`)
       .in('student_id', alunoIds)
@@ -13980,8 +13984,8 @@ async function imprimirFichasSessao() {
     // Aluno com mais de um pedido ativo: a ficha junta os produtos de TODOS (antes saia so' o mais recente).
     (pedidos || []).forEach(p => {
       const m = pedidoMap[p.student_id];
-      if (!m) pedidoMap[p.student_id] = { ...p, items: [...(p.items || [])], kits: [...(p.kits || [])] };
-      else { m.items.push(...(p.items || [])); m.kits.push(...(p.kits || [])); }
+      if (!m) pedidoMap[p.student_id] = { ...p, pago: p.payment_status === 'paid', items: [...(p.items || [])], kits: [...(p.kits || [])] };
+      else { m.items.push(...(p.items || [])); m.kits.push(...(p.kits || [])); if (p.payment_status === 'paid') m.pago = true; }
     });
 
     // 4. Monta fichas (mesmo layout/QR usado em "Imprimir fichas")
