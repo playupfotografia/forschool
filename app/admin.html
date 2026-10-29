@@ -2988,6 +2988,7 @@ tr.pj-inativo td:first-child{border-left:4px solid var(--red)}
         <button class="btn btn-sm btn-secondary" onclick="imprimirListaPagantes()" title="Lista simples de quem já pagou: nome do aluno e turma, agrupada por turma">🧾 Lista de pagantes (nome + turma)</button>
         <button class="btn btn-sm btn-secondary" onclick="juntarPedidosLink()" title="Marque (✓) 2 ou mais alunos do mesmo responsável com pedido pendente e gere UM link de pagamento para todos (PIX ou cartão, valor total)">🔗 Juntar pedidos marcados (link único)</button>
         <button class="btn btn-sm btn-secondary" onclick="imprimirRelatorioSituacao()" title="Relatório agrupado por situação (sem autorização, pendente, pendente com parcela paga, sem pedido, pago...), pra imprimir ou salvar em PDF">📋 Relatório da situação</button>
+        <button class="btn btn-sm btn-secondary" onclick="abrirAvisoWhatsApp()" title="Recado do projeto por WhatsApp (ex: remarcação de sessão): escolhe as turmas, edita o texto e abre a conversa de cada responsável">📣 Aviso por WhatsApp</button>
       </div>
       <div id="drill-al-soma" style="display:none;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:13px"></div>
       <div id="drill-avulsas-box" style="display:none;background:#EEF2FF;border:1px solid #C7D2FE;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px"></div>
@@ -11147,6 +11148,111 @@ window.contatarResponsavel = async function (studentId, tipo) {
   } catch (e) {
     handleError(e, 'contatarResponsavel');
   }
+};
+
+// ===== Aviso em massa por WhatsApp (29/10/2026) =====
+// Pra recado do projeto inteiro (remarcacao de sessao, mau tempo...), que nao cabe
+// nos modelos fixos de Configuracoes. Marca as turmas, escreve (ou edita) o
+// texto e clica em "Enviar" em cada responsavel: abre a conversa com o texto
+// pronto. NAO grava nada no banco e NAO envia sozinho: o wa.me abre o WhatsApp
+// do computador e voce aperta enviar. Responsavel com varios filhos = 1 linha.
+const AVISO_PADRAO = `Olá, {responsavel}, tudo bem?
+
+Aqui é da Play Up Fotografia. Devido ao mau tempo e à grande demanda que tivemos, as fotos do Berçário, Minimaternal e Maternal serão realizadas amanhã, sexta-feira, dia 30/10.
+
+Não é preciso fazer nada de diferente: os alunos que já tiveram a imagem autorizada serão fotografados normalmente. Quem ainda não autorizou pode fazer o cadastro e a autorização pelo link do portal até o horário da sessão.
+
+{link}
+
+Pedimos desculpas pela mudança e agradecemos a compreensão. Qualquer dúvida, é só responder esta mensagem.
+
+Play Up Fotografia`;
+
+let avisoDest = [];
+let avisoEnviados = new Set();
+
+window.abrirAvisoWhatsApp = function () {
+  if (!drillAlunosData.length) { toast('Abra um projeto com alunos primeiro.', 'warn'); return; }
+  document.getElementById('aviso-wpp-ov')?.remove();
+  avisoEnviados = new Set();
+
+  const turmas = new Map();   // class_id -> { rotulo, n }
+  drillAlunosData.forEach(a => {
+    if (!a.class_id) return;
+    const rotulo = (a.year_name && a.year_name !== '—' ? a.year_name + ' — ' : '') + (a.class_name || '—');
+    const t = turmas.get(a.class_id) || { rotulo, n: 0 };
+    t.n++; turmas.set(a.class_id, t);
+  });
+  const lista = [...turmas.entries()].sort((x, y) => x[1].rotulo.localeCompare(y[1].rotulo, 'pt-BR'));
+  const marcaPadrao = /ber[cç]|mini|maternal/i;
+
+  const ov = document.createElement('div');
+  ov.id = 'aviso-wpp-ov';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.innerHTML = `
+    <div style="background:#fff;border-radius:12px;width:min(1000px,100%);max-height:94vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:14px 18px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center">
+        <b style="font-size:16px">📣 Aviso por WhatsApp — ${escapeHtml(drillProjeto?.name || '')}</b>
+        <button class="btn btn-sm btn-secondary" onclick="document.getElementById('aviso-wpp-ov').remove()">Fechar</button>
+      </div>
+      <div style="padding:14px 18px;overflow:auto;display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <div style="font-weight:600;margin-bottom:6px">1. Texto (pode editar)</div>
+          <textarea id="aviso-txt" class="form-input" style="width:100%;height:330px;font-size:13px">${escapeHtml(AVISO_PADRAO)}</textarea>
+          <div style="font-size:11px;color:#6b7280;margin-top:4px">Variáveis: {responsavel} {aluno} {link}. Evite emoji (podem chegar como um quadradinho).</div>
+        </div>
+        <div>
+          <div style="font-weight:600;margin-bottom:6px">2. Turmas</div>
+          <div id="aviso-turmas" style="max-height:130px;overflow:auto;border:1px solid #e5e7eb;border-radius:8px;padding:8px;font-size:13px">
+            ${lista.map(([id, t]) => `<label style="display:block"><input type="checkbox" value="${id}" ${marcaPadrao.test(t.rotulo) && !/jardim/i.test(t.rotulo) ? 'checked' : ''} onchange="atualizarAvisoLista()"> ${escapeHtml(t.rotulo)} <span style="color:#9ca3af">(${t.n})</span></label>`).join('')}
+          </div>
+          <div style="font-weight:600;margin:12px 0 6px">3. Enviar <span id="aviso-cont" style="font-weight:400;color:#6b7280"></span></div>
+          <div id="aviso-lista" style="max-height:230px;overflow:auto;border:1px solid #e5e7eb;border-radius:8px"></div>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  atualizarAvisoLista();
+};
+
+window.atualizarAvisoLista = function () {
+  const marcadas = new Set([...document.querySelectorAll('#aviso-turmas input:checked')].map(i => i.value));
+  const porFone = new Map();
+  let semFone = 0, recusou = 0;
+  drillAlunosData.forEach(a => {
+    if (!marcadas.has(String(a.class_id))) return;
+    if (a.autorizacao === 'recusou') { recusou++; return; }
+    const fone = apenasDigitosWpp(a.responsible_phone);
+    if (!fone) { semFone++; return; }
+    const d = porFone.get(fone) || { fone, responsavel: a.responsible_name, alunos: [] };
+    d.alunos.push(primeiroNome(a.name));
+    porFone.set(fone, d);
+  });
+  avisoDest = [...porFone.values()].sort((x, y) => String(x.responsavel).localeCompare(String(y.responsavel), 'pt-BR'));
+  const ja = avisoDest.filter(d => avisoEnviados.has(d.fone)).length;
+  document.getElementById('aviso-cont').textContent =
+    `— ${avisoDest.length} responsável(is), ${ja} já aberto(s)` +
+    (semFone ? ` · ${semFone} aluno(s) sem telefone válido` : '') +
+    (recusou ? ` · ${recusou} que recusou(ram) a autorização (fora)` : '');
+  document.getElementById('aviso-lista').innerHTML = avisoDest.length
+    ? avisoDest.map((d, i) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid #f3f4f6;font-size:13px">
+        <span>${escapeHtml(d.responsavel || '—')} <span style="color:#9ca3af">· ${escapeHtml(juntarNomes(d.alunos))}</span></span>
+        <button class="btn btn-sm" style="border:none;cursor:pointer;font-weight:600;${avisoEnviados.has(d.fone) ? 'background:#f3f4f6;color:#6b7280' : 'background:#25D366;color:#fff'}" onclick="enviarAvisoWpp(${i})">${avisoEnviados.has(d.fone) ? 'Aberto ✓' : '💬 Enviar'}</button>
+      </div>`).join('')
+    : '<div style="padding:12px;color:#9ca3af;font-size:13px">Marque ao menos uma turma.</div>';
+};
+
+window.enviarAvisoWpp = function (i) {
+  const d = avisoDest[i];
+  if (!d) return;
+  const link = drillProjeto?.slug ? `https://forschool.playupfotografia.com.br/${drillProjeto.slug}` : 'https://forschool.playupfotografia.com.br';
+  const texto = document.getElementById('aviso-txt').value
+    .replaceAll('{responsavel}', primeiroNome(d.responsavel))
+    .replaceAll('{aluno}', juntarNomes(d.alunos))
+    .replaceAll('{link}', link);
+  window.open(`https://wa.me/${d.fone}?text=${encodeURIComponent(texto)}`, '_blank');
+  avisoEnviados.add(d.fone);
+  atualizarAvisoLista();
 };
 
 function filtrarDrillPedidos() { /* unificado em filtrarDrillAlunos */ }
