@@ -56,3 +56,6 @@ Thumbs.db
 organizador_fotos/_versao_kit.json
 organizador_fotos/temas_personalizados.json
 organizador_fotos/_recentes.json
+
+# logo do organizador (nao e foto de aluno) - o atualizador baixa do GitHub
+!organizador_fotos/assets/icone.png
